@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+
+{% block title %}Reports - PAPI Light Detection{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="reports-header">
+        <h2>Analysis Reports</h2>
+        <div class="reports-actions">
+            <a href="{{ url_for('gallery') }}" class="btn btn-secondary">Back to Gallery</a>
+            <a href="{{ url_for('index') }}" class="btn btn-primary">Upload New Image</a>
+        </div>
+    </div>
+
+    {% if reports %}
+    <div class="reports-list">
+        {% for report in reports %}
+        <div class="report-card">
+            <div class="report-icon">📄</div>
+            <div class="report-info">
+                <h3>{{ report.filename }}</h3>
+                <p class="report-meta">
+                    Size: {{ (report.size / 1024) | round(2) }} KB | 
+                    Created: {{ report.created }}
+                </p>
+            </div>
+            <div class="report-actions">
+                <a href="/reports/view/{{ report.filename }}" class="btn btn-primary" target="_blank">View</a>
+                <button class="btn btn-danger" onclick="deleteReport('{{ report.filename }}')">Delete</button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon">📊</div>
+        <h3>No Reports Available</h3>
+        <p>Process some images to generate analysis reports</p>
+        <a href="{{ url_for('gallery') }}" class="btn btn-primary">Go to Gallery</a>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+.reports-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+}
+
+.reports-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.reports-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.report-card {
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    transition: transform 0.2s;
+}
+
+.report-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.report-icon {
+    font-size: 36px;
+    width: 60px;
+    text-align: center;
+}
+
+.report-info {
+    flex: 1;
+}
+
+.report-info h3 {
+    margin: 0 0 8px 0;
+    font-size: 16px;
+    word-break: break-all;
+}
+
+.report-meta {
+    font-size: 12px;
+    color: #666;
+    margin: 0;
+}
+
+.report-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.empty-icon {
+    font-size: 64px;
+    margin-bottom: 20px;
+    opacity: 0.5;
+}
+
+.empty-state h3 {
+    color: #333;
+    margin-bottom: 10px;
+}
+
+.empty-state p {
+    color: #666;
+    margin-bottom: 20px;
+}
+</style>
+
+<script>
+function deleteReport(filename) {
+    if (!confirm(`Delete report ${filename}?`)) return;
+    
+    fetch(`/reports/delete/${filename}`, {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('Delete failed: ' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('Delete error: ' + error);
+    });
+}
+</script>
+{% endblock %}
