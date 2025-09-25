@@ -1,237 +1,136 @@
-# Airport PAPI Lights Detection and Quality Assessment System
+# Airport Light Detection System
 
-## Project Overview
-This project provides an automated system for detecting and evaluating PAPI (Precision Approach Path Indicator) lights quality from drone footage or aircraft approach images. The system uses computer vision techniques to identify PAPI light positions, extract RGB values, and assess the consistency and correctness of the light angles for aviation safety.
+Analyzes drone videos to detect and track airport lights (PAPI, runway lights, taxiway lights).
+Processes EVERY FRAME for maximum accuracy and extracts GPS position data from DJI drones.
 
-## What are PAPI Lights?
-PAPI lights are visual aids located beside airport runways that help pilots maintain the correct approach angle during landing. They consist of 4 light units that display combinations of red and white lights:
-- 2 red, 2 white = On correct glide path (3°)
-- More red = Too low
-- More white = Too high
+## 🚀 Quick Start
 
-## Project Goals
-1. **Automatic PAPI Detection**: Identify PAPI light positions in images/video
-2. **RGB Value Analysis**: Extract and analyze color values for each light
-3. **Consistency Evaluation**: Compare RGB differences between lights
-4. **Quality Assessment**: Determine if PAPI lights are correctly calibrated
-5. **Report Generation**: Create detailed reports for each processed image
-
-## Features
-- Multi-PAPI detection (handles 1-2 PAPI systems per image)
-- Real-time video processing capability
-- RGB value extraction with precision
-- Inter-light comparison metrics
-- Comprehensive reporting system
-- Support for various image formats (JPG, PNG, WEBP, JPEG)
-
-## Technical Architecture
-
-### Core Components
-1. **Detection Module** (`papi_detector.py`)
-   - Uses OpenCV and advanced image processing
-   - Identifies bright spots and filters PAPI patterns
-   - Validates geometric arrangement
-
-2. **Analysis Module** (`rgb_analyzer.py`)
-   - Extracts RGB values from detected lights
-   - Calculates color differences
-   - Determines red/white classification
-
-3. **Report Generator** (`report_generator.py`)
-   - Creates HTML and JSON reports
-   - Includes visualizations and metrics
-   - Generates comparison matrices
-
-4. **Main Application** (`main.py`)
-   - Orchestrates the detection pipeline
-   - Handles batch processing
-   - Manages output generation
-
-## Installation
-
-### Prerequisites
-- Python 3.8 or higher
-- pip package manager
-
-### Setup
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/airport-lights-detection.git
-cd airport-lights-detection
-
-# Install required packages
-pip install -r requirements.txt
+# Run the analysis
+./analyze_videos.sh
 ```
 
-### Required Libraries
-- OpenCV (cv2) - Image processing and computer vision
-- NumPy - Numerical computations
-- Matplotlib - Visualization and plotting
-- Pillow - Image I/O operations
-- scikit-image - Advanced image processing algorithms
+That's it! The script will:
+1. Check all requirements
+2. Process all videos in the `videos/` folder
+3. Generate HTML reports in the `reports/` folder
+4. Open the results in your browser
 
-## Usage
+## 📁 Project Structure
 
-### Basic Usage
-```bash
-# Process all images in the images folder
-python main.py
-
-# Process specific image
-python main.py --image path/to/image.jpg
-
-# Process with custom threshold
-python main.py --threshold 200
-```
-
-### Command Line Options
-- `--image`: Path to specific image file
-- `--folder`: Custom folder path (default: ./images)
-- `--threshold`: Brightness threshold for light detection (0-255)
-- `--output`: Output directory for reports (default: ./reports)
-- `--video`: Process video file instead of images
-
-### Example Output
-```
-Processing: papi1.jpg
-PAPI System Detected at position (450, 320)
-Light 1: RGB(245, 58, 42) - RED
-Light 2: RGB(248, 61, 45) - RED  
-Light 3: RGB(252, 248, 245) - WHITE
-Light 4: RGB(255, 251, 248) - WHITE
-Status: On glide path (2 red, 2 white)
-Report saved to: reports/papi1_report.html
-```
-
-## Output Report Structure
-
-### RGB Value Matrix
-Each detected PAPI system generates a matrix containing:
-- Individual RGB values for each light
-- Color classification (RED/WHITE)
-- Inter-light RGB differences
-- Consistency scores
-
-### Difference Calculations
-The system calculates differences between all light pairs:
-- Light 1 vs Light 2, 3, 4
-- Light 2 vs Light 3, 4
-- Light 3 vs Light 4
-
-### Quality Metrics
-- **Color Purity**: How pure the red/white colors are
-- **Intensity Consistency**: Brightness uniformity across lights
-- **Geometric Alignment**: Horizontal alignment accuracy
-- **Color Temperature**: Consistency of white lights
-
-## Project Structure
 ```
 airport-lights-detection/
-├── README.md                      # This file
-├── PAPI_Technical_Documentation.md # Detailed PAPI specifications
-├── requirements.txt               # Python dependencies
-├── main.py                       # Main application entry point
-├── papi_detector.py              # PAPI detection algorithms
-├── rgb_analyzer.py               # RGB analysis module
-├── report_generator.py           # Report generation system
-├── config.py                     # Configuration parameters
-├── images/                       # Sample PAPI images
-│   ├── papi1.jpg
-│   ├── papi2.jpg
-│   └── ...
-├── reports/                      # Generated reports (created automatically)
-└── tests/                        # Unit tests
-    └── test_detection.py
-
+├── videos/               # Put your drone videos here
+├── reports/              # HTML reports are generated here
+├── analyze_videos.sh     # Main script - RUN THIS
+├── analyze_lights.py     # Core Python analysis engine
+├── gps_extractor.py      # GPS metadata extraction
+├── extract_frame_gps.py  # Standalone GPS extraction tool
+└── requirements.txt      # Python dependencies
 ```
 
-## Algorithm Details
+## 🎥 Input Videos
 
-### Detection Pipeline
-1. **Preprocessing**
-   - Convert to grayscale
-   - Apply Gaussian blur for noise reduction
-   - Enhance contrast using CLAHE
+Place your videos in the `videos/` folder. Supported formats:
+- `.MP4` / `.mp4` (DJI and other drones)
+- `.MOV` / `.mov`
+- `.AVI` / `.avi`
 
-2. **Light Detection**
-   - Threshold to find bright regions
-   - Morphological operations to clean up
-   - Connected component analysis
+## 📊 What Gets Analyzed
 
-3. **PAPI Identification**
-   - Group nearby bright spots
-   - Validate 4-light horizontal arrangement
-   - Check spacing consistency (±20% tolerance)
+The system analyzes **EVERY FRAME** to detect:
 
-4. **Color Analysis**
-   - Extract ROI around each light
-   - Calculate mean RGB values
-   - Apply color classification algorithm
+- **PAPI Lights**: White/red approach lights with color change detection
+- **Runway Lights**: Edge and centerline lights
+- **Taxiway Lights**: Green centerline, blue edge lights
+- **Other Lights**: High-intensity approach lights, beacons
 
-5. **Validation**
-   - Verify geometric constraints
-   - Check color consistency
-   - Validate against PAPI specifications
+For each light, it tracks:
+- RGB color values over time
+- Rate of color change (1st derivative)
+- Position in frame (x, y coordinates)
+- GPS position (if available in video metadata)
+- Brightness and intensity
 
-### Color Classification Algorithm
-```python
-def classify_light(r, g, b):
-    if r/g > 2.0 and r/b > 2.0 and r > 200:
-        return "RED"
-    elif abs(r-g) < 30 and abs(g-b) < 30 and r > 200:
-        return "WHITE"
-    else:
-        return "UNKNOWN"
-```
+## 🗺️ GPS Data Extraction
 
-## Performance Metrics
-- Detection accuracy: >95% in good visibility
-- Processing speed: ~0.5 seconds per image
-- False positive rate: <2%
-- Color classification accuracy: >98%
+If your videos contain GPS metadata (DJI drones), the system will:
+- Extract latitude, longitude, altitude for EACH frame
+- Show 3D flight path visualization
+- Link color changes to exact drone positions
 
-## Limitations
-- Requires reasonable image quality (>720p recommended)
-- Performance degrades in heavy fog/rain
-- Optimal detection range: 0.5-5 miles from PAPI
-- May struggle with extreme viewing angles (>45°)
-
-## Future Enhancements
-- [ ] Real-time video stream processing
-- [ ] Machine learning-based detection
-- [ ] Automatic calibration recommendations
-- [ ] Mobile app integration
-- [ ] Cloud-based processing API
-- [ ] Historical trend analysis
-- [ ] Integration with drone autopilot systems
-
-## Testing
+**Note**: GPS extraction requires `exiftool`:
 ```bash
-# Run all tests
-python -m pytest tests/
-
-# Run specific test
-python -m pytest tests/test_detection.py
+brew install exiftool  # macOS
 ```
 
-## Contributing
-Contributions are welcome! Please follow these steps:
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+## 📈 Output Reports
 
-## Safety Notice
-This system is intended for quality assessment and monitoring purposes only. It should not be used as the primary means of PAPI light validation. Always follow official aviation maintenance procedures and regulations.
+HTML reports include:
+- Video player with source footage
+- Annotated snapshots showing tracked lights
+- RGB color analysis charts
+- Color change detection with GPS positions
+- 3D drone flight path (if GPS available)
+- Individual analysis for each tracked light
 
-## License
-MIT License - See LICENSE file for details
+## ⚙️ Advanced Options
 
-## Contact
-For questions or support, please open an issue on GitHub.
+For special cases, you can run the Python script directly:
 
-## Acknowledgments
-- OpenCV community for computer vision tools
-- Aviation safety organizations for PAPI specifications
-- Sample images from various aviation sources
+```bash
+# Use sampling mode (faster but less accurate)
+python3 analyze_lights.py --sample-mode --interval 100
+
+# Disable GPS extraction
+python3 analyze_lights.py --no-gps
+
+# Custom directories
+python3 analyze_lights.py --videos-dir /path/to/videos --output-dir /path/to/reports
+```
+
+## 🛠️ Standalone GPS Extraction
+
+Extract all GPS data from a video to CSV/JSON/KML:
+
+```bash
+python3 extract_frame_gps.py videos/your_video.MP4
+```
+
+This creates:
+- `your_video_gps_data.csv` - Spreadsheet with all GPS points
+- `your_video_gps_data.json` - JSON format
+- `your_video_gps_data.kml` - For Google Earth
+
+## 📋 Requirements
+
+- Python 3.7+
+- OpenCV (cv2)
+- NumPy, Pandas, Plotly
+- exiftool (optional, for GPS extraction)
+
+All Python dependencies are automatically installed by the main script.
+
+## 🎯 Tips for Best Results
+
+1. **Video Quality**: Higher resolution = better light detection
+2. **Stable Flight**: Smoother drone movements = better tracking
+3. **Good Lighting**: Evening/night videos show lights more clearly
+4. **GPS Data**: DJI drones automatically embed GPS in videos
+
+## 🐛 Troubleshooting
+
+**Script hangs during GPS extraction:**
+- Run with `--no-gps` flag
+- Or install exiftool: `brew install exiftool`
+
+**No lights detected:**
+- Check video has visible lights
+- Try adjusting brightness threshold in code
+
+**Out of memory:**
+- Use sampling mode: add `--sample-mode` flag
+
+---
+
+For issues or questions, check the generated HTML reports for detailed analysis logs.
