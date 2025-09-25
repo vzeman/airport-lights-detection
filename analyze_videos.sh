@@ -105,9 +105,6 @@ if [ "$VIDEO_COUNT" -gt 0 ]; then
     echo ""
 fi
 
-# Confirm
-read -p "Press ENTER to start analysis or Ctrl+C to cancel... "
-
 # Run the analysis
 echo ""
 echo -e "${BLUE}════════════════════════════════════════════${NC}"
