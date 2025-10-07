@@ -26,14 +26,18 @@ The system enables airports to monitor, measure, and maintain critical infrastru
 
 ### 1. Digital Airport Mapping
 - **Interactive 3D/2D Map**: Complete digital twin of airport infrastructure
-- **Device Registry**: Every measurable object (lights, signs, equipment) mapped with:
+- **Device Registry**: Every measurable object (lights, signs, equipment, radio navigation aids) mapped with:
   - GPS coordinates
-  - Device type and specifications
+  - Device type and specifications (lights, PAPI, ILS, VOR, DME, GBAS, NDB)
+  - Operating frequency (for radio navigation equipment)
   - Installation date and manufacturer
   - Assigned periodic tasks
-  - Maintenance history
+  - Maintenance history and calibration records
   - Current status and condition score
   - Photo documentation
+  - Signal strength measurements (for radio equipment)
+  - Accuracy measurements and tolerances
+  - Service volume and coverage area
   - Custom metadata fields
 
 ### 2. Task Management System
@@ -65,6 +69,43 @@ The system enables airports to monitor, measure, and maintain critical infrastru
   - Sequenced flashing verification
   - Intensity gradient validation
 
+#### Radio Navigation Equipment Tasks
+- **Instrument Landing System (ILS) Inspection**
+  - Localizer antenna positioning and alignment
+  - Glide slope antenna verification
+  - Signal strength measurement from approach path
+  - Course deviation indicator (CDI) accuracy testing
+  - Marker beacon functionality verification
+  - Compare against ICAO Annex 10 standards
+
+- **VHF Omnidirectional Range (VOR) Testing**
+  - VOR station antenna positioning verification
+  - Radial accuracy measurements (±1° tolerance)
+  - Signal strength at various distances (10, 25, 40 NM)
+  - Bearing accuracy verification using drone compass
+  - Flag alarm testing
+
+- **Distance Measuring Equipment (DME) Verification**
+  - DME antenna positioning and co-location verification
+  - Distance accuracy measurements (±0.1 NM or 3% of distance)
+  - Response time verification (<3 microseconds)
+  - Pulse pair frequency verification
+  - Integration testing with co-located VOR/ILS
+
+- **Ground-Based Augmentation System (GBAS) Monitoring**
+  - Reference station positioning accuracy
+  - Integrity monitoring system verification
+  - Signal quality measurements
+  - Differential correction accuracy testing
+  - Coverage area verification
+
+- **Non-Directional Beacon (NDB) Inspection**
+  - Antenna system inspection
+  - Signal strength measurements
+  - Bearing accuracy verification
+  - Identification code transmission verification
+  - Coverage pattern verification
+
 - **Vegetation Monitoring**
   - Growth rate analysis using AI image recognition
   - Obstacle clearance verification
@@ -95,23 +136,35 @@ The system enables airports to monitor, measure, and maintain critical infrastru
   - Raveling and spalling detection
 
 ### 3. Measurement & Protocol System
-- **Automated Data Collection**: Drone telemetry, video, sensor data
+- **Automated Data Collection**: Drone telemetry, video, sensor data, radio signal measurements
 - **AI Video Analysis**:
-  - Object detection (cracks, debris, vegetation)
+  - Object detection (cracks, debris, vegetation, antenna structures)
   - Light intensity extraction from video
   - Color temperature analysis
   - Geometric measurements (angles, distances)
+  - Antenna tower detection and positioning
+- **Radio Navigation Measurements**:
+  - Signal strength monitoring (dBm) for ILS, VOR, DME, GBAS, NDB
+  - Bearing accuracy verification (±0.5° to ±1° depending on equipment)
+  - Distance accuracy testing (±0.1 NM or 3% for DME)
+  - Course deviation measurements (ILS localizer ±0.1°)
+  - Glide slope deviation measurements (ILS ±0.05°)
+  - Frequency accuracy verification
+  - Coverage pattern validation
+  - Interference detection and source identification
 - **Protocol Generation**:
-  - Standardized reports per ICAO/FAA/EASA requirements
+  - Standardized reports per ICAO/FAA/EASA requirements (Annex 10 for radio navigation)
   - Photographic evidence with GPS tagging
-  - Measurement metadata (weather, time, equipment used)
-  - Pass/fail status against defined thresholds
-  - Inspector sign-off workflow
+  - Radio measurement data with calibrated instruments
+  - Measurement metadata (weather, time, equipment used, atmospheric conditions)
+  - Pass/fail status against defined thresholds (ICAO standards)
+  - Inspector sign-off workflow with radio navigation expertise
 - **Historical Tracking**:
-  - Time-series data visualization
-  - Degradation trend prediction
-  - Maintenance interval optimization
-  - Before/after repair comparison
+  - Time-series data visualization for signal quality trends
+  - Radio equipment degradation trend prediction
+  - Maintenance interval optimization based on signal quality
+  - Before/after calibration comparison
+  - Signal strength mapping over time
 
 ### 4. Maintenance & Repair Logging
 - **Work Order System**:
