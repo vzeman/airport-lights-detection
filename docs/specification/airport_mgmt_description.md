@@ -284,9 +284,164 @@ The foundation of the platform is a comprehensive digital representation of airp
   - **Certification Management**: Tracking of type certificates, STCs, and regulatory approvals
   - **Documentation Repository**: Centralized storage of all ICAO documents, guidance materials, and interpretations
 
-### 2. Task Management System
+### 2. Intelligent Task Scheduling and Compliance Management System
 
-The platform orchestrates complex inspection workflows through intelligent task management that adapts to operational requirements, weather conditions, and regulatory mandates. The system features advanced flight path planning that automatically generates optimal drone trajectories based on the specific measurement requirements of each assigned object.
+The platform provides comprehensive inspection lifecycle management with intelligent scheduling, deadline tracking, and automated compliance monitoring. The system ensures no ICAO inspection requirements are missed while optimizing operational efficiency and resource allocation.
+
+#### Advanced Calendar and Scheduling Framework
+
+**Intelligent Inspection Calendar:**
+- **ICAO-Driven Scheduling**: Automatic task generation based on ICAO Annex 14 inspection frequencies:
+  - Daily inspections (Code 3-4 aerodromes: twice daily per Section 2.9.3)
+  - Weekly detailed assessments (pavement condition, marking evaluation)
+  - Quarterly comprehensive evaluations (retroreflectivity, lighting performance)
+  - Semi-annual specialized inspections (photometric testing for Cat II/III)
+  - Annual compliance audits (PCI surveys, obstacle limitation verification)
+  - Event-driven inspections (post-weather, post-construction, post-incident)
+
+- **Equipment-Specific Scheduling**: Individual tracking for every airport infrastructure item:
+  - **PAPI Systems**: Annual calibration verification with pilot report triggers
+  - **Runway Edge Lights**: Semi-annual photometric testing with daily operational checks
+  - **ILS Equipment**: 6-month flight inspection cycles for Category I/II/III systems
+  - **Pavement Sections**: Customizable PCI survey intervals based on traffic levels and material type
+  - **Perimeter Fencing**: Weekly integrity checks with immediate post-weather assessments
+  - **Wildlife Management**: Daily surveys with enhanced dawn/dusk monitoring
+  - **Obstacle Monitoring**: Annual surveys for high-risk areas, adjusted for construction activity
+
+**Dynamic Priority Management:**
+- **Risk-Based Prioritization**: Automatic priority assignment considering:
+  - Safety criticality (Cat II/III approach systems priority)
+  - Regulatory deadline proximity (ICAO compliance dates)
+  - Operational impact (runway availability requirements)
+  - Weather windows (optimal conditions for specific inspections)
+  - Resource availability (drone operator schedules, equipment maintenance)
+
+#### Individual Item Deadline Tracking and Status Management
+
+**Comprehensive Item Registry with Compliance Tracking:**
+- **Unique Item Identification**: Every inspectable component with individual compliance tracking:
+  - GPS coordinates and spatial relationships
+  - ICAO requirement mapping with specific paragraph references
+  - Inspection frequency requirements (daily, weekly, quarterly, annual)
+  - Last inspection date with inspector certification
+  - Next required inspection date with regulatory deadline
+  - Inspection history with trend analysis
+  - Current compliance status and risk assessment
+
+**Multi-Level Notification System:**
+- **Configurable Alert Thresholds**: Customizable notification schedules for each item type:
+  - **30-day advance notice**: Initial planning notification for resource allocation
+  - **14-day alert**: Detailed mission planning and weather window identification
+  - **7-day warning**: Final preparation and stakeholder coordination
+  - **3-day critical**: Urgent action required with alternative plan activation
+  - **Deadline reached**: Non-compliance alert with immediate action protocols
+
+- **Escalation Management**: Automatic escalation based on item criticality:
+  - **Safety-critical items** (PAPI, ILS): Immediate management notification
+  - **Operational items** (runway lights, markings): Maintenance team alerts
+  - **Security items** (perimeter fence): Security department notification
+  - **Environmental items** (wildlife monitoring): Environmental compliance team
+
+#### Visual Status Indicators and Digital Map Integration
+
+**Real-Time Compliance Visualization:**
+- **Color-Coded Status System**: Immediate visual identification of inspection status:
+  - **Green (Compliant)**: Item inspected within required timeframe, next deadline >14 days
+  - **Yellow (Attention)**: Next inspection due within 14 days, planning required
+  - **Orange (Urgent)**: Next inspection due within 7 days, immediate scheduling needed
+  - **Red (Overdue)**: Inspection deadline exceeded, non-compliance status
+  - **Purple (Blocked)**: Inspection scheduled but access restricted (runway closure, weather)
+  - **Blue (In Progress)**: Currently being inspected or data under analysis
+
+**Interactive Map Features:**
+- **Multi-Layer Status Display**: Selectable visualization layers:
+  - **Overall Compliance**: Airport-wide status with summary statistics
+  - **Category-Specific**: Lighting, pavement, markings, navigation equipment
+  - **Urgency-Based**: Items by deadline proximity and criticality
+  - **Historical Trends**: Long-term compliance patterns and improvement areas
+
+- **Drill-Down Capability**: Click-to-expand functionality:
+  - Item-specific inspection history and upcoming requirements
+  - Detailed ICAO compliance status with paragraph references
+  - Resource requirements and estimated inspection duration
+  - Weather dependencies and optimal timing windows
+  - Integration with flight planning for immediate mission creation
+
+#### Automated Monthly Inspection Planning and Reporting
+
+**Intelligent Monthly Planning System:**
+- **Automated Plan Generation**: 30-day rolling inspection schedule considering:
+  - All upcoming ICAO deadline requirements
+  - Weather forecast integration for optimal timing
+  - Airport operational schedules (runway availability, traffic patterns)
+  - Resource optimization (drone availability, operator schedules)
+  - Regulatory priority weighting (safety-critical items first)
+
+- **Multi-Scenario Planning**: Alternative plans for different conditions:
+  - **Optimal Weather Plan**: Maximum efficiency under ideal conditions
+  - **Limited Access Plan**: Runway closure restrictions and operational constraints
+  - **Emergency Plan**: Critical item inspection prioritization for adverse conditions
+  - **Resource-Constrained Plan**: Limited drone or operator availability scenarios
+
+**Comprehensive Monthly Reporting:**
+- **Executive Dashboard**: High-level summary for airport management:
+  - Overall compliance percentage with trend analysis
+  - Items requiring attention in next 30 days
+  - Resource requirements and budget implications
+  - Risk assessment for delayed inspections
+  - Regulatory compliance status summary
+
+- **Operational Reports**: Detailed planning for maintenance and operations teams:
+  - **Daily Inspection Schedule**: Specific tasks, locations, and resource requirements
+  - **Weekly Planning**: Detailed mission plans with weather contingencies
+  - **Monthly Overview**: Complete inspection calendar with priority ranking
+  - **Quarterly Forecast**: Long-term planning for major inspections and resource allocation
+
+- **Regulatory Compliance Reports**: Documentation for aviation authorities:
+  - **ICAO Compliance Status**: Item-by-item compliance with Annex 14 requirements
+  - **Inspection History**: Complete audit trail with photographic evidence
+  - **Non-Compliance Documentation**: Detailed reports for any missed deadlines with corrective actions
+  - **Continuous Improvement**: Performance metrics and optimization recommendations
+
+#### Advanced Notification and Communication System
+
+**Multi-Channel Notification Delivery:**
+- **Email Alerts**: Detailed inspection summaries with calendar integration
+- **Mobile Push Notifications**: Urgent alerts for critical items and deadline warnings
+- **Dashboard Notifications**: Real-time status updates within the platform interface
+- **SMS/Text Alerts**: Critical notifications for immediate attention requirements
+- **Integration APIs**: Connection with existing airport communication systems
+
+**Stakeholder-Specific Communications:**
+- **Management Reports**: Strategic overview with financial and operational impact
+- **Operations Teams**: Tactical planning with specific resource and timing requirements
+- **Maintenance Crews**: Work order generation with detailed inspection results
+- **Regulatory Affairs**: Compliance documentation and authority communication preparation
+- **Safety Departments**: Risk assessment and safety-critical item prioritization
+
+#### Integration with Operational Constraints
+
+**Airport Operations Coordination:**
+- **Runway Availability Integration**: Real-time coordination with air traffic and operations:
+  - Runway closure windows for inspection access
+  - Aircraft movement patterns affecting inspection timing
+  - Weather conditions impacting both operations and inspections
+  - Emergency situations requiring immediate inspection rescheduling
+
+- **Resource Conflict Resolution**: Intelligent scheduling avoiding resource conflicts:
+  - Drone operator availability and certification requirements
+  - Equipment maintenance and calibration schedules
+  - Seasonal restrictions and environmental considerations
+  - Regulatory inspector availability for critical verifications
+
+**Flexible Inspection Execution:**
+- **Partial Area Coverage**: Ability to inspect specific zones when full access unavailable:
+  - Runway-specific inspections when other runways operational
+  - Terminal area inspections during limited access windows
+  - Perimeter sections based on security and operational constraints
+  - Lighting system zones during partial system maintenance
+
+The platform ensures comprehensive ICAO compliance while providing maximum operational flexibility and efficiency through intelligent scheduling, visual status management, and automated planning capabilities.
 
 #### Intelligent Flight Path Planning
 
@@ -1316,43 +1471,107 @@ State-of-the-art computer vision and machine learning infrastructure for automat
 - **Automated Backups**: Point-in-time recovery with 35-day retention
 - **Performance Insights**: Query performance monitoring and optimization
 
-**ICAO-Compliant Database Schema Design:**
+**Enhanced Database Schema with Intelligent Scheduling and Compliance Management:**
 ```sql
 -- Airport Infrastructure Registry with ICAO Compliance
-airports: id, name, iata_code, coordinates, timezone, configuration, icao_category
-device_types: id, name, icao_annex_reference, requirements_json, testing_procedures
+airports: id, name, iata_code, coordinates, timezone, configuration, icao_category,
+          notification_preferences, escalation_rules, operational_hours
+
+device_types: id, name, icao_annex_reference, requirements_json, testing_procedures,
+              inspection_frequency_days, notification_thresholds[], priority_level
+
 devices: id, airport_id, device_type_id, coordinates, specifications, installation_date, 
-         icao_compliance_status, last_inspection_date, certification_documents
+         icao_compliance_status, last_inspection_date, certification_documents,
+         next_inspection_due, current_status_color, access_restrictions
 
 -- ICAO Requirements and Compliance Tracking
 icao_requirements: id, device_type_id, annex_reference, paragraph_reference, 
-                   requirement_text, tolerance_values, testing_frequency
+                   requirement_text, tolerance_values, testing_frequency,
+                   mandatory_frequency_days, recommended_frequency_days
+
 compliance_checks: id, device_id, requirement_id, measurement_value, 
-                   compliance_status, inspection_date, inspector_id
+                   compliance_status, inspection_date, inspector_id,
+                   deadline_met, days_until_next_deadline
+
 compliance_history: id, device_id, requirement_id, historical_values[], 
-                    trend_analysis, predicted_next_failure
+                    trend_analysis, predicted_next_failure,
+                    compliance_score_trend, risk_assessment
 
--- Enhanced Measurements with ICAO Validation
+-- Intelligent Task Scheduling and Calendar Management
+inspection_calendar: id, airport_id, calendar_year, calendar_month,
+                     total_items_due, compliance_percentage, generated_date
+
+scheduled_inspections: id, device_id, scheduled_date, inspection_type,
+                      priority_level, estimated_duration_minutes, 
+                      weather_dependencies, runway_access_required,
+                      notification_sent_dates[], escalation_level
+
+inspection_deadlines: id, device_id, icao_requirement_id, due_date,
+                     grace_period_days, criticality_level, notification_schedule[],
+                     current_status, days_overdue, escalation_triggered
+
+-- Notification and Alert Management
+notification_rules: id, device_type_id, notification_type, days_before_deadline,
+                   recipient_roles[], message_template, escalation_level,
+                   auto_schedule_enabled
+
+notification_history: id, device_id, notification_type, sent_date, recipient_id,
+                     message_content, acknowledgment_date, action_taken
+
+alert_escalations: id, device_id, escalation_level, triggered_date,
+                  assigned_to_user_id, resolved_date, resolution_notes
+
+-- Monthly Planning and Reporting
+monthly_plans: id, airport_id, plan_month, plan_year, generated_date,
+              total_inspections_planned, estimated_hours, resource_requirements,
+              critical_items_count, compliance_forecast
+
+monthly_reports: id, airport_id, report_month, report_year,
+                overall_compliance_percentage, items_completed, items_overdue,
+                next_month_forecast, recommendations[], generated_date
+
+inspection_summaries: id, monthly_plan_id, inspection_date, items_scheduled[],
+                     weather_forecast, runway_availability, operator_assigned,
+                     estimated_completion_time, alternative_date_options[]
+
+-- Enhanced Measurements with Deadline Tracking
 measurements: id, device_id, timestamp, measurement_type, values, metadata, 
-              icao_requirement_id, compliance_status, tolerance_check_result
+              icao_requirement_id, compliance_status, tolerance_check_result,
+              deadline_context, days_before_deadline, next_measurement_due
+
 inspection_protocols: id, device_type_id, icao_procedure_reference, 
-                      measurement_sequence, acceptance_criteria
+                      measurement_sequence, acceptance_criteria,
+                      typical_duration_minutes, weather_constraints
 
--- Regulatory Documentation Management
-icao_documents: id, annex_number, chapter, section, paragraph, amendment_number, 
-                effective_date, document_url, superseded_by
-device_certifications: id, device_id, certificate_type, certificate_number, 
-                       issue_date, expiry_date, issuing_authority
-
--- Mission Planning with ICAO Compliance
+-- Mission Planning with Smart Scheduling Integration
 missions: id, airport_id, scheduled_time, flight_path, status, operator_id,
-          icao_compliance_objective, required_measurements[]
-tasks: id, mission_id, device_ids[], icao_requirements[], completion_status,
-       compliance_verification_status
+          icao_compliance_objective, required_measurements[], devices_covered[],
+          deadline_driven_priority, compliance_window_end, partial_coverage_allowed
 
--- User Management with ICAO Competency Tracking
+tasks: id, mission_id, device_ids[], icao_requirements[], completion_status,
+       compliance_verification_status, deadline_urgency, color_status,
+       estimated_completion_percentage
+
+-- Visual Status and Map Integration
+device_status_colors: id, device_id, current_color, color_reason,
+                     last_updated, next_status_change_date,
+                     urgency_score, display_priority
+
+map_layers: id, airport_id, layer_name, layer_type, visibility_rules,
+           color_coding_rules, filter_criteria, update_frequency
+
+-- Resource and Constraint Management
+operational_constraints: id, airport_id, constraint_type, start_date, end_date,
+                        affected_areas[], restricted_operations[], priority_override
+
+resource_availability: id, airport_id, resource_type, available_date,
+                       capacity_hours, allocated_hours, operator_id,
+                       equipment_maintenance_status
+
+-- User Management with Enhanced Notification Preferences
 users: id, email, role, airports[], icao_certifications[], competency_level,
-       last_training_date, authorization_scope
+       last_training_date, authorization_scope, notification_preferences,
+       escalation_threshold, mobile_number, preferred_alert_times[]
 ```
 
 **Time-Series Data (Amazon TimeStream):**
