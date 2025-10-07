@@ -667,19 +667,39 @@ class GPSExtractor:
                 frame_number=frame_num
             )
         
-        # Find surrounding GPS points for interpolation
-        before_point = None
-        after_point = None
+        # Check if GPS data has frame numbers - use those for more accurate interpolation
+        has_frame_numbers = all(p.frame_number is not None for p in gps_data)
         
-        for i, gps_point in enumerate(gps_data):
-            if gps_point.timestamp_ms <= target_timestamp_ms:
-                before_point = gps_point
-            if gps_point.timestamp_ms >= target_timestamp_ms and after_point is None:
-                after_point = gps_point
-                break
+        if has_frame_numbers:
+            # Use frame numbers for interpolation (more accurate for DJI videos)
+            before_point = None
+            after_point = None
+            
+            for i, gps_point in enumerate(gps_data):
+                if gps_point.frame_number <= frame_num:
+                    before_point = gps_point
+                if gps_point.frame_number >= frame_num and after_point is None:
+                    after_point = gps_point
+                    break
+        else:
+            # Fall back to timestamp-based interpolation
+            # First, normalize timestamps to start from 0
+            min_timestamp = min(p.timestamp_ms for p in gps_data)
+            
+            # Find surrounding GPS points for interpolation
+            before_point = None
+            after_point = None
+            
+            for i, gps_point in enumerate(gps_data):
+                relative_timestamp = gps_point.timestamp_ms - min_timestamp
+                if relative_timestamp <= target_timestamp_ms:
+                    before_point = gps_point
+                if relative_timestamp >= target_timestamp_ms and after_point is None:
+                    after_point = gps_point
+                    break
         
-        # If exact match found
-        if before_point and before_point.timestamp_ms == target_timestamp_ms:
+        # If exact match found (check both timestamp and frame number)
+        if before_point and has_frame_numbers and before_point.frame_number == frame_num:
             return GPSData(
                 timestamp_ms=target_timestamp_ms,
                 latitude=before_point.latitude,
@@ -694,12 +714,26 @@ class GPSExtractor:
         
         # If we have both points, interpolate
         if before_point and after_point:
-            # Calculate interpolation factor
-            time_diff = after_point.timestamp_ms - before_point.timestamp_ms
-            if time_diff > 0:
-                factor = (target_timestamp_ms - before_point.timestamp_ms) / time_diff
+            # Calculate interpolation factor based on frame numbers or timestamps
+            if has_frame_numbers:
+                # Use frame numbers for interpolation
+                frame_diff = after_point.frame_number - before_point.frame_number
+                if frame_diff > 0:
+                    factor = (frame_num - before_point.frame_number) / frame_diff
+                else:
+                    factor = 0
             else:
-                factor = 0
+                # Use timestamps for interpolation
+                time_diff = after_point.timestamp_ms - before_point.timestamp_ms
+                if time_diff > 0:
+                    # Normalize timestamps for comparison
+                    min_timestamp = min(p.timestamp_ms for p in gps_data)
+                    relative_target = target_timestamp_ms
+                    relative_before = before_point.timestamp_ms - min_timestamp
+                    relative_after = after_point.timestamp_ms - min_timestamp
+                    factor = (relative_target - relative_before) / (relative_after - relative_before)
+                else:
+                    factor = 0
             
             # Linear interpolation
             lat = before_point.latitude + (after_point.latitude - before_point.latitude) * factor

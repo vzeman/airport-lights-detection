@@ -543,21 +543,24 @@ class SnapshotGenerator:
             
             cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
             
-            # Draw track ID
+            # Draw track ID with larger font
             label = f"#{track_id}"
-            label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
+            font_scale = 2.0  # Increased from 0.5 to 2.0 (4x)
+            font_thickness = 3  # Increased from 1 to 3 for better visibility
+            label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness)[0]
             
-            # Background for text
+            # Background for text (adjusted for larger text)
+            padding = 8  # Increased padding for larger text
             cv2.rectangle(annotated, 
-                         (x1, y1 - label_size[1] - 4),
-                         (x1 + label_size[0] + 4, y1),
+                         (x1, y1 - label_size[1] - padding),
+                         (x1 + label_size[0] + padding, y1),
                          color, -1)
             
-            # Draw text
+            # Draw text with larger font
             cv2.putText(annotated, label,
-                       (x1 + 2, y1 - 2),
+                       (x1 + 4, y1 - 4),
                        cv2.FONT_HERSHEY_SIMPLEX,
-                       0.5, (0, 0, 0), 1)
+                       font_scale, (0, 0, 0), font_thickness)
             
             # Draw center point
             cv2.circle(annotated, (int(light.x), int(light.y)), 3, color, -1)
@@ -660,7 +663,6 @@ class ReportGenerator:
                     has_altitude = True
                 else:
                     altitudes_for_chart.append(None)
-            
             
             # Calculate statistics
             duration = (track.lights[-1].timestamp_ms - track.lights[0].timestamp_ms) / 1000
@@ -788,6 +790,7 @@ class ReportGenerator:
                 
                 # Update layout for better 3D visualization
                 trajectory_fig.update_layout(
+                    dragmode='turntable',  # Set default 3D interaction mode
                     title={
                         'text': 'Drone Flight Trajectory (3D)',
                         'font': {'size': 20}
@@ -1007,8 +1010,9 @@ class ReportGenerator:
                     overlaying='y',
                     color='purple',
                     showgrid=False,  # Don't show grid for secondary axis
-                    rangemode='tozero'  # Start from zero to show variation better
+                    autorange=True  # Auto-scale to show actual variation
                 ),
+                dragmode='pan',  # Set default mode to pan
                 margin=dict(l=60, r=80, t=60, b=80),
                 autosize=True,
                 xaxis=dict(
@@ -1075,6 +1079,7 @@ class ReportGenerator:
                 yaxis_title="dRGB/dt",
                 margin=dict(l=60, r=40, t=60, b=80),
                 autosize=True,
+                dragmode='pan',  # Set default mode to pan
                 xaxis=dict(
                     tickangle=-45,
                     tickmode='auto',
@@ -1104,7 +1109,8 @@ class ReportGenerator:
                 xaxis_title="X Position (pixels)", 
                 yaxis_title="Y Position (pixels)",
                 margin=dict(l=60, r=40, t=60, b=60),
-                autosize=True
+                autosize=True,
+                dragmode='pan'  # Set default mode to pan
             )
             pos_fig.update_yaxes(autorange="reversed")  # Invert Y axis for image coordinates
             
