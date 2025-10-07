@@ -121,42 +121,168 @@ The system implements a hierarchical role-based access control (RBAC) model with
 
 The foundation of the platform is a comprehensive digital representation of airport infrastructure that serves as the single source of truth for all maintenance operations.
 
-- **Interactive 3D/2D Map**: Complete digital twin of airport infrastructure featuring:
-  - High-resolution satellite imagery with sub-meter accuracy
-  - 3D terrain modeling with elevation data and obstacle mapping
-  - Real-time weather overlay with wind patterns and visibility conditions
-  - Dynamic airspace visualization with restricted zones and flight corridors
-  - Layered visualization supporting multiple data overlays (electrical, drainage, communications)
-  - Mobile-responsive interface optimized for field operations
-  - Offline capability for areas with limited connectivity
-  - Integration with existing GIS systems and CAD drawings
+- **Interactive 3D/2D Map with Advanced Safety Zone Management**: Complete digital twin of airport infrastructure featuring:
+  - **High-resolution satellite imagery** with sub-meter accuracy
+  - **3D terrain modeling** with elevation data and comprehensive obstacle mapping
+  - **Real-time weather overlay** with wind patterns and visibility conditions
+  - **Dynamic airspace visualization** with restricted zones and flight corridors
+  - **Layered visualization** supporting multiple data overlays (electrical, drainage, communications)
+  - **Mobile-responsive interface** optimized for field operations
+  - **Offline capability** for areas with limited connectivity
+  - **Integration with existing GIS systems** and CAD drawings
 
-- **Device Registry**: Comprehensive database of every measurable object with detailed metadata:
+  **Advanced Safety Zone Framework:**
+  - **No-Fly Zones (NFZ)**: Absolute prohibited areas for drone operations:
+    - **Active Runways**: Dynamic NFZ during aircraft operations with real-time activation/deactivation
+    - **Control Tower**: 200m radius exclusion zone around ATC facilities
+    - **Fuel Storage Areas**: 100m radius around fuel farms and refueling facilities
+    - **Terminal Buildings**: 50m radius around passenger terminals and gate areas
+    - **Emergency Services**: 100m radius around fire stations and emergency vehicle staging areas
+    - **Critical Infrastructure**: Variable radius around power substations, water treatment, and communication facilities
+
+  **3D Safety Perimeters Around Obstacles:**
+  - **Vertical Obstacles** (towers, masts, antennas):
+    - **Horizontal Safety Buffer**: 20m minimum radial distance from obstacle center
+    - **Vertical Safety Buffer**: 10m minimum clearance above highest point
+    - **Dynamic Adjustment**: Buffer size scales with obstacle height and wind conditions
+  
+  - **Building Structures** (hangars, terminals, maintenance facilities):
+    - **Wall Clearance**: 15m minimum distance from building walls
+    - **Roof Clearance**: 20m minimum altitude above roof level
+    - **Wind Shadow Zones**: Extended safety buffers on leeward side based on wind conditions
+  
+  - **Aircraft and Mobile Equipment**:
+    - **Parked Aircraft**: 50m radius safety zone around aircraft parking positions
+    - **Ground Support Equipment**: 25m radius around active GSE operations
+    - **Emergency Vehicles**: 100m radius moving safety zone that follows vehicle position
+  
+  - **Electrical Infrastructure**:
+    - **High Voltage Lines**: 30m horizontal and 20m vertical clearance from power lines
+    - **Transformers and Substations**: 25m radius exclusion zone
+    - **Light Towers**: 15m radius base clearance plus height-based vertical buffer
+
+  **Dynamic Safety Zone Management:**
+  - **Real-Time Updates**: Safety zones automatically adjust based on:
+    - Aircraft movement and parking status
+    - Weather conditions (wind speed affecting obstacle wake turbulence)
+    - Construction activities and temporary obstacles
+    - Emergency situations and security alerts
+    - Maintenance operations and equipment positioning
+  
+  - **Multi-Level Safety Classification**:
+    - **Critical Zones** (Level 1): Absolute no-fly areas with automatic mission abort
+    - **Restricted Zones** (Level 2): Conditional access requiring special authorization
+    - **Caution Zones** (Level 3): Enhanced monitoring with reduced flight parameters
+    - **Standard Zones** (Level 4): Normal operations with standard safety protocols
+
+  **Obstacle Database Integration:**
+  - **Permanent Obstacles**: Buildings, towers, masts with fixed safety perimeters
+  - **Temporary Obstacles**: Construction equipment, maintenance scaffolding with time-limited perimeters
+  - **Mobile Obstacles**: Aircraft, vehicles, equipment with real-time position tracking
+  - **Seasonal Obstacles**: Vegetation growth, snow accumulation with adaptive perimeters
+  - **Emergency Obstacles**: Incident-related exclusions with immediate activation capability
+
+  **Flight Path Validation System:**
+  - **Pre-Flight Safety Check**: Automated validation of planned routes against all safety zones
+  - **Real-Time Monitoring**: Continuous verification of drone position relative to safety perimeters
+  - **Automatic Avoidance**: Dynamic path adjustment when safety zones change during flight
+  - **Emergency Protocols**: Immediate return-to-home or emergency landing when safety is compromised
+  - **Violation Alerts**: Immediate notifications when drones approach restricted areas
+
+  **Safety Zone Configuration Management:**
+  - **Regulatory Compliance**: Safety buffers based on local aviation authority requirements
+  - **Customizable Parameters**: Airport-specific safety margins based on operational needs
+  - **Risk Assessment**: Automated calculation of safety buffer sizes based on obstacle type and environmental factors
+  - **Version Control**: Historical tracking of safety zone changes and justifications
+  - **Approval Workflows**: Administrative processes for modifying safety parameters
+
+- **Device Registry with ICAO Compliance Framework**: Comprehensive database linking every infrastructure item to specific ICAO requirements:
+
+  **ICAO Requirements Integration:**
+  - **Regulatory Documentation Links**: Direct references to specific ICAO Annexes, paragraphs, and sub-sections
+  - **Compliance Standards Matrix**: Detailed mapping of each device type to applicable regulations
+  - **Measurement Requirements**: ICAO-specified testing procedures, tolerances, and frequencies
+  - **Certification Tracking**: Documentation of type certificates, approvals, and regulatory compliance status
+  - **Amendment Tracking**: Automatic updates when ICAO standards change or new amendments are published
+
+  **Device-Specific ICAO Compliance Profiles:**
+
+  **PAPI (Precision Approach Path Indicator) - ICAO Annex 14, Chapter 5:**
+  - **Primary Reference**: ICAO Annex 14, Volume I, Chapter 5, Section 5.3.5
+  - **Technical Requirements**:
+    - Glide path angle: 3° ± 0.1° (ICAO 5.3.5.1)
+    - Light unit spacing: 9m ± 1m (ICAO 5.3.5.4)
+    - Color specifications: CIE chromaticity coordinates for red/white transition (ICAO 5.3.5.6)
+    - Intensity requirements: Minimum and maximum candela values by distance (ICAO 5.3.5.8)
+    - Coverage area: Horizontal and vertical beam spread requirements (ICAO 5.3.5.9)
+  - **Testing Standards**: ICAO Doc 9157 Airport Services Manual, Part 4
+  - **Measurement Procedures**: ILS flight inspection procedures per ICAO Annex 10
+  - **Compliance Frequency**: Annual inspection and calibration requirements
+
+  **ILS (Instrument Landing System) - ICAO Annex 10, Volume I:**
+  - **Primary Reference**: ICAO Annex 10, Volume I, Chapter 3
+  - **Localizer Requirements**:
+    - Frequency range: 108.10 to 111.95 MHz (ICAO 3.1.3.1)
+    - Course line accuracy: ±3° from runway centerline (ICAO 3.1.3.6)
+    - Signal coverage: 25 NM minimum range (ICAO 3.1.3.8)
+    - Modulation depth: 20% ± 2% at 90 Hz and 150 Hz (ICAO 3.1.3.4)
+  - **Glide Slope Requirements**:
+    - Frequency range: 328.6 to 335.4 MHz (ICAO 3.1.5.1)
+    - Glide path angle: 2.5° to 3.5°, typically 3° (ICAO 3.1.5.6)
+    - Coverage area: ±8° azimuth, 0.45° to 1.75° elevation (ICAO 3.1.5.8)
+  - **Testing Standards**: ICAO Doc 8071 Manual on Testing of Radio Navigation Aids
+  - **Compliance Frequency**: Flight inspection every 6 months (Category I/II/III)
+
+  **VOR (VHF Omnidirectional Range) - ICAO Annex 10, Volume I:**
+  - **Primary Reference**: ICAO Annex 10, Volume I, Chapter 3, Section 3.3
+  - **Technical Requirements**:
+    - Frequency range: 108.00 to 117.95 MHz (ICAO 3.3.2.1)
+    - Bearing accuracy: ±1° (ICAO 3.3.2.4)
+    - Coverage: 40 NM at 1000 ft AGL minimum (ICAO 3.3.2.7)
+    - Identification: Three-letter Morse code transmission (ICAO 3.3.2.6)
+  - **Testing Procedures**: Radial accuracy verification, signal strength measurement
+  - **Compliance Frequency**: Annual flight inspection and ground checks
+
+  **Runway Edge Lights - ICAO Annex 14, Volume I:**
+  - **Primary Reference**: ICAO Annex 14, Volume I, Chapter 5, Section 5.3.2
+  - **Technical Requirements**:
+    - Color: White, except last 600m or one-third of runway length (yellow) (ICAO 5.3.2.5)
+    - Intensity: High, medium, or low intensity settings (ICAO 5.3.2.7)
+    - Spacing: Maximum 60m intervals on straight sections (ICAO 5.3.2.8)
+    - Beam spread: 6° vertical, 30° horizontal minimum (ICAO 5.3.2.10)
+  - **Photometric Requirements**: CIE publication specifications for aviation lights
+  - **Testing Standards**: Light intensity and color temperature measurements per ICAO specifications
+
+  **Taxiway Centerline Lights - ICAO Annex 14, Volume I:**
+  - **Primary Reference**: ICAO Annex 14, Volume I, Chapter 5, Section 5.3.17
+  - **Technical Requirements**:
+    - Color: Green (ICAO 5.3.17.2)
+    - Spacing: Maximum 30m intervals on straight sections (ICAO 5.3.17.4)
+    - Intensity: Minimum photometric performance standards (ICAO 5.3.17.5)
+  - **Installation Standards**: Embedded in pavement centerline with specific mounting requirements
+
+  **Runway Markings - ICAO Annex 14, Volume I:**
+  - **Primary Reference**: ICAO Annex 14, Volume I, Chapter 5, Section 5.2
+  - **Technical Requirements**:
+    - Color: White paint with specific reflectance characteristics (ICAO 5.2.1.3)
+    - Dimensions: Specific width and length requirements for each marking type (ICAO 5.2.3)
+    - Retroreflectivity: Minimum coefficient values for different marking types (ICAO 5.2.1.4)
+    - Contrast ratio: Minimum luminance contrast against pavement (ICAO 5.2.1.5)
+  - **Maintenance Standards**: Regular inspection and maintenance to preserve visibility
+
+  **Comprehensive Compliance Tracking:**
   - **Location Data**: Precise GPS coordinates with sub-meter accuracy, elevation data, and spatial relationships
-  - **Device Specifications**: Complete technical specifications including manufacturer details, model numbers, and installation documentation
-  - **Radio Navigation Equipment**: Detailed parameters for ILS, VOR, DME, GBAS, NDB systems including:
-    - Operating frequencies with tolerance specifications
-    - Signal coverage patterns and service volumes
-    - Calibration certificates and accuracy measurements
-    - Antenna specifications and radiation patterns
-    - Backup system configurations and failover procedures
-  - **Lighting Systems**: Comprehensive lighting infrastructure data including:
-    - Light type classification (PAPI, VASI, runway edge, taxiway centerline)
-    - Intensity settings and color temperature specifications
-    - Circuit diagrams and electrical load calculations
-    - Photometric performance data and beam patterns
-  - **Operational History**: Complete lifecycle tracking including:
-    - Installation date and commissioning records
-    - Maintenance history with work order references
-    - Performance trends and degradation analysis
-    - Replacement schedules and warranty information
-    - Compliance audit results and certifications
-  - **Current Status**: Real-time operational status with:
-    - Condition scoring algorithms with predictive analytics
-    - Alert thresholds and notification triggers
-    - Performance metrics and KPI tracking
-    - Photo documentation with timestamped imagery
-    - Custom metadata fields for airport-specific requirements
+  - **Regulatory Specifications**: Complete ICAO requirements with paragraph references and amendment history
+  - **Technical Documentation**: Manufacturer specifications mapped to ICAO requirements with compliance certificates
+  - **Testing Protocols**: ICAO-specified measurement procedures, equipment requirements, and acceptance criteria
+  - **Calibration Requirements**: Scheduled calibration intervals and procedures per ICAO standards
+  - **Performance Monitoring**: Real-time tracking against ICAO performance thresholds
+  - **Non-Compliance Alerts**: Automated notifications when measurements fall outside ICAO limits
+  - **Amendment Tracking**: Automatic updates when ICAO standards are revised or amended
+  - **Audit Trail**: Complete documentation of all compliance activities and regulatory interactions
+  - **Inspection Scheduling**: ICAO-mandated inspection frequencies with automated scheduling
+  - **Certification Management**: Tracking of type certificates, STCs, and regulatory approvals
+  - **Documentation Repository**: Centralized storage of all ICAO documents, guidance materials, and interpretations
 
 ### 2. Task Management System
 
@@ -174,12 +300,25 @@ The core innovation of the task management system is its ability to automaticall
   - **Measurement points**: Discrete positions where the drone must collect data with specific sensor orientations
   - **Regulatory standards**: ICAO/FAA/EASA compliance requirements for measurement methodology
 
-**Multi-Object Mission Optimization:**
-- **Constraint Aggregation**: The system analyzes all objects assigned to a task and identifies overlapping requirements
-- **Path Optimization**: Advanced algorithms generate efficient flight paths that minimize flight time while satisfying all measurement constraints
-- **Conflict Resolution**: Automatic handling of conflicting requirements through priority-based decision making
-- **Safety Integration**: Flight paths automatically avoid obstacles, respect no-fly zones, and maintain safe separation distances
-- **Battery Optimization**: Mission planning considers battery consumption and incorporates charging/battery swap points for extended operations
+**3D-Aware Multi-Object Mission Optimization:**
+- **Comprehensive 3D Obstacle Integration**: Advanced algorithms that process complete 3D obstacle database for flight planning:
+  - **Volumetric Obstacle Modeling**: Each obstacle represented as precise 3D volumes with safety buffers
+  - **Multi-Altitude Path Planning**: Optimization across different altitude levels to avoid obstacles while meeting measurement requirements
+  - **Dynamic Obstacle Processing**: Real-time integration of moving obstacles (aircraft, vehicles) into path calculations
+  - **Terrain-Following Capabilities**: Automatic altitude adjustment for terrain variations and ground obstacles
+
+- **Advanced 3D Path Optimization Algorithms**:
+  - **3D A* Pathfinding**: Modified A* algorithm for three-dimensional obstacle avoidance with cost optimization
+  - **Rapidly-Exploring Random Trees (RRT)**: Sampling-based path planning for complex 3D environments
+  - **Potential Field Methods**: Virtual force fields around obstacles for smooth path generation
+  - **Genetic Algorithm Optimization**: Multi-objective optimization balancing safety, efficiency, and measurement requirements
+  - **Visibility Graph Construction**: Pre-computed safe corridors between obstacles for rapid path generation
+
+- **Real-Time 3D Collision Avoidance**:
+  - **Predictive Collision Detection**: Forward simulation of drone trajectory against moving obstacles
+  - **Emergency Avoidance Maneuvers**: Pre-calculated escape routes from any point along flight path
+  - **Multi-Drone Coordination**: 3D separation management for simultaneous operations
+  - **Dynamic Re-routing**: Instant path recalculation when new obstacles appear or move
 
 **Dynamic Path Adjustment:**
 - **Real-time Adaptation**: Flight paths can be modified during execution based on weather conditions, air traffic, or operational constraints
@@ -200,22 +339,42 @@ The core innovation of the task management system is its ability to automaticall
   - **Pattern Integration**: Complex flight patterns (figure-8, spirals, grids) are merged into continuous paths
   - **Temporal Synchronization**: Timing requirements for sequential measurements and coordinated multi-drone operations
 
-**Example Multi-Object Scenario:**
-When a task includes multiple inspection types such as PAPI lights (requiring 300m-1500m distance measurements with approach patterns), runway edge lights (requiring 50m-100m parallel flights), and paint quality monitoring (requiring 15-25m grid patterns), the system:
-1. **Analyzes Requirements**: Maps all distance and angle constraints for all object types including paint marking coverage areas
-2. **Identifies Conflicts**: Detects overlapping flight paths and conflicting measurement requirements across different inspection types
-3. **Optimizes Path**: Creates a unified flight plan that captures:
-   - PAPI measurements during approach phases at higher altitudes
-   - Edge light measurements during intermediate-altitude parallel flights
-   - Paint quality assessment during low-altitude grid survey phases
-4. **Validates Safety**: Ensures the combined path maintains safe distances and adheres to aviation regulations across all altitude levels
-5. **Estimates Resources**: Calculates total flight time, battery consumption, and data storage requirements for multi-spectrum analysis
+**3D-Integrated Multi-Object Mission Example:**
+Complex scenario demonstrating advanced 3D obstacle-aware planning for multiple inspection types:
 
-**Paint-Specific Path Integration:**
-When paint quality monitoring is combined with other tasks, the system intelligently sequences operations:
-- **High-to-Low Altitude Progression**: Starts with distant measurements (PAPI, radio nav) and progressively moves to closer inspections
-- **Grid Overlay Optimization**: Paint grid patterns are optimized to also capture other surface elements like cracks and lighting infrastructure
-- **Lighting Condition Coordination**: Paint contrast measurements are scheduled for optimal lighting conditions that also benefit other inspection types
+**Mission Scenario**: Comprehensive runway inspection including PAPI lights, edge lighting, and paint markings with multiple obstacles present (parked aircraft, maintenance vehicles, construction crane).
+
+**3D Obstacle Analysis Phase**:
+1. **3D Scene Construction**: System builds complete 3D model including:
+   - Control tower (45m height) with 200m no-fly zone
+   - Parked Boeing 737 (12m height, 37m length) with 50m safety perimeter
+   - Construction crane (60m height) with 25m radius safety zone
+   - Maintenance vehicle convoy (3.5m height) with moving 25m safety zones
+   - Power lines (15m height) spanning across taxiway with 30m clearance requirement
+
+2. **Multi-Level Path Optimization**:
+   - **Level 1 (150m altitude)**: PAPI approach measurements with crane avoidance
+   - **Level 2 (100m altitude)**: Transition corridor avoiding aircraft wake turbulence
+   - **Level 3 (50m altitude)**: Edge light measurements with power line clearance
+   - **Level 4 (15m altitude)**: Paint inspection grid with vehicle convoy coordination
+
+**Dynamic 3D Path Generation**:
+3. **Altitude-Optimized Routing**: Creates vertical flight profile that:
+   - Maintains 60m clearance above construction crane (safety requirement + buffer)
+   - Routes around aircraft at 65m distance (50m safety + 15m wind buffer)
+   - Plans power line crossing at 45m altitude (15m line height + 30m clearance)
+   - Coordinates with moving maintenance vehicles using predictive positioning
+
+4. **Real-Time 3D Adjustments**: During mission execution:
+   - Maintenance vehicles move to new location → system recalculates low-altitude segments
+   - Wind speed increases → safety buffers automatically expand around tall obstacles
+   - Emergency vehicle approaches → temporary no-fly zone activates with immediate path modification
+
+**Advanced 3D Flight Path Features**:
+- **Obstacle-Aware Waypoint Generation**: Waypoints automatically positioned to maintain line-of-sight with obstacles while meeting measurement requirements
+- **Multi-Altitude Transition Planning**: Smooth altitude changes optimized for obstacle clearance and measurement positioning
+- **Emergency Escape Route Integration**: Pre-calculated emergency paths from every point considering all obstacles
+- **Real-Time Collision Cone Analysis**: Continuous monitoring of drone trajectory against moving obstacle prediction cones
 
 **Path Optimization Benefits:**
 - **Efficiency**: Up to 60% reduction in flight time compared to sequential single-object missions
@@ -264,12 +423,42 @@ Sophisticated aerial inspection capabilities that leverage advanced computer vis
   - **Volume Change Calculation**: Precise measurement of earthwork, construction progress, and erosion
   - **4D Visualization**: Time-series 3D models showing airport evolution over time
   
-  **Advanced Capabilities:**
-  - **Obstacle Detection and Classification**: Real-time identification of temporary and permanent obstacles
-  - **Vegetation Growth Monitoring**: Analysis of vegetation encroachment and growth rates
-  - **Construction Progress Tracking**: Monitoring of airport expansion and renovation projects
-  - **Infrastructure Degradation Analysis**: Detection of settling, movement, or structural changes
-  - **Emergency Response Mapping**: Rapid deployment for incident documentation and response planning
+  **Advanced 3D Obstacle Detection and Real-Time Updates:**
+  - **Real-Time Obstacle Detection**: Continuous identification and classification of obstacles:
+    - **AI-Powered Object Recognition**: Machine learning algorithms for automatic obstacle identification
+    - **Moving Object Tracking**: Real-time tracking of aircraft, vehicles, and equipment with velocity prediction
+    - **Temporary Structure Detection**: Automated identification of construction equipment, scaffolding, and temporary installations
+    - **Change Detection**: Comparison with baseline 3D models to identify new or modified obstacles
+    
+  - **Dynamic 3D Model Updates**: Live updates to the 3D obstacle database:
+    - **Streaming Point Cloud Processing**: Real-time integration of new LiDAR data into existing 3D models
+    - **Mesh Generation**: Automatic creation of 3D surface meshes from point cloud data
+    - **Texture Mapping**: Application of RGB imagery to 3D models for photorealistic representation
+    - **Level-of-Detail Optimization**: Automatic generation of multiple detail levels for performance optimization
+    
+  - **Intelligent Obstacle Classification**:
+    - **Permanent Structures**: Buildings, towers, and fixed infrastructure with stable 3D models
+    - **Semi-Permanent**: Construction equipment and long-term installations with periodic updates
+    - **Mobile Objects**: Aircraft, vehicles, and equipment with real-time position tracking
+    - **Temporary Hazards**: Weather phenomena, emergency situations, and short-term obstacles
+    
+  - **Predictive Obstacle Modeling**:
+    - **Movement Prediction**: Forecasting paths of moving objects based on historical patterns
+    - **Growth Modeling**: Vegetation growth simulation and seasonal change prediction
+    - **Weather Impact**: Dynamic modeling of weather effects on obstacle visibility and safety margins
+    - **Construction Timeline**: Integration with project schedules for planned obstacle changes
+    
+  - **Multi-Sensor Integration for 3D Updates**:
+    - **LiDAR Fusion**: Combining multiple LiDAR sensors for comprehensive 3D coverage
+    - **Camera Arrays**: Photogrammetry from multiple viewpoints for detailed texture mapping
+    - **Radar Integration**: Detection of metallic objects and vehicles not visible to optical sensors
+    - **IoT Sensors**: Real-time position data from tagged vehicles and equipment
+    
+  - **Automated 3D Model Validation**:
+    - **Accuracy Assessment**: Continuous validation of 3D models against ground truth measurements
+    - **Conflict Resolution**: Automatic handling of conflicting sensor data from different sources
+    - **Quality Metrics**: Real-time assessment of 3D model completeness and accuracy
+    - **Error Detection**: Identification and correction of 3D modeling artifacts and inconsistencies
 
 - **Paint Quality Monitoring**: Comprehensive assessment of runway and taxiway markings with advanced color and surface analysis:
   
@@ -299,11 +488,15 @@ Sophisticated aerial inspection capabilities that leverage advanced computer vis
   - **Dimensional Accuracy**: Verification of marking dimensions against ICAO Annex 14 specifications
   - **Predictive Maintenance**: AI algorithms predict repainting schedules based on deterioration rates and usage patterns
   
-  **Compliance Standards:**
-  - **ICAO Annex 14**: Automated verification of marking dimensions, colors, and positioning
+  **ICAO Compliance Standards for Paint and Markings:**
+  - **ICAO Annex 14, Volume I, Chapter 5, Section 5.2**: Complete runway marking specifications
+    - **5.2.1.3**: White paint reflectance characteristics - minimum 85% reflectance for new markings
+    - **5.2.1.4**: Retroreflectivity requirements - minimum 100 mcd/m²/lux for runway markings
+    - **5.2.1.5**: Luminance contrast ratio - minimum 3:1 between markings and pavement
+    - **5.2.3**: Dimensional specifications for each marking type with tolerance requirements
   - **FAA AC 150/5340-1L**: Paint reflectance and durability requirements validation
-  - **Color Standards**: CIE chromaticity coordinates verification for aviation yellow and white paints
-  - **Contrast Requirements**: Automated measurement of luminance contrast ratios between markings and pavement
+  - **CIE Color Standards**: Chromaticity coordinates verification for aviation yellow and white paints
+  - **Testing Procedures**: ICAO Doc 9157 Airport Services Manual specifications for retroreflectometer measurements
 
 - **PAPI/VASI Light Measurement**: Comprehensive precision approach path indicator analysis with advanced flight pattern requirements:
   
@@ -327,6 +520,8 @@ Sophisticated aerial inspection capabilities that leverage advanced computer vis
   - **Light Intensity Mapping**: Photometric measurements with ambient light compensation
   - **Geometric Validation**: LiDAR or stereo vision for precise distance and angle measurements
   - **ICAO Compliance Verification**: Automated comparison against Annex 14 standards with pass/fail determination
+    - **ICAO Annex 14, Volume I, Section 5.3.5**: Complete PAPI specifications and requirements
+    - **Testing Reference**: ICAO Doc 8071 Manual on Testing of Radio Navigation Aids, Volume II
 
 - **Runway/Taxiway Edge Lights**: Systematic lighting infrastructure assessment with standardized measurement protocols:
   
@@ -419,30 +614,254 @@ Sophisticated aerial inspection capabilities that leverage advanced computer vis
   - Detailed crack width measurement
   - Raveling and spalling detection
 
-### 3. Measurement & Protocol System
-- **Automated Data Collection**: Drone telemetry, video, sensor data, radio signal measurements
-- **AI Video Analysis**:
-  - Object detection (cracks, debris, vegetation, antenna structures)
-  - Light intensity extraction from video
-  - Color temperature analysis
-  - Geometric measurements (angles, distances)
-  - Antenna tower detection and positioning
-- **Radio Navigation Measurements**:
-  - Signal strength monitoring (dBm) for ILS, VOR, DME, GBAS, NDB
-  - Bearing accuracy verification (±0.5° to ±1° depending on equipment)
-  - Distance accuracy testing (±0.1 NM or 3% for DME)
-  - Course deviation measurements (ILS localizer ±0.1°)
-  - Glide slope deviation measurements (ILS ±0.05°)
-  - Frequency accuracy verification
-  - Coverage pattern validation
-  - Interference detection and source identification
-- **Protocol Generation**:
-  - Standardized reports per ICAO/FAA/EASA requirements (Annex 10 for radio navigation)
-  - Photographic evidence with GPS tagging
-  - Radio measurement data with calibrated instruments
-  - Measurement metadata (weather, time, equipment used, atmospheric conditions)
-  - Pass/fail status against defined thresholds (ICAO standards)
-  - Inspector sign-off workflow with radio navigation expertise
+### 3. Multi-Sensor Data Collection & Predictive Analytics System
+
+**Comprehensive Sensor Ecosystem:**
+The platform integrates diverse sensor types to create a holistic view of airport infrastructure health and performance, enabling advanced predictive maintenance capabilities.
+
+**Comprehensive Multi-Modal Sensor Network:**
+
+**Drone-Mounted Sensor Suite:**
+- **Visual Spectrum Sensors**:
+  - **RGB Cameras**: 4K/8K resolution for detailed visual inspection and defect detection
+  - **Thermal Imaging (FLIR)**: Infrared cameras for heat signature analysis, electrical hotspot detection
+  - **Hyperspectral Cameras**: Spectral analysis for material composition, chemical detection, and vegetation health
+  - **Night Vision Cameras**: Low-light and infrared capabilities for 24/7 operations
+
+- **3D Mapping and Positioning**:
+  - **LiDAR Sensors**: High-resolution 3D point cloud generation for infrastructure mapping
+  - **Photogrammetry Systems**: Stereo cameras for 3D reconstruction and change detection
+  - **RTK GPS**: Sub-centimeter positioning accuracy for precise georeferencing
+  - **IMU (Inertial Measurement Unit)**: Orientation and motion sensing for flight stabilization
+
+- **Radio Frequency and Electromagnetic**:
+  - **RF Spectrum Analyzers**: Radio navigation equipment performance measurement
+  - **Magnetometers**: Metal detection, underground utility mapping, and magnetic field analysis
+  - **Ground Penetrating Radar (GPR)**: Subsurface infrastructure assessment and void detection
+  - **Electromagnetic Field Sensors**: Interference detection and electrical system analysis
+
+- **Environmental Monitoring**:
+  - **Weather Sensors**: Temperature, humidity, barometric pressure, wind speed/direction
+  - **Air Quality Monitors**: Particulate matter, chemical vapors, and pollution measurement
+  - **Noise Level Meters**: Acoustic environment assessment and sound mapping
+  - **UV Radiation Sensors**: Solar radiation exposure affecting material degradation
+
+**Fixed Infrastructure Sensor Network:**
+
+**Structural Health Monitoring**:
+- **Accelerometers**: Vibration analysis for buildings, towers, and critical structures
+- **Strain Gauges**: Stress and load measurement on bridges, hangars, and support structures
+- **Tiltmeters**: Settlement detection and structural movement monitoring
+- **Crack Monitoring Sensors**: Automated crack width and propagation measurement
+- **Displacement Sensors**: Foundation settling and structural deformation tracking
+
+**Environmental and Weather Stations**:
+- **Meteorological Sensors**: Real-time weather data (temperature, humidity, pressure, rainfall)
+- **Wind Measurement Systems**: Multi-directional wind sensors with gust detection
+- **Lightning Detection**: Storm tracking and electrical hazard assessment
+- **Visibility Sensors**: Fog, haze, and precipitation impact on operations
+- **Solar Radiation Monitors**: UV exposure affecting paint, markings, and materials
+
+**Electrical and Equipment Monitoring**:
+- **Power Quality Analyzers**: Voltage fluctuations, harmonics, and electrical system health
+- **Current Transformers**: Real-time power consumption monitoring for all electrical systems
+- **Temperature Sensors**: Equipment operating temperature and thermal stress monitoring
+- **Vibration Monitors**: Motor, pump, and rotating equipment health assessment
+- **Acoustic Emission Sensors**: Early detection of mechanical wear and failure
+
+**Lighting and Navigation Equipment**:
+- **Light Intensity Meters**: Continuous monitoring of runway and taxiway lighting performance
+- **Color Temperature Sensors**: LED degradation and color shift detection
+- **Radio Signal Strength Monitors**: ILS, VOR, DME signal quality and coverage assessment
+- **Antenna Pattern Analyzers**: Navigation equipment radiation pattern verification
+- **Interference Detectors**: Electromagnetic interference identification and source location
+
+**Pavement and Surface Monitoring**:
+- **Load Cells**: Traffic loading and weight distribution analysis
+- **Pavement Temperature Sensors**: Thermal expansion and frost/ice formation monitoring
+- **Moisture Sensors**: Subsurface water content and drainage effectiveness
+- **Friction Measurement Systems**: Continuous runway surface friction monitoring
+- **Settlement Monitors**: Pavement subsidence and differential settlement detection
+
+**Specialized Airport Sensors**:
+
+**Fuel and Chemical Detection**:
+- **Hydrocarbon Sensors**: Fuel spill detection and environmental monitoring
+- **Chemical Leak Detectors**: Hazardous material spill identification
+- **pH Sensors**: Deicing chemical concentration and environmental impact
+- **Corrosion Monitors**: Metal degradation assessment in harsh environments
+
+**Security and Perimeter Monitoring**:
+- **Intrusion Detection Systems**: Perimeter fence monitoring and breach detection
+- **Ground-Based Radar**: Unauthorized vehicle and personnel detection
+- **Thermal Imaging Systems**: 24/7 perimeter surveillance and heat signature detection
+- **Acoustic Sensors**: Unusual sound detection and security alert systems
+
+**Wildlife and Environmental**:
+- **Motion Detectors**: Wildlife movement tracking for bird strike prevention
+- **Acoustic Bird Deterrents**: Integrated sound-based wildlife management
+- **Vegetation Growth Sensors**: Automated grass height and growth rate monitoring
+- **Soil Moisture Monitors**: Irrigation optimization and landscaping management
+
+**Predictive Maintenance Sensor Applications:**
+
+**Equipment Degradation Tracking**:
+- **Bearing Temperature Monitors**: Early detection of mechanical wear in rotating equipment
+- **Oil Analysis Sensors**: Real-time assessment of lubricant condition and contamination
+- **Pressure Transducers**: Hydraulic and pneumatic system performance monitoring
+- **Flow Meters**: Fluid system efficiency and blockage detection
+
+**Material Condition Assessment**:
+- **Ultrasonic Thickness Gauges**: Material wear and corrosion measurement
+- **Eddy Current Sensors**: Non-destructive testing of metal components
+- **Capacitive Sensors**: Material moisture content and structural integrity
+- **Laser Displacement Sensors**: Precise dimensional change measurement
+
+**Data Collection and Measurement Capabilities:**
+
+**What We Measure:**
+- **Physical Parameters**: Dimensions, weights, volumes, densities, material properties
+- **Environmental Conditions**: Temperature, humidity, pressure, wind, precipitation, UV exposure
+- **Electrical Properties**: Voltage, current, power, resistance, capacitance, electromagnetic fields
+- **Mechanical Properties**: Stress, strain, vibration, acceleration, displacement, force
+- **Optical Properties**: Light intensity, color temperature, reflectance, transparency, refractive index
+- **Chemical Properties**: pH, conductivity, concentration, composition, contamination levels
+- **Acoustic Properties**: Sound levels, frequency spectrum, vibration patterns, echo characteristics
+- **Thermal Properties**: Temperature distribution, heat flow, thermal conductivity, thermal expansion
+
+**Sensor Technology Types:**
+- **MEMS Sensors**: Miniaturized accelerometers, gyroscopes, and pressure sensors
+- **Fiber Optic Sensors**: Distributed temperature and strain measurement over long distances
+- **Wireless Sensor Networks**: IoT-enabled sensors with mesh networking capabilities
+- **Smart Sensors**: AI-enabled edge processing and adaptive sensing capabilities
+- **Satellite-Based Sensors**: GPS, GNSS for positioning and atmospheric monitoring
+- **Laser-Based Systems**: LiDAR, laser interferometry for precise distance and displacement measurement
+
+**Advanced Predictive Analytics Framework:**
+
+**Data Fusion and Integration:**
+- **Temporal Alignment**: Synchronization of multi-sensor data streams with precise timestamps
+- **Spatial Correlation**: Geographic correlation of sensor data with infrastructure location
+- **Data Quality Assessment**: Automated validation and cleaning of sensor inputs
+- **Feature Engineering**: Extraction of predictive features from raw sensor data
+- **Cross-Modal Analysis**: Integration of visual, thermal, and RF data for comprehensive assessment
+
+**Machine Learning Pipeline for Predictive Maintenance:**
+
+**Historical Pattern Analysis:**
+- **Degradation Modeling**: Time-series analysis of infrastructure deterioration patterns
+- **Failure Mode Identification**: Classification of common failure patterns and precursors
+- **Environmental Impact Assessment**: Correlation between weather conditions and equipment degradation
+- **Usage Impact Analysis**: Relationship between operational intensity and maintenance needs
+- **Seasonal Variation Modeling**: Accounting for climate-related maintenance cycles
+
+**Predictive Model Development:**
+- **Multi-Variable Regression**: Predicting maintenance timing based on multiple sensor inputs
+- **Deep Learning Models**: Neural networks for complex pattern recognition in sensor data
+- **Ensemble Methods**: Combining multiple models for improved prediction accuracy
+- **Anomaly Detection**: Early identification of unusual patterns indicating potential failures
+- **Survival Analysis**: Statistical modeling of equipment lifetime and failure probabilities
+
+**Specific Prediction Capabilities:**
+
+**Equipment-Specific Predictions:**
+- **Lighting Systems**: LED degradation curves, color temperature drift, and failure prediction
+- **Radio Navigation Equipment**: Signal strength deterioration and calibration needs
+- **Pavement Infrastructure**: Crack propagation models and resurfacing schedules
+- **Paint and Markings**: Retroreflectivity degradation and repainting requirements
+- **Electrical Systems**: Power consumption trends indicating equipment stress
+
+**Maintenance Scheduling Optimization:**
+- **Preventive Maintenance Windows**: Optimal timing based on predicted degradation curves
+- **Resource Allocation**: Predictive workforce and material requirements
+- **Cost Optimization**: Balancing preventive vs. reactive maintenance costs
+- **Operational Impact Minimization**: Scheduling maintenance during low-traffic periods
+- **Emergency Response Preparation**: Early warning systems for critical equipment failures
+
+**AI-Powered Insights:**
+- **Failure Risk Scoring**: Real-time risk assessment for each piece of infrastructure
+- **Maintenance Priority Ranking**: Dynamic prioritization based on safety and operational impact
+- **Budget Forecasting**: Long-term maintenance cost predictions for budget planning
+- **Reliability Improvement**: Identification of design or operational factors affecting longevity
+- **Performance Benchmarking**: Comparison of similar equipment across different airports
+
+**Real-Time Monitoring and Alerts:**
+- **Threshold-Based Alerts**: Immediate notifications when parameters exceed safe limits
+- **Trend-Based Warnings**: Early alerts when degradation accelerates beyond normal patterns
+- **Predictive Alerts**: Advance notifications of predicted maintenance needs (weeks to months ahead)
+- **System Health Dashboards**: Real-time visualization of airport-wide infrastructure health
+- **Mobile Notifications**: Field team alerts for immediate attention requirements
+
+**AWS-Powered Prediction Model Pipeline:**
+
+**Model Training Infrastructure:**
+- **Amazon SageMaker Pipelines**: End-to-end MLOps workflows for model development and deployment
+- **Data Preprocessing**: AWS Glue and Lambda for automated feature engineering and data preparation
+- **Model Training**: Distributed training across multiple EC2 instances with GPU acceleration
+- **Hyperparameter Optimization**: Automated tuning using SageMaker's built-in optimization algorithms
+- **Model Validation**: Cross-validation and A/B testing frameworks for model performance assessment
+
+**Prediction Model Categories:**
+
+**Time-Series Forecasting Models:**
+- **ARIMA/SARIMA**: Statistical models for seasonal maintenance patterns and equipment lifecycle prediction
+- **LSTM Neural Networks**: Deep learning for complex temporal patterns in multi-sensor data
+- **Prophet**: Facebook's forecasting tool for trend analysis and anomaly detection
+- **Amazon Forecast**: Managed time-series forecasting service for demand and maintenance prediction
+
+**Classification and Regression Models:**
+- **Random Forest**: Ensemble methods for equipment failure classification and risk scoring
+- **XGBoost**: Gradient boosting for high-accuracy maintenance need prediction
+- **Deep Neural Networks**: Multi-layer networks for complex pattern recognition in sensor data
+- **SVM (Support Vector Machines)**: Classification of equipment health states and failure modes
+
+**Anomaly Detection Models:**
+- **Isolation Forest**: Unsupervised learning for identifying unusual equipment behavior
+- **Autoencoders**: Neural networks for detecting deviations from normal operational patterns
+- **Amazon Lookout for Equipment**: Managed anomaly detection service for industrial equipment
+- **Statistical Process Control**: Traditional control charts enhanced with machine learning
+
+**Deployment and Inference:**
+- **Real-Time Endpoints**: SageMaker hosting for immediate predictions and alerts
+- **Batch Transform**: Large-scale batch predictions for periodic maintenance planning
+- **Edge Deployment**: AWS IoT Greengrass for local inference on sensor networks
+- **Multi-Model Endpoints**: Cost-effective hosting of multiple specialized models
+
+**Model Performance and Monitoring:**
+- **Amazon SageMaker Model Monitor**: Automated monitoring of model drift and data quality
+- **CloudWatch Metrics**: Real-time tracking of prediction accuracy and model performance
+- **A/B Testing Framework**: Continuous comparison of model versions and improvement validation
+- **Explainable AI**: Model interpretability tools for understanding prediction factors
+
+**Continuous Learning System:**
+- **Automated Retraining**: Scheduled model updates based on new data and performance metrics
+- **Feedback Integration**: Incorporation of actual maintenance outcomes to refine model accuracy
+- **Cross-Airport Learning**: Federated learning across multiple airport installations for shared insights
+- **Adaptive Algorithms**: Self-adjusting models that adapt to local environmental and operational conditions
+- **Performance Metrics**: Continuous monitoring of prediction accuracy, false positive rates, and maintenance cost optimization
+- **Data Lineage Tracking**: Complete traceability of data flow from sensors through models to predictions
+- **Version Control**: Comprehensive versioning of models, data, and prediction pipelines for reproducibility
+
+**Predictive Analytics Use Cases:**
+
+**Equipment Lifecycle Prediction:**
+- **LED Light Degradation**: Predicting when runway lights will fall below minimum intensity requirements
+- **Radio Equipment Calibration**: Forecasting when navigation equipment will require recalibration
+- **Pavement Resurfacing**: Modeling crack propagation and surface deterioration to schedule repaving
+- **Electrical System Maintenance**: Predicting transformer and electrical equipment failure modes
+- **HVAC System Optimization**: Forecasting heating/cooling system maintenance needs based on usage patterns
+
+**Cost Optimization Models:**
+- **Maintenance Budget Forecasting**: Annual and multi-year maintenance cost predictions
+- **Resource Allocation**: Optimal workforce and equipment scheduling based on predicted maintenance needs
+- **Inventory Management**: Predictive parts and materials requirements based on equipment degradation models
+- **Energy Efficiency**: Power consumption optimization through predictive equipment performance modeling
+
+**Safety and Compliance Prediction:**
+- **Regulatory Compliance**: Predicting when equipment will fall out of ICAO/FAA compliance
+- **Safety Risk Assessment**: Multi-factor risk scoring based on equipment condition and environmental factors
+- **Emergency Response**: Predicting potential failure scenarios for proactive emergency preparedness
+- **Weather Impact Modeling**: Predicting weather-related maintenance needs and equipment stress
 - **Historical Tracking**:
   - Time-series data visualization for signal quality trends
   - Radio equipment degradation trend prediction
@@ -589,15 +1008,86 @@ Comprehensive drone ecosystem support with advanced autonomy and safety features
   - **Air Traffic Coordination**: Integration with airport control tower systems for operational awareness
 
 - **Real-Time Operations Management**: Comprehensive mission monitoring and control with advanced 3D visualization:
-  - **3D Flight Path Visualization**: Advanced operator interface for mission planning and monitoring:
-    - **Interactive 3D Environment**: Real-time 3D rendering of airport infrastructure, obstacles, and flight paths
-    - **Multi-Layer Visualization**: Selectable layers showing different data types (LiDAR points, obstacles, flight corridors, restricted zones)
-    - **Real-Time Drone Tracking**: Live 3D representation of drone position, orientation, and sensor coverage areas
-    - **Predictive Path Display**: Forward-looking trajectory visualization showing planned route and alternative paths
-    - **Obstacle Highlighting**: Dynamic highlighting of detected obstacles with safety margin visualization
-    - **Mission Progress Indicators**: 3D visual representation of completed tasks, remaining objectives, and data collection status
-    - **Virtual Reality Integration**: Optional VR headset support for immersive flight planning and monitoring
-    - **Multi-Viewport Support**: Simultaneous multiple viewing angles (top-down, side view, pilot perspective, free camera)
+  - **Advanced 3D Flight Path Visualization with Comprehensive Obstacle Modeling**: Next-generation operator interface for mission planning and monitoring:
+    
+    **Immersive 3D Environment:**
+    - **Photorealistic 3D Rendering**: High-fidelity visualization of entire airport infrastructure using advanced graphics engines
+    - **Real-Time Ray Tracing**: Accurate lighting, shadows, and reflections for realistic obstacle visualization
+    - **Multi-Resolution LOD**: Level-of-detail optimization for smooth performance across different zoom levels
+    - **Weather Simulation**: Real-time weather effects (fog, rain, snow) affecting visibility and flight conditions
+    
+    **Comprehensive 3D Obstacle Visualization:**
+    - **Static Infrastructure Modeling**:
+      - **Buildings and Hangars**: Detailed 3D models with accurate dimensions, roof slopes, and architectural features
+      - **Control Towers**: Complete tower structures with antenna arrays and equipment platforms
+      - **Communication Masts**: Precise modeling of antenna towers with guy-wires and equipment cabinets
+      - **Light Towers**: Runway and taxiway lighting infrastructure with beam pattern visualization
+      - **Power Lines**: Overhead electrical infrastructure with cable sag modeling and support structures
+      - **Fuel Systems**: Tank farms, hydrant systems, and refueling equipment with safety perimeters
+    
+    - **Dynamic Obstacle Representation**:
+      - **Aircraft Models**: Real-time 3D representation of parked and moving aircraft with accurate dimensions
+      - **Ground Support Equipment**: Detailed models of tugs, fuel trucks, catering vehicles, and baggage carts
+      - **Construction Equipment**: Temporary obstacles including cranes, scaffolding, and work vehicles
+      - **Emergency Vehicles**: Fire trucks, ambulances, and security vehicles with moving safety zones
+      - **Maintenance Equipment**: Runway sweepers, snow removal equipment, and inspection vehicles
+    
+    - **Environmental Obstacles**:
+      - **Vegetation**: Tree canopies with seasonal growth modeling and wind movement simulation
+      - **Terrain Features**: Natural and artificial elevation changes, embankments, and drainage structures
+      - **Weather Phenomena**: Dynamic visualization of wind patterns, turbulence zones, and precipitation effects
+    
+    **Advanced Visualization Features:**
+    - **Multi-Layer Visualization**: Selectable and combinable data layers:
+      - **Infrastructure Layer**: All permanent structures and equipment
+      - **Safety Zone Layer**: No-fly zones, restricted areas, and safety perimeters
+      - **Flight Corridor Layer**: Approved flight paths and altitude restrictions
+      - **LiDAR Point Cloud Layer**: High-resolution 3D scanning data overlay
+      - **Sensor Coverage Layer**: Real-time visualization of sensor detection ranges
+      - **Weather Layer**: Wind patterns, turbulence zones, and visibility conditions
+    
+    - **Real-Time Drone Operations Visualization**:
+      - **Live Drone Tracking**: 3D representation of drone position, orientation, and flight attitude
+      - **Sensor Coverage Visualization**: Real-time display of camera field-of-view and sensor ranges
+      - **Telemetry Integration**: Live display of altitude, speed, battery status, and mission progress
+      - **Collision Risk Indicators**: Dynamic visualization of proximity to obstacles and safety margins
+    
+    **Interactive Flight Planning Interface:**
+    - **3D Path Planning Tools**:
+      - **Waypoint Manipulation**: Drag-and-drop waypoint editing in 3D space with altitude control
+      - **Altitude Profile Visualization**: Side-view display of flight path with terrain and obstacle clearance
+      - **Safety Corridor Display**: 3D visualization of safe flight tubes around obstacles
+      - **Alternative Route Generation**: Automatic calculation and display of backup flight paths
+    
+    - **Obstacle Avoidance Visualization**:
+      - **Collision Detection**: Real-time visualization of potential collision points along planned routes
+      - **Safety Margin Display**: Color-coded visualization of distance to obstacles (green=safe, yellow=caution, red=danger)
+      - **Dynamic Avoidance**: Live adjustment of flight paths when obstacles move or new ones appear
+      - **Emergency Routes**: Pre-calculated emergency landing and return-to-home paths
+    
+    - **Predictive Path Analysis**:
+      - **Forward-Looking Simulation**: 4D visualization showing planned route progression over time
+      - **Wind Impact Modeling**: Visualization of how wind conditions affect flight path and obstacle clearance
+      - **Battery Consumption Visualization**: Real-time calculation of energy requirements for planned routes
+      - **Time-Based Obstacle Prediction**: Anticipation of moving obstacles (aircraft, vehicles) along flight path
+    
+    **Advanced Rendering Technologies:**
+    - **WebGL 2.0 Implementation**: Hardware-accelerated 3D graphics in web browsers
+    - **Three.js Integration**: Advanced 3D graphics library for smooth performance
+    - **Progressive Loading**: Streaming of 3D models and textures for immediate responsiveness
+    - **Adaptive Quality**: Automatic adjustment of rendering quality based on device capabilities
+    
+    **Multi-Platform Visualization**:
+    - **Desktop Interface**: Full-featured 3D visualization with multi-monitor support
+    - **Tablet Optimization**: Touch-optimized controls for field operations
+    - **VR/AR Integration**: Immersive headset support for enhanced spatial awareness
+    - **Mobile Compatibility**: Simplified 3D visualization for smartphone access
+    
+    **Collaborative Features**:
+    - **Multi-User Sessions**: Simultaneous planning by multiple operators with role-based permissions
+    - **Annotation System**: 3D markers and comments for team communication
+    - **Version Control**: Historical tracking of flight plan modifications with rollback capability
+    - **Real-Time Sharing**: Live sharing of flight plans and obstacle updates across teams
   - **Live Telemetry**: Real-time monitoring of position, battery status, sensor health, and mission progress integrated with 3D display
   - **Emergency Protocols**: Automated return-to-home and emergency landing procedures with 3D visualization of emergency routes
   - **Remote Intervention**: Manual override capabilities for mission adjustments and emergency response through 3D interface
@@ -693,21 +1183,43 @@ State-of-the-art computer vision and machine learning infrastructure for automat
 - **Automated Backups**: Point-in-time recovery with 35-day retention
 - **Performance Insights**: Query performance monitoring and optimization
 
-**Database Schema Design:**
+**ICAO-Compliant Database Schema Design:**
 ```sql
--- Airport Infrastructure Registry
-airports: id, name, iata_code, coordinates, timezone, configuration
-devices: id, airport_id, type, coordinates, specifications, installation_date
-measurements: id, device_id, timestamp, values, metadata, compliance_status
+-- Airport Infrastructure Registry with ICAO Compliance
+airports: id, name, iata_code, coordinates, timezone, configuration, icao_category
+device_types: id, name, icao_annex_reference, requirements_json, testing_procedures
+devices: id, airport_id, device_type_id, coordinates, specifications, installation_date, 
+         icao_compliance_status, last_inspection_date, certification_documents
 
--- Mission and Task Management  
-missions: id, airport_id, scheduled_time, flight_path, status, operator_id
-tasks: id, mission_id, device_ids[], requirements, completion_status
-flight_logs: id, mission_id, gps_track, telemetry, video_references
+-- ICAO Requirements and Compliance Tracking
+icao_requirements: id, device_type_id, annex_reference, paragraph_reference, 
+                   requirement_text, tolerance_values, testing_frequency
+compliance_checks: id, device_id, requirement_id, measurement_value, 
+                   compliance_status, inspection_date, inspector_id
+compliance_history: id, device_id, requirement_id, historical_values[], 
+                    trend_analysis, predicted_next_failure
 
--- User and Access Management
-users: id, email, role, airports[], last_login, mfa_enabled
-audit_logs: id, user_id, action, timestamp, resource_id, details
+-- Enhanced Measurements with ICAO Validation
+measurements: id, device_id, timestamp, measurement_type, values, metadata, 
+              icao_requirement_id, compliance_status, tolerance_check_result
+inspection_protocols: id, device_type_id, icao_procedure_reference, 
+                      measurement_sequence, acceptance_criteria
+
+-- Regulatory Documentation Management
+icao_documents: id, annex_number, chapter, section, paragraph, amendment_number, 
+                effective_date, document_url, superseded_by
+device_certifications: id, device_id, certificate_type, certificate_number, 
+                       issue_date, expiry_date, issuing_authority
+
+-- Mission Planning with ICAO Compliance
+missions: id, airport_id, scheduled_time, flight_path, status, operator_id,
+          icao_compliance_objective, required_measurements[]
+tasks: id, mission_id, device_ids[], icao_requirements[], completion_status,
+       compliance_verification_status
+
+-- User Management with ICAO Competency Tracking
+users: id, email, role, airports[], icao_certifications[], competency_level,
+       last_training_date, authorization_scope
 ```
 
 **Time-Series Data (Amazon TimeStream):**
