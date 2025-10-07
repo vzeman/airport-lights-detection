@@ -198,12 +198,43 @@ The foundation of the platform is a comprehensive digital representation of airp
 
 - **Device Registry with ICAO Compliance Framework**: Comprehensive database linking every infrastructure item to specific ICAO requirements:
 
-  **ICAO Requirements Integration:**
+  **Comprehensive ICAO Requirements Integration:**
   - **Regulatory Documentation Links**: Direct references to specific ICAO Annexes, paragraphs, and sub-sections
   - **Compliance Standards Matrix**: Detailed mapping of each device type to applicable regulations
   - **Measurement Requirements**: ICAO-specified testing procedures, tolerances, and frequencies
   - **Certification Tracking**: Documentation of type certificates, approvals, and regulatory compliance status
   - **Amendment Tracking**: Automatic updates when ICAO standards change or new amendments are published
+  
+  **ICAO Aerodrome Design Manual Integration:**
+  - **Doc 9157 Monitoring**: Comprehensive tracking of all Aerodrome Design Manual parts with automatic updates:
+    - **Part 1**: Runways (runway design, pavement specifications, marking requirements)
+    - **Part 2**: Taxiways, Aprons and Holding Bays (geometry, markings, lighting specifications)
+    - **Part 3**: Pavements (structural design, load requirements, maintenance standards)
+    - **Part 4**: Visual Aids (lighting systems, marking specifications, sign requirements)
+    - **Part 5**: Electrical Systems (power supply, control systems, monitoring requirements)
+    - **Part 6**: Frangibility (frangible structures, safety requirements, testing procedures)
+  
+  **Visual Aids Documentation Compliance (Doc 9157 Part 4):**
+  - **Lighting System Specifications**: Complete integration of design requirements for:
+    - **Approach Lighting Systems**: CAT I/II/III configurations with precise positioning and photometric requirements
+    - **Runway Lighting**: Edge lights, centerline lights, threshold and end lights with intensity and color specifications
+    - **Taxiway Lighting**: Centerline lights, edge lights, stop bars with operational requirements
+    - **PAPI/VASI Systems**: Installation specifications, calibration requirements, and maintenance procedures
+    - **Obstruction Lighting**: Aviation lighting for obstacles with flash characteristics and photometric data
+  
+  - **Marking and Sign Requirements**: Design manual specifications for:
+    - **Runway Markings**: Dimensional specifications, retroreflectivity requirements, color standards
+    - **Taxiway Markings**: Centerline markings, holding position markings, intermediate holding positions
+    - **Mandatory Instruction Signs**: Location requirements, illumination specifications, legend standards
+    - **Information Signs**: Direction signs, location signs, destination signs with visibility requirements
+    - **Apron Markings**: Aircraft stand markings, service road markings, safety area delineation
+  
+  **Design Manual Update Monitoring:**
+  - **Version Control**: Tracking of all design manual revisions and amendments with impact assessment
+  - **Change Notifications**: Automated alerts when new editions or amendments are published
+  - **Implementation Timelines**: Tracking of mandatory implementation dates for design changes
+  - **Grandfather Clause Management**: Documentation of existing installations and upgrade requirements
+  - **Technical Specifications Updates**: Automatic integration of revised technical parameters and tolerances
 
   **Device-Specific ICAO Compliance Profiles:**
 
@@ -443,17 +474,170 @@ The platform provides comprehensive inspection lifecycle management with intelli
 
 The platform ensures comprehensive ICAO compliance while providing maximum operational flexibility and efficiency through intelligent scheduling, visual status management, and automated planning capabilities.
 
-#### Intelligent Flight Path Planning
+#### Advanced Custom Flight Path Planning and Mission Construction
 
-The core innovation of the task management system is its ability to automatically generate complex flight paths that satisfy the unique measurement requirements of multiple objects within a single mission:
+The system features sophisticated flight path planning that constructs optimal missions by combining customizable flight templates for different object types with intelligent path optimization algorithms.
 
-**Object-Specific Measurement Requirements:**
-- Each device/object in the airport registry contains detailed measurement specifications including:
-  - **Required distances**: Minimum and maximum measurement distances for accurate data collection
-  - **Viewing angles**: Specific horizontal and vertical angles needed for comprehensive assessment
-  - **Flight patterns**: Prescribed flight geometries (linear, circular, grid, figure-8) for optimal data capture
-  - **Measurement points**: Discrete positions where the drone must collect data with specific sensor orientations
-  - **Regulatory standards**: ICAO/FAA/EASA compliance requirements for measurement methodology
+#### Custom Flight Path Templates for Object Types
+
+**Template-Based Flight Planning:**
+Each object type in the airport registry has customizable flight path templates defining precise measurement requirements:
+
+**PAPI Light Flight Template:**
+- **Approach Pattern Sequence**:
+  - **Position 1**: 300m distance, 50m altitude, drone orientation 0° (facing PAPI), gimbal -15° (looking down at lights)
+  - **Position 2**: 500m distance, 75m altitude, drone orientation 0°, gimbal -10° (pilot eye height simulation)
+  - **Position 3**: 1000m distance, 100m altitude, drone orientation 0°, gimbal -5° (approach angle verification)
+  - **Position 4**: 1500m distance, 150m altitude, drone orientation 0°, gimbal -3° (maximum distance measurement)
+- **Lateral Sweep Pattern**:
+  - **Arc Pattern**: 300m radius centered on PAPI, 15 waypoints, drone orientation tangential, gimbal -12°
+  - **Coverage**: ±30° horizontal from approach centerline for beam spread analysis
+- **Color Transition Mapping**:
+  - **Precise Grid**: 2.5° to 3.5° glide path range, 5m intervals, gimbal pointing directly at light array
+  - **Data Collection**: 60fps video capture with GPS synchronization for angle calculations
+
+**Runway Edge Light Flight Template:**
+- **Linear Parallel Pattern**:
+  - **Primary Pass**: 50m lateral distance, 25m altitude, drone orientation parallel to runway, gimbal -30° (perpendicular to lights)
+  - **Secondary Pass**: 100m lateral distance, 40m altitude, drone orientation parallel, gimbal -20° (uniformity assessment)
+  - **Cross-Pattern**: Perpendicular approaches every 200m, gimbal pointing directly at light fixtures
+- **Individual Light Inspection**:
+  - **Hover Points**: 15m distance from each light, 10m altitude, drone orientation facing light, gimbal 0° (horizontal)
+  - **Multi-Angle Capture**: 5 positions around each critical light (±45°, ±90°, 180°)
+
+**Pavement Inspection Flight Template:**
+- **Grid Survey Pattern**:
+  - **Altitude**: 15m AGL for 1.5mm/pixel ground sampling distance
+  - **Speed**: 5 m/s for motion blur prevention
+  - **Overlap**: 80% forward, 60% side overlap for photogrammetry
+  - **Drone Orientation**: Always facing flight direction for GPS antenna optimization
+  - **Gimbal Position**: -90° (nadir) for perpendicular surface imaging
+- **Crack Detail Pattern**:
+  - **Low Altitude**: 5m AGL for sub-millimeter crack detection
+  - **Oblique Angles**: Gimbal at -60°, -45°, -30° for shadow enhancement of surface defects
+
+**Obstacle Survey Flight Template:**
+- **Circular Pattern**: 
+  - **Radius**: 50m from obstacle center
+  - **Altitude Layers**: Base+10m, Base+25m, Base+50m, Top+20m
+  - **Positions**: 12 waypoints (30° intervals) around obstacle
+  - **Drone Orientation**: Always facing obstacle center
+  - **Gimbal Angles**: Variable from +30° (looking up) to -45° (looking down)
+- **Vertical Profile**:
+  - **Linear Ascent**: From base to top+20m at 2 cardinal directions
+  - **Photo Intervals**: Every 5m altitude for complete height documentation
+
+**Perimeter Fence Flight Template:**
+- **Fence-Following Pattern**:
+  - **Lateral Distance**: 20m from fence line (safety buffer)
+  - **Altitude**: 30m AGL for overview, 10m AGL for detail
+  - **Drone Orientation**: Parallel to fence direction
+  - **Gimbal Angle**: -20° for fence integrity assessment
+- **Detail Inspection Points**:
+  - **Gates and Access Points**: Hover at 15m distance, gimbal 0° for direct view
+  - **Corner Sections**: Multi-angle approach (3 positions per corner)
+
+#### Intelligent Flight Path Construction from Object Requirements
+
+**Multi-Object Mission Assembly:**
+When multiple objects are assigned to a single mission, the system intelligently constructs the optimal flight path:
+
+**Requirement Aggregation Process:**
+1. **Object Analysis**: System extracts all flight templates for assigned objects
+2. **Position Mapping**: All required waypoints plotted on 3D airport model with obstacle integration
+3. **Altitude Optimization**: Determines optimal altitude layers minimizing transitions while meeting all requirements
+4. **Pattern Integration**: Combines individual patterns into continuous flight path minimizing travel time
+5. **Resource Validation**: Ensures battery capacity sufficient for complete mission with safety margins
+
+**Smart Waypoint Optimization:**
+- **Spatial Clustering**: Groups nearby measurement points to minimize drone travel
+- **Altitude Sequencing**: Orders waypoints to minimize vertical movements and energy consumption
+- **Orientation Planning**: Optimizes drone rotation sequences to reduce gimbal movement and stabilization time
+- **Data Collection Timing**: Synchronizes sensor activation with optimal positioning for each measurement
+
+**Example Multi-Object Mission Construction:**
+Mission includes: 2 PAPI systems, 50 runway edge lights, pavement section survey
+1. **Requirement Extraction**:
+   - PAPI A: 8 waypoints (4 approach + 4 lateral)
+   - PAPI B: 8 waypoints (4 approach + 4 lateral)
+   - Edge Lights: 100 waypoints (2 passes × 50 lights)
+   - Pavement: 120 waypoints (grid pattern)
+   - Total: 236 individual measurement requirements
+
+2. **Intelligent Optimization**:
+   - **Altitude Layers**: High (150m) for PAPI distant measurements, Medium (50m) for PAPI close/edge lights, Low (15m) for pavement
+   - **Sequence**: High→Medium→Low to minimize battery consumption on climbs
+   - **Travel Path**: Optimized to minimize total flight distance while hitting all required points
+   - **Final Path**: 156 optimized waypoints (35% reduction) completing all requirements
+
+#### Detailed Drone Positioning and Camera Orientation Specifications
+
+**Comprehensive Waypoint Definition:**
+Each waypoint in the final flight path contains complete positioning and sensor configuration:
+
+**Spatial Positioning (6 Degrees of Freedom):**
+- **GPS Coordinates**: Latitude, longitude (WGS-84, decimal degrees to 8 decimal places)
+- **Altitude**: Meters above ground level (AGL) with terrain compensation
+- **Drone Orientation**: 
+  - **Yaw**: 0-360° heading relative to magnetic north
+  - **Pitch**: ±30° forward/backward tilt for dynamic positioning
+  - **Roll**: ±30° left/right tilt for lateral movement optimization
+
+**Gimbal and Camera Configuration:**
+- **Gimbal Tilt**: -90° to +30° (nadir to upward looking)
+- **Gimbal Pan**: ±180° horizontal rotation for independent camera pointing
+- **Gimbal Roll**: ±45° for horizon correction and oblique imaging
+- **Camera Settings**: 
+  - **ISO**: Auto/manual (100-3200) based on lighting conditions
+  - **Shutter Speed**: 1/120s to 1/2000s for motion blur control
+  - **Aperture**: f/2.8 to f/11 for depth of field optimization
+  - **Focus**: Auto/manual with hyperfocal distance calculations
+
+**Sensor Activation Parameters:**
+- **Photo Trigger**: GPS-based automatic capture at precise positions
+- **Video Recording**: Start/stop commands with frame rate specification (30/60fps)
+- **Thermal Imaging**: Temperature range and gain settings for optimal contrast
+- **LiDAR Scanning**: Point density and range settings for required accuracy
+- **Spectral Sensors**: Band selection and integration time for material analysis
+
+**Flight Dynamics and Stability:**
+- **Hover Time**: Duration at each waypoint for sensor stabilization (2-10 seconds)
+- **Transition Speed**: Velocity between waypoints optimized for stability and efficiency
+- **Positioning Accuracy**: RTK GPS requirements for sub-centimeter positioning
+- **Wind Compensation**: Automatic adjustment for gimbal stability in windy conditions
+- **Vibration Damping**: Camera stabilization parameters for clear imaging
+
+#### Advanced Path Optimization Algorithms
+
+**Multi-Objective Optimization Engine:**
+The system employs sophisticated algorithms to balance multiple competing objectives:
+
+**Optimization Objectives:**
+- **Minimize Flight Time**: Reduce total mission duration for operational efficiency
+- **Maximize Data Quality**: Ensure optimal positioning for all measurements
+- **Minimize Energy Consumption**: Optimize altitude changes and flight patterns for battery life
+- **Ensure Safety**: Maintain obstacle clearance and emergency escape route availability
+- **Meet Regulatory Requirements**: Satisfy all ICAO measurement specifications
+
+**Advanced Algorithms:**
+- **Traveling Salesman Problem (TSP) Solver**: Optimizes waypoint sequence for minimum travel distance
+- **Genetic Algorithm**: Multi-objective optimization considering all flight parameters simultaneously
+- **Simulated Annealing**: Fine-tuning of final path for local optimization
+- **A* Pathfinding**: 3D obstacle avoidance with cost optimization for each path segment
+- **Dynamic Programming**: Optimal altitude layer sequencing minimizing energy consumption
+
+**Real-Time Optimization Features:**
+- **Weather Adaptation**: Automatic path modification based on wind conditions and visibility
+- **Obstacle Updates**: Real-time integration of new obstacles (aircraft, vehicles) into path planning
+- **Battery Monitoring**: Continuous optimization based on actual battery consumption vs. predictions
+- **Quality Feedback**: Path adjustment based on real-time analysis of captured data quality
+- **Emergency Replanning**: Instant alternative path generation for equipment failures or airspace restrictions
+
+**Validation and Safety Checks:**
+- **3D Collision Detection**: Verification that entire flight path avoids all obstacles with safety margins
+- **Regulatory Compliance**: Automated verification that all ICAO measurement requirements are satisfied
+- **Performance Prediction**: Accurate estimation of mission duration, battery consumption, and data quality
+- **Contingency Planning**: Alternative paths for weather delays, equipment issues, or airspace restrictions
 
 **3D-Aware Multi-Object Mission Optimization:**
 - **Comprehensive 3D Obstacle Integration**: Advanced algorithms that process complete 3D obstacle database for flight planning:
@@ -623,6 +807,12 @@ Sophisticated aerial inspection capabilities addressing nine critical ICAO Annex
   - **Airotec DeFI (Poland)**: Automated PAPI inspection fully compliant with ICAO Doc 9157 Part 4
   - **CANARD Drones (Spain)**: DGAC-approved PAPI verification system
   - **CURSIR (Russia)**: ILS/VOR/PAPI inspection system with regulatory acceptance
+  
+  **Doc 9157 Part 4 Integration**: Direct compliance verification against Visual Aids design specifications:
+  - **Installation Requirements**: Automated verification of PAPI positioning per Section 5.3.5 (15m ±1m from runway edge, 9m unit spacing)
+  - **Photometric Compliance**: Real-time comparison against Appendix 2 intensity and beam pattern requirements
+  - **Color Specifications**: Spectral analysis verification against Appendix 1 chromaticity coordinates for red/white transition
+  - **Maintenance Standards**: Integration with Part 4 preventive maintenance requirements and testing procedures
   
   **Operational Benefits**: 65-90% cost savings vs flight inspection aircraft, 90% emission reduction, minimal runway occupation (<20 minutes)
 
@@ -1543,14 +1733,36 @@ inspection_protocols: id, device_type_id, icao_procedure_reference,
                       measurement_sequence, acceptance_criteria,
                       typical_duration_minutes, weather_constraints
 
--- Mission Planning with Smart Scheduling Integration
-missions: id, airport_id, scheduled_time, flight_path, status, operator_id,
+-- Flight Path Templates and Waypoint Management
+flight_path_templates: id, object_type_id, template_name, template_description,
+                      waypoint_pattern[], default_parameters, customizable_fields[],
+                      regulatory_compliance_notes, created_by, last_modified
+
+template_waypoints: id, template_id, sequence_number, relative_position_x, relative_position_y,
+                   relative_altitude, drone_orientation, gimbal_tilt, gimbal_pan, gimbal_roll,
+                   hover_time_seconds, sensor_configuration[], trigger_actions[]
+
+waypoint_parameters: id, waypoint_id, parameter_name, parameter_value, parameter_unit,
+                    tolerance_range, weather_dependency, equipment_requirement
+
+-- Mission Planning with Advanced Flight Path Construction
+missions: id, airport_id, scheduled_time, status, operator_id,
           icao_compliance_objective, required_measurements[], devices_covered[],
-          deadline_driven_priority, compliance_window_end, partial_coverage_allowed
+          deadline_driven_priority, compliance_window_end, partial_coverage_allowed,
+          total_waypoints, estimated_flight_time_minutes, battery_consumption_estimate
+
+mission_flight_paths: id, mission_id, optimized_waypoints[], path_optimization_method,
+                     total_distance_meters, altitude_changes_count, 
+                     collision_check_passed, regulatory_compliance_verified
+
+mission_waypoints: id, mission_id, sequence_number, gps_latitude, gps_longitude,
+                  altitude_agl, drone_yaw, drone_pitch, drone_roll,
+                  gimbal_tilt, gimbal_pan, gimbal_roll, hover_time_seconds,
+                  camera_settings[], sensor_activations[], trigger_conditions[]
 
 tasks: id, mission_id, device_ids[], icao_requirements[], completion_status,
        compliance_verification_status, deadline_urgency, color_status,
-       estimated_completion_percentage
+       estimated_completion_percentage, assigned_waypoints[]
 
 -- Visual Status and Map Integration
 device_status_colors: id, device_id, current_color, color_reason,
@@ -1567,6 +1779,35 @@ operational_constraints: id, airport_id, constraint_type, start_date, end_date,
 resource_availability: id, airport_id, resource_type, available_date,
                        capacity_hours, allocated_hours, operator_id,
                        equipment_maintenance_status
+
+-- Comprehensive ICAO Documentation Management
+icao_documents: id, document_type, document_number, title, version, amendment_number, 
+                effective_date, document_url, superseded_by, mandatory_compliance_date,
+                impact_assessment, implementation_status
+
+icao_annexes: id, annex_number, annex_title, current_version, chapter, section, paragraph,
+              requirement_text, amendment_history[], related_documents[]
+
+icao_design_manuals: id, manual_number, part_number, part_title, current_edition,
+                    technical_specifications[], design_requirements[], 
+                    visual_aids_requirements[], update_frequency, last_revision_date
+
+visual_aids_specifications: id, equipment_type, doc_9157_reference, part_section,
+                           design_parameters[], photometric_requirements[], 
+                           installation_specifications[], maintenance_requirements[],
+                           compliance_testing_procedures[]
+
+design_manual_updates: id, manual_id, update_type, update_date, changes_summary,
+                      affected_equipment_types[], implementation_deadline,
+                      airport_impact_assessment, compliance_actions_required[]
+
+regulatory_compliance_matrix: id, device_type_id, applicable_annexes[], 
+                             applicable_design_manuals[], specific_requirements[],
+                             testing_procedures[], compliance_verification_methods[]
+
+device_certifications: id, device_id, certificate_type, certificate_number, 
+                       issue_date, expiry_date, issuing_authority,
+                       icao_compliance_references[], design_manual_compliance[]
 
 -- User Management with Enhanced Notification Preferences
 users: id, email, role, airports[], icao_certifications[], competency_level,
@@ -1734,7 +1975,30 @@ Based on successful implementations at over 200 airports worldwide, the platform
 - **Automated Compliance**: Real-time ICAO threshold monitoring with automatic non-compliance alerts
 - **Documentation Standards**: Complete audit trails meeting ICAO Doc 9137 and state authority requirements
 - **Amendment Tracking**: Automatic updates when ICAO standards change or new amendments published
-- **Quality Assurance**: Continuous validation of drone data against ground truth measurements
+- **Design Manual Integration**: Comprehensive monitoring of ICAO Doc 9157 Aerodrome Design Manual updates
+- **Visual Aids Compliance**: Real-time verification against Doc 9157 Part 4 specifications for lighting and marking systems
+- **Quality Assurance**: Continuous validation of drone data against ground truth measurements and design manual requirements
+
+**ICAO Documentation Monitoring System:**
+- **Comprehensive Coverage**: Tracking of all relevant ICAO documents affecting airport infrastructure:
+  - **Annex 14**: Aerodromes (primary operational standards)
+  - **Doc 9157**: Aerodrome Design Manual Parts 1-6 (technical specifications)
+  - **Doc 9137**: Airport Services Manual (operational procedures)
+  - **Doc 8071**: Manual on Testing of Radio Navigation Aids
+  - **Doc 10019**: RPAS Manual (drone operations guidance)
+  - **PANS-AIM**: Procedures for Air Navigation Services - Aeronautical Information Management
+
+- **Automated Update Detection**: Real-time monitoring of ICAO publication updates with impact assessment:
+  - **Version Control**: Tracking of document revisions, amendments, and corrigenda
+  - **Change Analysis**: Automated identification of changes affecting existing airport infrastructure
+  - **Implementation Timelines**: Monitoring of mandatory compliance dates and transition periods
+  - **Impact Assessment**: Analysis of how document changes affect current inspection procedures and equipment specifications
+
+- **Technical Specification Integration**: Direct integration of design manual requirements into inspection protocols:
+  - **Photometric Standards**: Doc 9157 Part 4 light intensity and color specifications automatically applied to lighting inspections
+  - **Dimensional Requirements**: Runway and taxiway marking specifications from Parts 1 and 2 integrated into measurement protocols
+  - **Installation Standards**: Frangibility requirements from Part 6 incorporated into physical inspection procedures
+  - **Electrical Standards**: Part 5 power supply and monitoring requirements integrated into system health checks
 
 **Success Metrics:**
 - 95%+ accuracy across all ICAO inspection categories with regulatory validation
@@ -1792,11 +2056,27 @@ Based on successful implementations at over 200 airports worldwide, the platform
 
 ### International Regulatory Framework
 
-**ICAO Foundation:**
+**ICAO Foundation and Design Manual Integration:**
 - **Annex 14 Authority**: ICAO Annex 14 recognizes Remotely Piloted Aircraft Systems (RPAS) as acceptable means for airport inspections
 - **RPAS Manual**: Doc 10019 provides operational guidance for drone-based airport operations
+- **Aerodrome Design Manual**: Doc 9157 Parts 1-6 provide technical specifications for all airport infrastructure elements
+- **Visual Aids Standards**: Doc 9157 Part 4 establishes comprehensive requirements for lighting systems, markings, and signs
 - **Technical Standards**: Doc 9157 and Doc 8071 recognize drone technology for aerodrome and NAVAID inspection
 - **Growing Acceptance**: International recognition as States implement drone-friendly aviation regulations
+
+**Design Manual Compliance Framework:**
+- **Part 1 (Runways)**: Runway design criteria, pavement specifications, and marking requirements directly integrated into inspection protocols
+- **Part 2 (Taxiways, Aprons)**: Taxiway geometry, marking specifications, and lighting requirements incorporated into measurement procedures
+- **Part 3 (Pavements)**: Structural design standards and load requirements informing pavement condition assessment criteria
+- **Part 4 (Visual Aids)**: Complete lighting system specifications, photometric requirements, and maintenance standards directly applied to drone inspections
+- **Part 5 (Electrical Systems)**: Power supply monitoring and control system requirements integrated into infrastructure health assessments
+- **Part 6 (Frangibility)**: Frangible structure requirements incorporated into physical inspection and safety assessments
+
+**Automated Design Manual Monitoring:**
+- **Publication Tracking**: Real-time monitoring of ICAO design manual updates, amendments, and new editions
+- **Technical Change Analysis**: Automated assessment of how design manual changes affect existing airport infrastructure
+- **Compliance Gap Analysis**: Identification of areas where current airport installations may not meet updated design standards
+- **Implementation Planning**: Automated generation of upgrade requirements and compliance timelines based on design manual changes
 
 ### Regional Regulatory Pathways
 
