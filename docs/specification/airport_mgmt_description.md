@@ -2942,3 +2942,21 @@ The platform includes a comprehensive web-based administration interface that pr
 - **Sub-second response times** with global CDN
 - **Real-time processing** for critical operations
 - **GPU acceleration** for AI inference
+
+
+
+## UAV–Based PAPI Measurement - PostProcessing Method As An Alternative For Flight Check
+
+Details specified here:
+https://icasc.co/wp-content/uploads/2024/08/UAV_Based-PAPI-Measurement_Post-Processing-Method-As-An-Alternative-for-Flight-Check.pdf
+
+
+
+
+## Drone operator application
+
+Drone operators will need mobile app, which will load mission from the main app on server and push the flight mission for specific task. Once the mission is done, we need to download mission data (including videos) and upload it to server from mobile app.
+Drone operator mobile app will login to server, user will see list of his airports, in airport detail list of planned missions, which should be executed part of the task.
+We will use DJI SDK for mobile apps to schedule exact path, which should be executed by drone for specific task.
+
+

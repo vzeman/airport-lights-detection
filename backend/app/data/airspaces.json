@@ -1,0 +1,252 @@
+{
+  "airspaces": [
+    {
+      "name": "BRATISLAVA CTR",
+      "code": "LZIB_CTR",
+      "icao_designator": "LZIB",
+      "country": "Slovakia",
+      "type": "CTR",
+      "class": "D",
+      "lower_limit": {
+        "value": 0,
+        "unit": "FT",
+        "reference": "SFC"
+      },
+      "upper_limit": {
+        "value": 5000,
+        "unit": "FT",
+        "reference": "MSL"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [17.1, 48.2],
+          [17.3, 48.2],
+          [17.3, 48.1],
+          [17.1, 48.1],
+          [17.1, 48.2]
+        ]]
+      },
+      "frequencies": [
+        {"type": "TWR", "frequency": 120.6, "callsign": "BRATISLAVA TOWER"},
+        {"type": "APP", "frequency": 134.0, "callsign": "BRATISLAVA APPROACH"}
+      ],
+      "active_times": {"schedule": "H24"}
+    },
+    {
+      "name": "BRATISLAVA TMA",
+      "code": "LZBB_TMA",
+      "country": "Slovakia",
+      "type": "TMA",
+      "class": "C",
+      "lower_limit": {
+        "value": 2500,
+        "unit": "FT",
+        "reference": "MSL"
+      },
+      "upper_limit": {
+        "value": 95,
+        "unit": "FL",
+        "reference": "FL"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [16.9, 48.4],
+          [17.5, 48.4],
+          [17.5, 47.9],
+          [16.9, 47.9],
+          [16.9, 48.4]
+        ]]
+      },
+      "frequencies": [
+        {"type": "APP", "frequency": 134.0, "callsign": "BRATISLAVA APPROACH"},
+        {"type": "ACC", "frequency": 134.525, "callsign": "BRATISLAVA RADAR"}
+      ]
+    },
+    {
+      "name": "LZR1 MALACKY",
+      "code": "LZR1",
+      "country": "Slovakia",
+      "type": "RESTRICTED",
+      "class": "G",
+      "lower_limit": {
+        "value": 0,
+        "unit": "FT",
+        "reference": "SFC"
+      },
+      "upper_limit": {
+        "value": 3500,
+        "unit": "FT",
+        "reference": "AGL"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [17.0, 48.4],
+          [17.15, 48.4],
+          [17.15, 48.3],
+          [17.0, 48.3],
+          [17.0, 48.4]
+        ]]
+      },
+      "notes": "Military training area. PPR required.",
+      "active_times": {"schedule": "MON-FRI 0800-1700 LT"}
+    },
+    {
+      "name": "VIENNA CTR",
+      "code": "LOWW_CTR",
+      "icao_designator": "LOWW",
+      "country": "Austria",
+      "type": "CTR",
+      "class": "D",
+      "lower_limit": {
+        "value": 0,
+        "unit": "FT",
+        "reference": "SFC"
+      },
+      "upper_limit": {
+        "value": 2500,
+        "unit": "FT",
+        "reference": "MSL"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [16.4, 48.15],
+          [16.7, 48.15],
+          [16.7, 48.05],
+          [16.4, 48.05],
+          [16.4, 48.15]
+        ]]
+      },
+      "frequencies": [
+        {"type": "TWR", "frequency": 118.775, "callsign": "WIEN TURM"},
+        {"type": "GND", "frequency": 121.6, "callsign": "WIEN GROUND"}
+      ]
+    },
+    {
+      "name": "WIEN TMA",
+      "code": "LOVV_TMA",
+      "country": "Austria",
+      "type": "TMA",
+      "class": "C",
+      "lower_limit": {
+        "value": 2500,
+        "unit": "FT",
+        "reference": "MSL"
+      },
+      "upper_limit": {
+        "value": 245,
+        "unit": "FL",
+        "reference": "FL"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [15.8, 48.6],
+          [17.2, 48.6],
+          [17.2, 47.6],
+          [15.8, 47.6],
+          [15.8, 48.6]
+        ]]
+      },
+      "frequencies": [
+        {"type": "APP", "frequency": 128.2, "callsign": "WIEN RADAR"},
+        {"type": "ACC", "frequency": 133.8, "callsign": "WIEN CONTROL"}
+      ]
+    },
+    {
+      "name": "LZD20 SENEC",
+      "code": "LZD20",
+      "country": "Slovakia",
+      "type": "DANGER",
+      "class": "G",
+      "lower_limit": {
+        "value": 0,
+        "unit": "FT",
+        "reference": "SFC"
+      },
+      "upper_limit": {
+        "value": 3000,
+        "unit": "FT",
+        "reference": "AGL"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [17.35, 48.25],
+          [17.45, 48.25],
+          [17.45, 48.15],
+          [17.35, 48.15],
+          [17.35, 48.25]
+        ]]
+      },
+      "notes": "Parachute jumping area. Active on weekends.",
+      "active_times": {"schedule": "SAT-SUN SR-SS"}
+    },
+    {
+      "name": "JFK CLASS B",
+      "code": "KJFK_B",
+      "icao_designator": "KJFK",
+      "country": "United States",
+      "type": "CTA",
+      "class": "B",
+      "lower_limit": {
+        "value": 0,
+        "unit": "FT",
+        "reference": "SFC"
+      },
+      "upper_limit": {
+        "value": 7000,
+        "unit": "FT",
+        "reference": "MSL"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-73.85, 40.7],
+          [-73.7, 40.7],
+          [-73.7, 40.58],
+          [-73.85, 40.58],
+          [-73.85, 40.7]
+        ]]
+      },
+      "frequencies": [
+        {"type": "APP", "frequency": 125.325, "callsign": "NEW YORK APPROACH"},
+        {"type": "TWR", "frequency": 119.1, "callsign": "KENNEDY TOWER"}
+      ]
+    },
+    {
+      "name": "NEW YORK TMA",
+      "code": "KNYC_TMA",
+      "country": "United States",
+      "type": "TMA",
+      "class": "B",
+      "lower_limit": {
+        "value": 500,
+        "unit": "FT",
+        "reference": "MSL"
+      },
+      "upper_limit": {
+        "value": 7000,
+        "unit": "FT",
+        "reference": "MSL"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-74.3, 41.0],
+          [-73.3, 41.0],
+          [-73.3, 40.3],
+          [-74.3, 40.3],
+          [-74.3, 41.0]
+        ]]
+      },
+      "frequencies": [
+        {"type": "APP", "frequency": 124.7, "callsign": "NEW YORK APPROACH"},
+        {"type": "DEP", "frequency": 135.9, "callsign": "NEW YORK DEPARTURE"}
+      ]
+    }
+  ]
+}
