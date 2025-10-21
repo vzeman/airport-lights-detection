@@ -893,45 +893,48 @@ async def process_video_full(session_id: str):
                 logger.info(f"Successfully extracted {len(real_gps_data)} GPS data points from video")
             else:
                 raise ValueError("No GPS data found in video. Video must contain GPS telemetry data for PAPI measurement processing.")
-            
+
+            # Fetch reference points ONCE before processing (includes PAPI lights and TOUCH_POINT)
+            from app.models import Airport, Runway
+            ref_points_query = select(ReferencePoint).join(
+                Runway, ReferencePoint.runway_id == Runway.id
+            ).join(
+                Airport, Runway.airport_id == Airport.id
+            ).where(
+                and_(
+                    Airport.icao_code == session.airport_icao_code,
+                    Runway.name == session.runway_code
+                )
+            )
+            ref_points_result = await db.execute(ref_points_query)
+            ref_points = ref_points_result.scalars().all()
+
+            # Create reference points lookup (includes PAPI_A, PAPI_B, PAPI_C, PAPI_D, TOUCH_POINT)
+            ref_points_dict = {}
+            for rp in ref_points:
+                ref_points_dict[rp.point_type.value] = {
+                    "latitude": float(rp.latitude),
+                    "longitude": float(rp.longitude),
+                    "elevation": float(rp.elevation_wgs84) if rp.elevation_wgs84 else (float(rp.altitude) if rp.altitude else 0.0)
+                }
+
+            # Validate that we have the required reference points
+            required_points = ["PAPI_A", "PAPI_B", "PAPI_C", "PAPI_D"]
+            missing_points = [pt for pt in required_points if pt not in ref_points_dict]
+            if missing_points:
+                raise ValueError(
+                    f"Missing required reference points: {', '.join(missing_points)}. "
+                    f"Please configure GPS coordinates for all PAPI lights in the database."
+                )
+
+            logger.info(f"Loaded {len(ref_points_dict)} reference points: {list(ref_points_dict.keys())}")
+
             frame_number = 0
-            
+
             while True:
                 ret, frame = cap.read()
                 if not ret:
                     break
-                
-                # Get GPS coordinates from reference points for this session
-                # Fetch PAPI reference points for angle and distance calculations
-                # Need to join through Airport and Runway to get the correct reference points
-                from app.models import Airport, Runway
-                ref_points_query = select(ReferencePoint).join(
-                    Runway, ReferencePoint.runway_id == Runway.id
-                ).join(
-                    Airport, Runway.airport_id == Airport.id
-                ).where(
-                    and_(
-                        Airport.icao_code == session.airport_icao_code,
-                        Runway.name == session.runway_code,
-                        ReferencePoint.point_type.in_([
-                            "PAPI_A",
-                            "PAPI_B", 
-                            "PAPI_C",
-                            "PAPI_D"
-                        ])
-                    )
-                )
-                ref_points_result = await db.execute(ref_points_query)
-                ref_points = ref_points_result.scalars().all()
-                
-                # Create reference points lookup
-                ref_points_dict = {}
-                for rp in ref_points:
-                    ref_points_dict[rp.point_type.value] = {
-                        "latitude": float(rp.latitude),
-                        "longitude": float(rp.longitude),
-                        "elevation": float(rp.altitude) if rp.altitude else 0.0
-                    }
                 
                 # Extract real GPS data for this frame
                 drone_data = None
@@ -989,7 +992,7 @@ async def process_video_full(session_id: str):
                 if frame_number % 10 == 0:
                     session.processed_frames = frame_number
                     if total_frames > 0:
-                        session.progress_percentage = min(90.0, (frame_number / total_frames) * 80.0)  # Keep 10% for final processing
+                        session.progress_percentage = min(80.0, (frame_number / total_frames) * 75.0)  # Reserve 20% for video generation and finalization
                     await db.commit()
             
             cap.release()
@@ -1000,7 +1003,12 @@ async def process_video_full(session_id: str):
             ).order_by(FrameMeasurement.frame_number)
             measurements_result = await db.execute(measurements_query)
             measurements = measurements_result.scalars().all()
-            
+
+            # Update progress: preparing data
+            session.current_phase = "preparing_data"
+            session.progress_percentage = 82.0
+            await db.commit()
+
             # Convert to format expected by video processor and report generator
             measurements_data = []
             drone_telemetry = []
@@ -1058,10 +1066,15 @@ async def process_video_full(session_id: str):
                     'speed': 0.0  # Speed not available in current data model
                 }
                 drone_telemetry.append(drone_frame_data)
-            
-            # Update progress: generating videos
-            session.current_phase = "generating_videos"
-            session.progress_percentage = 90.0
+
+            # Update progress: preparing videos
+            session.current_phase = "preparing_videos"
+            session.progress_percentage = 85.0
+            await db.commit()
+
+            # Update progress: generating PAPI light videos
+            session.current_phase = "generating_papi_videos"
+            session.progress_percentage = 87.0
             await db.commit()
             
             # Generate individual PAPI light videos and enhanced main video
@@ -1069,32 +1082,79 @@ async def process_video_full(session_id: str):
             enhanced_main_video_path = ""
             try:
                 from app.services.video_processor import PAPIVideoGenerator
-                video_generator = PAPIVideoGenerator("data/measurements/videos")
+
+                # Define progress callback to update database
+                async def update_progress_async(percentage: float, message: str):
+                    """Update session progress in database"""
+                    try:
+                        session.progress_percentage = percentage
+                        session.current_phase = message
+                        await db.flush()  # Use flush() instead of commit() to avoid transaction conflicts
+                        logger.info(f"Progress update: {percentage:.1f}% - {message}")
+                    except Exception as e:
+                        logger.warning(f"Failed to update progress: {e}")
+
+                def update_progress(percentage: float, message: str):
+                    """Synchronous wrapper for progress updates"""
+                    # Schedule the async update
+                    import asyncio
+                    try:
+                        asyncio.create_task(update_progress_async(percentage, message))
+                    except RuntimeError:
+                        # If no event loop, just log
+                        logger.info(f"Progress: {percentage:.1f}% - {message}")
+
+                video_generator = PAPIVideoGenerator("data/measurements/videos", progress_callback=update_progress)
                 
-                # Generate individual PAPI light videos
+                # Generate individual PAPI light videos with angle information
                 papi_video_paths = video_generator.generate_papi_videos(
-                    session.video_file_path, session_id, session.light_positions
+                    session.video_file_path, session_id, session.light_positions, measurements_data
                 )
                 logger.info(f"Generated {len(papi_video_paths)} PAPI light videos")
-                
+
+                # Update progress: PAPI videos generated
+                session.current_phase = "generating_enhanced_video"
+                session.progress_percentage = 92.0
+                await db.commit()
+
                 # Generate enhanced main video with drone position overlays and PAPI light rectangles
-                enhanced_main_video_path = video_generator.generate_enhanced_main_video(
-                    session.video_file_path, session_id, session.light_positions, measurements_data,
-                    drone_telemetry, ref_points_dict  # real drone telemetry, reference_points
-                )
-                if enhanced_main_video_path:
-                    logger.info(f"Generated enhanced main video: {enhanced_main_video_path}")
-                else:
-                    logger.warning("Enhanced main video generation failed")
-                    
+                try:
+                    logger.info(f"Starting enhanced video generation for session {session_id}")
+                    logger.info(f"Reference points available: {list(ref_points_dict.keys())}")
+                    logger.info(f"Measurements data frames: {len(measurements_data) if measurements_data else 0}")
+
+                    enhanced_main_video_path = video_generator.generate_enhanced_main_video(
+                        session.video_file_path, session_id, session.light_positions, measurements_data,
+                        drone_telemetry, ref_points_dict  # real drone telemetry, reference_points
+                    )
+                    if enhanced_main_video_path:
+                        logger.info(f"Generated enhanced main video: {enhanced_main_video_path}")
+                    else:
+                        error_msg = "Enhanced main video generation returned empty path"
+                        logger.error(error_msg)
+                        session.error_message = error_msg
+                        await db.commit()
+                except Exception as enhanced_error:
+                    error_msg = f"Enhanced video generation failed: {str(enhanced_error)}"
+                    logger.error(error_msg)
+                    import traceback
+                    logger.error(f"Enhanced video traceback: {traceback.format_exc()}")
+                    session.error_message = error_msg
+                    await db.commit()
+
+                # Update progress: videos generated, storing to database
+                session.current_phase = "storing_results"
+                session.progress_percentage = 95.0
+                await db.commit()
+
             except Exception as video_error:
                 logger.warning(f"Failed to generate PAPI videos: {video_error}")
                 import traceback
                 logger.warning(f"Video generation traceback: {traceback.format_exc()}")
-            
-            # Update progress: completing
+
+            # Update progress: finalizing
             session.current_phase = "completing"
-            session.progress_percentage = 95.0
+            session.progress_percentage = 98.0
             await db.commit()
             
             # HTML report generation removed - data is now displayed directly in the app

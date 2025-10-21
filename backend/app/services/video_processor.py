@@ -1189,9 +1189,13 @@ class VideoProcessor:
             papi_gps = None
             if "ref_points" in drone_data and light_name in drone_data["ref_points"]:
                 papi_gps = drone_data["ref_points"][light_name]
+            elif reference_points and light_name in reference_points:
+                papi_gps = reference_points[light_name]
             else:
-                # Fallback GPS coordinates if not available
-                papi_gps = {"latitude": 48.85959167, "longitude": 17.98482778, "elevation": 245.592}
+                raise ValueError(
+                    f"Reference point coordinates for {light_name} are required for measurements. "
+                    f"Please ensure PAPI light GPS coordinates are configured in the database for this runway."
+                )
             
             # Calculate angles and distances using GPS coordinates
             angle = calculate_angle(drone_data, papi_gps)
@@ -1645,83 +1649,104 @@ class PAPILightTracker:
 class PAPIVideoGenerator:
     """Generate individual PAPI light videos from the main video with GPU acceleration"""
     
-    def __init__(self, output_dir: str, use_gpu: bool = True, batch_size: int = 8):
+    def __init__(self, output_dir: str, use_gpu: bool = True, batch_size: int = 8, progress_callback=None):
         self.output_dir = output_dir
         self.use_gpu = use_gpu
         self.batch_size = batch_size
+        self.progress_callback = progress_callback  # Callback for progress updates
         os.makedirs(output_dir, exist_ok=True)
-        
+
         # Initialize GPU acceleration and batch processor
         self.gpu_accelerator = GPUAccelerator() if use_gpu else None
         self.batch_processor = BatchFrameProcessor(batch_size=batch_size)
         self.frame_cache = FrameProcessingCache()
-        
+
         if self.gpu_accelerator and self.gpu_accelerator.is_enabled():
             logger.info(f"Video generator initialized with GPU acceleration (batch size: {batch_size})")
         else:
             logger.info(f"Video generator initialized with CPU processing (batch size: {batch_size})")
     
-    def generate_enhanced_main_video(self, video_path: str, session_id: str, 
+    def generate_enhanced_main_video(self, video_path: str, session_id: str,
                                    light_positions: Dict, measurements_data: List[Dict],
-                                   drone_telemetry: List[Dict] = None, 
+                                   drone_telemetry: List[Dict] = None,
                                    reference_points: Dict = None) -> str:
         """Generate enhanced version of main video with real drone GPS data overlay and tracked PAPI light rectangles"""
         try:
+            logger.info("=" * 80)
+            logger.info(f"STARTING ENHANCED VIDEO GENERATION for session {session_id}")
+            logger.info(f"Video path: {video_path}")
+            logger.info(f"Light positions: {light_positions}")
+            logger.info(f"Reference points: {list(reference_points.keys()) if reference_points else None}")
+            logger.info(f"Measurements data frames: {len(measurements_data) if measurements_data else 0}")
+            logger.info("=" * 80)
+
             # Extract real GPS data from video file
+            logger.info("Step 1: Extracting GPS data from video file...")
             gps_extractor = GPSExtractor()
             real_gps_data = gps_extractor.extract_gps_data(video_path)
             if real_gps_data:
-                logger.info(f"Successfully extracted {len(real_gps_data)} GPS data points from video")
+                logger.info(f"✓ Successfully extracted {len(real_gps_data)} GPS data points from video")
             else:
-                logger.warning("No GPS data found in video - will use fallback coordinates")
+                logger.error("✗ No GPS data found in video - enhanced video generation will fail without GPS data")
+                return ""
+
+            logger.info("Step 2: Opening video file...")
             cap = cv2.VideoCapture(video_path)
             if not cap.isOpened():
-                logger.error(f"Failed to open video: {video_path}")
+                logger.error(f"✗ Failed to open video: {video_path}")
                 return ""
-            
+            logger.info("✓ Video file opened successfully")
+
             # Get video properties
+            logger.info("Step 3: Reading video properties...")
             fps = int(cap.get(cv2.CAP_PROP_FPS))
             frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            
+            logger.info(f"✓ Video properties: {frame_width}x{frame_height}, {fps} fps, {total_frames} frames")
+
             if total_frames <= 0:
-                logger.error(f"Invalid video: zero frames in {video_path}")
+                logger.error(f"✗ Invalid video: zero frames in {video_path}")
                 cap.release()
                 return ""
-            
+
             # Initialize PAPI light tracker
+            logger.info("Step 4: Initializing PAPI light tracker...")
             light_tracker = PAPILightTracker(light_positions, frame_width, frame_height)
-            
+            logger.info(f"✓ Tracker initialized with {len(light_tracker.tracked_lights)} lights")
+
             # Check if any lights were successfully initialized
             if not light_tracker.tracked_lights:
-                logger.error("No PAPI lights initialized - cannot generate enhanced video")
+                logger.error("✗ No PAPI lights initialized - cannot generate enhanced video")
                 cap.release()
                 return ""
-            
+
             # Create output video path
             enhanced_video_filename = f"{session_id}_enhanced_main_video.mp4"
             enhanced_video_path = os.path.join(self.output_dir, enhanced_video_filename)
-            
+            logger.info(f"Step 5: Creating output video at: {enhanced_video_path}")
+
             # Create video writer with H.264 codec for browser compatibility
             fourcc = cv2.VideoWriter_fourcc(*'avc1')  # H.264 codec
             out = cv2.VideoWriter(enhanced_video_path, fourcc, fps, (frame_width, frame_height))
-            
+
             if not out.isOpened():
-                logger.error(f"Failed to initialize video writer for {enhanced_video_path}")
+                logger.error(f"✗ Failed to initialize video writer for {enhanced_video_path}")
                 cap.release()
                 return ""
+            logger.info("✓ Video writer initialized successfully")
             
             frame_count = 0
             frames_written = 0
-            
+            start_time = time.time()  # Initialize start time for progress tracking
+
             # Pre-compute GPS data for all frames to avoid repeated interpolation
+            logger.info("Step 6: Pre-computing GPS data for all frames...")
             gps_cache = {}
             if real_gps_data:
-                logger.info("Pre-computing GPS data for all frames...")
-                start_time = time.time()
+                gps_start_time = time.time()
                 gps_extractor = GPSExtractor()
-                
+
                 # Batch compute GPS data every 10 frames to reduce computation
                 for i in range(0, total_frames, 10):
                     end_frame = min(i + 10, total_frames)
@@ -1730,21 +1755,24 @@ class PAPIVideoGenerator:
                         if interpolated_gps:
                             gps_cache[frame_idx] = {
                                 "latitude": interpolated_gps.latitude,
-                                "longitude": interpolated_gps.longitude, 
+                                "longitude": interpolated_gps.longitude,
                                 "elevation": interpolated_gps.altitude,
                                 "speed": interpolated_gps.speed or 0.0,
                                 "heading": interpolated_gps.heading or 0.0,
                                 "satellites": interpolated_gps.satellites,
                                 "accuracy": interpolated_gps.accuracy
                             }
-                
-                gps_time = time.time() - start_time
-                logger.info(f"GPS pre-computation completed in {gps_time:.2f}s for {len(gps_cache)} frames")
+
+                gps_time = time.time() - gps_start_time
+                logger.info(f"✓ GPS pre-computation completed in {gps_time:.2f}s for {len(gps_cache)} frames")
+            else:
+                logger.warning("No GPS data available for caching")
             
             # Process frames in batches for better GPU utilization
+            logger.info(f"Step 7: Processing {total_frames} frames in batches of {self.batch_size}...")
             frame_batch = []
             frame_indices = []
-            
+
             while True:
                 ret, frame = cap.read()
                 if not ret:
@@ -1767,12 +1795,17 @@ class PAPIVideoGenerator:
                                                 total_frames, measurements_data, drone_telemetry, 
                                                 reference_points, gps_cache, fps)
                         frames_written += len(frame_batch)
-                        
-                        # Progress logging
+
+                        # Progress logging and callback
                         if frame_count % 100 <= self.batch_size:
-                            elapsed = time.time() - start_time if 'start_time' in locals() else 0
+                            elapsed = time.time() - start_time
                             fps_rate = frame_count / elapsed if elapsed > 0 else 0
                             logger.info(f"Enhanced video: processed {frame_count}/{total_frames} frames ({fps_rate:.1f} fps)")
+
+                            # Update progress via callback (92% base + up to 3% for video generation)
+                            if self.progress_callback:
+                                progress = 92.0 + (frame_count / total_frames) * 3.0
+                                self.progress_callback(progress, f"Generating enhanced video: frame {frame_count}/{total_frames}")
                             
                     except Exception as batch_error:
                         logger.warning(f"Error processing frame batch at {frame_indices[0]}: {batch_error}")
@@ -1786,36 +1819,56 @@ class PAPIVideoGenerator:
                     frame_indices = []
             
             # Release resources
+            logger.info("Step 8: Releasing video resources...")
             cap.release()
             out.release()
-            
+            logger.info(f"✓ Resources released. Total frames written: {frames_written}")
+
             # Verify that we actually wrote frames
+            logger.info("Step 9: Verifying output file...")
             if frames_written == 0:
-                logger.error(f"No frames written to enhanced video - removing empty file")
+                logger.error(f"✗ No frames written to enhanced video - removing empty file")
                 if os.path.exists(enhanced_video_path):
                     os.remove(enhanced_video_path)
                 return ""
-            
+
             # Verify file size
             if os.path.exists(enhanced_video_path):
                 file_size = os.path.getsize(enhanced_video_path)
+                logger.info(f"Output file size: {file_size} bytes")
                 if file_size < 1000:  # Less than 1KB is likely invalid
-                    logger.error(f"Enhanced video file too small ({file_size} bytes) - removing")
+                    logger.error(f"✗ Enhanced video file too small ({file_size} bytes) - removing")
                     os.remove(enhanced_video_path)
                     return ""
-                logger.info(f"Enhanced main video generated: {enhanced_video_path} ({file_size} bytes, {frames_written} frames)")
+                total_time = time.time() - start_time
+                logger.info("=" * 80)
+                logger.info(f"✓ ENHANCED VIDEO GENERATION COMPLETE!")
+                logger.info(f"  Output: {enhanced_video_path}")
+                logger.info(f"  Size: {file_size:,} bytes")
+                logger.info(f"  Frames: {frames_written}/{total_frames}")
+                logger.info(f"  Time: {total_time:.2f}s")
+                logger.info("=" * 80)
             else:
-                logger.error(f"Enhanced video file was not created: {enhanced_video_path}")
+                logger.error("=" * 80)
+                logger.error(f"✗ ENHANCED VIDEO FILE WAS NOT CREATED!")
+                logger.error(f"  Expected path: {enhanced_video_path}")
+                logger.error("=" * 80)
                 return ""
-                
+
             return enhanced_video_path
             
         except Exception as e:
-            logger.error(f"Error generating enhanced main video: {e}")
+            logger.error("=" * 80)
+            logger.error(f"✗ EXCEPTION DURING ENHANCED VIDEO GENERATION!")
+            logger.error(f"  Error: {e}")
+            import traceback
+            logger.error(f"  Stack trace:\n{traceback.format_exc()}")
+            logger.error("=" * 80)
             # Clean up any partial file
             enhanced_video_filename = f"{session_id}_enhanced_main_video.mp4"
             enhanced_video_path = os.path.join(self.output_dir, enhanced_video_filename)
             if os.path.exists(enhanced_video_path):
+                logger.info(f"Removing partial file: {enhanced_video_path}")
                 os.remove(enhanced_video_path)
             return ""
     
@@ -1898,9 +1951,9 @@ class PAPIVideoGenerator:
                 'not_visible': (128, 128, 128),
             }
             rect_color = color_map.get(status, (0, 255, 255))
-            
+
             # Draw rectangle and label
-            thickness = 3 if confidence > 0.5 else 2
+            thickness = 3  # Fixed thickness (confidence removed - not needed for user)
             cv2.rectangle(enhanced_frame, (x1, y1), (x2, y2), rect_color, thickness)
             
             # Calculate angle to PAPI light if we have GPS data
@@ -1912,15 +1965,14 @@ class PAPIVideoGenerator:
                     drone_alt = cached_drone_data.get('elevation', 0)
                     
                     # Get PAPI coordinates from reference points
-                    papi_id = light_name.replace('PAPI_', '').lower()
-                    papi_key = f"papi_{papi_id}"
-                    
-                    if (drone_lat and drone_lon and papi_key in reference_points and 
-                        reference_points[papi_key].get('lat') and reference_points[papi_key].get('lon')):
-                        
-                        papi_lat = reference_points[papi_key]['lat']
-                        papi_lon = reference_points[papi_key]['lon']
-                        papi_alt = reference_points[papi_key].get('elevation', 0)
+                    # reference_points structure: {"PAPI_A": {"latitude": ..., "longitude": ..., "elevation": ...}}
+
+                    if (drone_lat and drone_lon and light_name in reference_points and
+                        reference_points[light_name].get('latitude') and reference_points[light_name].get('longitude')):
+
+                        papi_lat = reference_points[light_name]['latitude']
+                        papi_lon = reference_points[light_name]['longitude']
+                        papi_alt = reference_points[light_name].get('elevation', 0)
                         
                         # Calculate angle using our existing function
                         drone_data = {
@@ -1929,33 +1981,32 @@ class PAPIVideoGenerator:
                             'elevation': drone_alt
                         }
                         papi_gps = {
-                            'lat': papi_lat,
-                            'lon': papi_lon,
+                            'latitude': papi_lat,
+                            'longitude': papi_lon,
                             'elevation': papi_alt
                         }
-                        
+
                         angle = calculate_angle(drone_data, papi_gps)
                         angle_text = f" {angle:.1f}°"
                         
                 except Exception as e:
                     # If angle calculation fails, continue without angle
-                    pass
+                    logger.debug(f"Failed to calculate angle for {light_name}: {e}")
             
             label = f"{light_name}{angle_text}"
-            if confidence > 0:
-                label += f" ({confidence:.2f})"
-            
-            # Add text label
-            text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+            # Confidence removed - not needed for user
+
+            # Add text label (2x bigger font as requested)
+            text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1.2, 4)[0]
             text_x = max(0, x1)
             text_y = max(text_size[1] + 5, y1 - 5)
-            
-            cv2.rectangle(enhanced_frame, 
-                         (text_x, text_y - text_size[1] - 5), 
-                         (text_x + text_size[0] + 5, text_y + 5), 
+
+            cv2.rectangle(enhanced_frame,
+                         (text_x, text_y - text_size[1] - 5),
+                         (text_x + text_size[0] + 5, text_y + 5),
                          (0, 0, 0), -1)
-            cv2.putText(enhanced_frame, label, (text_x + 2, text_y), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            cv2.putText(enhanced_frame, label, (text_x + 2, text_y),
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 4)
         
         # Add optimized overlays
         self._add_drone_position_overlay_optimized(enhanced_frame, frame_number, cached_drone_data, reference_points)
@@ -1993,16 +2044,16 @@ class PAPIVideoGenerator:
         
         # Calculate angle to touch point if reference points available
         touch_point_angle_text = ""
-        if reference_points and 'touch_point' in reference_points:
+        if reference_points and 'TOUCH_POINT' in reference_points:
             try:
                 drone_lat = drone_data.get('latitude')
                 drone_lon = drone_data.get('longitude')
                 drone_alt = drone_data.get('elevation', 0)
-                
-                touch_lat = reference_points['touch_point'].get('lat')
-                touch_lon = reference_points['touch_point'].get('lon')
-                touch_alt = reference_points['touch_point'].get('elevation', 0)
-                
+
+                touch_lat = reference_points['TOUCH_POINT'].get('latitude')
+                touch_lon = reference_points['TOUCH_POINT'].get('longitude')
+                touch_alt = reference_points['TOUCH_POINT'].get('elevation', 0)
+
                 if drone_lat and drone_lon and touch_lat and touch_lon:
                     # Calculate angle to touch point
                     touch_data = {
@@ -2011,30 +2062,32 @@ class PAPIVideoGenerator:
                         'elevation': drone_alt
                     }
                     touch_gps = {
-                        'lat': touch_lat,
-                        'lon': touch_lon,
+                        'latitude': touch_lat,
+                        'longitude': touch_lon,
                         'elevation': touch_alt
                     }
-                    
+
                     touch_angle = calculate_angle(touch_data, touch_gps)
-                    touch_point_angle_text = f"Touch Point: {touch_angle:.1f}°"
+                    touch_point_angle_text = f"Touch Point Angle: {touch_angle:.1f}°"
             except Exception as e:
                 # If angle calculation fails, continue without angle
-                pass
+                logger.debug(f"Failed to calculate touch point angle: {e}")
 
-        # Basic drone data
+        # Basic drone data (removed speed, added touch point angle)
         basic_texts = [
             f"Frame: {frame_number + 1} | {gps_source}{gps_quality}",
             f"Lat: {drone_data.get('latitude', 0):.6f}°",
-            f"Lon: {drone_data.get('longitude', 0):.6f}°", 
+            f"Lon: {drone_data.get('longitude', 0):.6f}°",
             f"Alt: {drone_data.get('elevation', 0):.1f}m",
-            f"Speed: {drone_data.get('speed', 0):.1f} m/s",
             f"Heading: {drone_data.get('heading', 0):.1f}°",
         ]
-        
-        # Add touch point angle if available
+
+        # Add touch point angle if available (replaces speed parameter)
         if touch_point_angle_text:
             basic_texts.append(touch_point_angle_text)
+        else:
+            # Placeholder to maintain consistent overlay size
+            basic_texts.append("")  # Empty line if no touch point angle
         
         # Draw information
         text_color = (255, 255, 255)
@@ -2087,28 +2140,27 @@ class PAPIVideoGenerator:
             rect_color = (int(rgb[2]), int(rgb[1]), int(rgb[0]))  # BGR format
             
             # Draw rectangle around PAPI light with detected color
-            thickness = 3 if confidence > 0.5 else 2  # Thicker line for higher confidence
+            thickness = 3  # Fixed thickness (confidence removed - not needed for user)
             cv2.rectangle(enhanced_frame, (x1, y1), (x2, y2), rect_color, thickness)
-            
+
             # Draw light name label
             label = f"{light_name}"
-            if confidence > 0:
-                label += f" ({confidence:.2f})"
-            
-            # Calculate text position (above the rectangle)
-            text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+            # Confidence removed - not needed for user
+
+            # Calculate text position (above the rectangle) - 2x bigger font as requested
+            text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1.2, 4)[0]
             text_x = max(0, x1)
             text_y = max(text_size[1] + 5, y1 - 5)
-            
+
             # Draw text background
-            cv2.rectangle(enhanced_frame, 
-                         (text_x, text_y - text_size[1] - 5), 
-                         (text_x + text_size[0] + 5, text_y + 5), 
+            cv2.rectangle(enhanced_frame,
+                         (text_x, text_y - text_size[1] - 5),
+                         (text_x + text_size[0] + 5, text_y + 5),
                          (0, 0, 0), -1)
-            
+
             # Draw text
-            cv2.putText(enhanced_frame, label, (text_x + 2, text_y), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            cv2.putText(enhanced_frame, label, (text_x + 2, text_y),
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 4)
         
         # Keep the existing overlay methods for drone position, etc.
         self._add_drone_position_overlay(enhanced_frame, frame_number, drone_telemetry, reference_points, real_gps_data, fps)
@@ -2245,7 +2297,7 @@ class PAPIVideoGenerator:
         line_height = 80
         
         # Basic drone data with GPS quality indicators
-        gps_source = "📡 REAL GPS" if real_gps_data else "⚠️ FALLBACK"
+        gps_source = "REAL GPS" if real_gps_data else "FALLBACK"
         gps_quality = ""
         if drone_data.get('satellites'):
             gps_quality = f" ({drone_data['satellites']} sats)"
@@ -2253,11 +2305,11 @@ class PAPIVideoGenerator:
             gps_quality += f" ±{drone_data['accuracy']:.1f}m"
         
         basic_texts = [
+            f"",
             f"Frame: {frame_number + 1} | {gps_source}{gps_quality}",
             f"Lat: {drone_data.get('latitude', 0):.6f}°",
             f"Lon: {drone_data.get('longitude', 0):.6f}°", 
             f"Alt: {drone_data.get('elevation', 0):.1f}m",
-            f"Speed: {drone_data.get('speed', 0):.1f} m/s",
             f"Heading: {drone_data.get('heading', 0):.1f}°",
             "",  # Empty line separator
             "📐 Angles to Targets:"
@@ -2299,14 +2351,10 @@ class PAPIVideoGenerator:
         angles_data = {}
         
         if not reference_points:
-            # Default mock reference points for Trenčín airport (official LZTN coordinates)
-            reference_points = {
-                'PAPI_A': {'latitude': 48.85959167, 'longitude': 17.98482778, 'elevation': 245.592},
-                'PAPI_B': {'latitude': 48.85957750, 'longitude': 17.98489444, 'elevation': 245.587},
-                'PAPI_C': {'latitude': 48.85956389, 'longitude': 17.98495000, 'elevation': 245.594},
-                'PAPI_D': {'latitude': 48.85955028, 'longitude': 17.98500833, 'elevation': 245.615},
-                'touch_point': {'latitude': 48.86111111, 'longitude': 17.98541667, 'elevation': 242.0}
-            }
+            raise ValueError(
+                "Reference points are required for angle calculations. "
+                "Please ensure PAPI light and touch point coordinates are configured in the database for this runway."
+            )
         
         drone_lat = drone_data.get('latitude')
         drone_lon = drone_data.get('longitude') 
@@ -2347,13 +2395,11 @@ class PAPIVideoGenerator:
                     'height_diff': height_diff
                 }
             else:
-                # Fallback data if coordinates not available
-                angles_data[target_id] = {
-                    'angle': 0.0,
-                    'distance': 500.0,
-                    'ground_distance': 500.0,
-                    'height_diff': 0.0
-                }
+                # Raise error if coordinates are not available - no fallback data
+                raise ValueError(
+                    f"Reference point coordinates for '{target_id}' are missing or incomplete. "
+                    f"Required: latitude and longitude. Please ensure all reference points are properly configured."
+                )
         
         return angles_data
     
@@ -2382,8 +2428,9 @@ class PAPIVideoGenerator:
         cv2.putText(frame, frame_text, (bar_x, bar_y - 10), 
                    cv2.FONT_HERSHEY_SIMPLEX, 2.5, (255, 255, 255), 3)
     
-    def generate_papi_videos(self, video_path: str, session_id: str, light_positions: Dict) -> Dict[str, str]:
-        """Generate individual videos for each PAPI light using tracking"""
+    def generate_papi_videos(self, video_path: str, session_id: str, light_positions: Dict,
+                            measurements_data: List[Dict] = None) -> Dict[str, str]:
+        """Generate individual videos for each PAPI light using tracking with angle information"""
         video_paths = {}
         
         try:
@@ -2391,12 +2438,13 @@ class PAPIVideoGenerator:
             if not cap.isOpened():
                 logger.error(f"Failed to open video: {video_path}")
                 return video_paths
-            
+
             # Get video properties
             fps = int(cap.get(cv2.CAP_PROP_FPS))
             frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
             # Initialize PAPI light tracker for individual videos
             light_tracker = PAPILightTracker(light_positions, frame_width, frame_height)
             
@@ -2517,31 +2565,46 @@ class PAPIVideoGenerator:
                             cv2.putText(final_frame, info_text, (5, 320), 
                                       cv2.FONT_HERSHEY_SIMPLEX, 2.5, (0, 0, 0), 3)  # Black text on white
                             
-                            # Add color-coded RGB values in footer
-                            y_pos = 340
+                            # Add color-coded RGB values in footer (smaller font to prevent overlap)
+                            y_pos = 345
                             font = cv2.FONT_HERSHEY_SIMPLEX
-                            font_scale = 3.0
-                            thickness = 3
-                            
+                            font_scale = 0.5
+                            thickness = 1
+
                             # Red component
-                            cv2.putText(final_frame, f"R:{rgb[0]:.0f}", (5, y_pos), 
+                            cv2.putText(final_frame, f"R:{rgb[0]:.0f}", (5, y_pos),
                                       font, font_scale, (0, 0, 255), thickness)  # Red color (BGR)
-                            
-                            # Green component  
-                            cv2.putText(final_frame, f"G:{rgb[1]:.0f}", (80, y_pos), 
+
+                            # Green component
+                            cv2.putText(final_frame, f"G:{rgb[1]:.0f}", (60, y_pos),
                                       font, font_scale, (0, 255, 0), thickness)  # Green color (BGR)
-                            
+
                             # Blue component
-                            cv2.putText(final_frame, f"B:{rgb[2]:.0f}", (155, y_pos), 
+                            cv2.putText(final_frame, f"B:{rgb[2]:.0f}", (115, y_pos),
                                       font, font_scale, (255, 0, 0), thickness)  # Blue color (BGR)
+
+                            # Add angle information if measurements_data is available
+                            if measurements_data and frame_count < len(measurements_data):
+                                frame_measurements = measurements_data[frame_count]
+                                if light_name in frame_measurements:
+                                    angle = frame_measurements[light_name].get('angle')
+                                    if angle is not None:
+                                        angle_text = f"Angle: {angle:.2f}°"
+                                        cv2.putText(final_frame, angle_text, (170, y_pos),
+                                                  font, font_scale, (0, 0, 0), thickness)  # Black text
                             
                             video_writers[light_name].write(final_frame)
                 
                 frame_count += 1
-                
-                # Progress logging every 100 frames
+
+                # Progress logging and callback every 100 frames
                 if frame_count % 100 == 0:
-                    logger.info(f"Processed {frame_count} frames for PAPI videos")
+                    logger.info(f"Processed {frame_count}/{total_frames} frames for PAPI videos")
+
+                    # Update progress via callback (87% base + up to 5% for PAPI video generation)
+                    if self.progress_callback and total_frames > 0:
+                        progress = 87.0 + (frame_count / total_frames) * 5.0
+                        self.progress_callback(progress, f"Generating PAPI videos: frame {frame_count}/{total_frames}")
             
             # Release resources
             cap.release()
