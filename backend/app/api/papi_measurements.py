@@ -335,10 +335,10 @@ async def get_processing_status(
     
     if session.status == "completed":
         response["video_urls"] = {
-            "PAPI_A": f"{settings.API_BASE_URL}/api/v1/videos/{session_id}_papi_a_light.mp4",
-            "PAPI_B": f"{settings.API_BASE_URL}/api/v1/videos/{session_id}_papi_b_light.mp4", 
-            "PAPI_C": f"{settings.API_BASE_URL}/api/v1/videos/{session_id}_papi_c_light.mp4",
-            "PAPI_D": f"{settings.API_BASE_URL}/api/v1/videos/{session_id}_papi_d_light.mp4",
+            "PAPI_A": f"/api/v1/videos/{session_id}_papi_a_light.mp4",
+            "PAPI_B": f"/api/v1/videos/{session_id}_papi_b_light.mp4",
+            "PAPI_C": f"/api/v1/videos/{session_id}_papi_c_light.mp4",
+            "PAPI_D": f"/api/v1/videos/{session_id}_papi_d_light.mp4",
         }
     elif session.status == "error" and session.error_message:
         response["error_message"] = session.error_message
@@ -660,8 +660,8 @@ async def get_measurements_data(
         for key, filename in video_files.items():
             file_path = os.path.join(videos_dir, filename)
             if os.path.exists(file_path):
-                video_urls[key] = f"{settings.API_BASE_URL}/api/v1/videos/{filename}"
-        
+                video_urls[key] = f"/api/v1/videos/{filename}"
+
         summary = {
             "total_frames": 0,
             "duration": 0.0,
@@ -780,8 +780,8 @@ async def get_measurements_data(
     for key, filename in video_files.items():
         file_path = os.path.join(videos_dir, filename)
         if os.path.exists(file_path):
-            video_urls[key] = f"{settings.API_BASE_URL}/api/v1/videos/{filename}"
-    
+            video_urls[key] = f"/api/v1/videos/{filename}"
+
     logger.info(f"Returning video URLs for completed session {session_id}: {video_urls}")
     
     return {

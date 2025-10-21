@@ -201,3 +201,12 @@ async def stream_video(filename: str, request: Request):
             headers=headers,
             media_type='video/mp4'
         )
+
+
+# WORKAROUND: Duplicate video endpoint without /api prefix
+# to handle proxy requests that strip the /api prefix
+@app.api_route("/v1/videos/{filename}", methods=["GET", "HEAD", "OPTIONS"])
+async def stream_video_no_api_prefix(filename: str, request: Request):
+    """Stream video files with proper CORS and range request support (no /api prefix)"""
+    # Reuse the same logic as stream_video
+    return await stream_video(filename, request)

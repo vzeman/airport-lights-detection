@@ -1240,9 +1240,16 @@ class VideoProcessor:
             y = int((y_pct / 100) * frame_height)
             w = h = int((size_pct / 100) * frame_width)  # Square region
         
-        # Create video writer with H.264 codec for browser compatibility
+        # Create video writer with H.264 codec (best browser support)
+        # Try H.264 first (avc1), fallback to mp4v if not available
         fourcc = cv2.VideoWriter_fourcc(*'avc1')  # H.264 codec
         out = cv2.VideoWriter(output_path, fourcc, fps, (w, h))
+
+        # Fallback to mp4v if H.264 not available
+        if not out.isOpened():
+            logger.warning("H.264 codec not available, falling back to mp4v")
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out = cv2.VideoWriter(output_path, fourcc, fps, (w, h))
         
         while True:
             ret, frame = cap.read()
@@ -1726,9 +1733,16 @@ class PAPIVideoGenerator:
             enhanced_video_path = os.path.join(self.output_dir, enhanced_video_filename)
             logger.info(f"Step 5: Creating output video at: {enhanced_video_path}")
 
-            # Create video writer with H.264 codec for browser compatibility
+            # Create video writer with H.264 codec (best browser support)
+            # Try H.264 first (avc1), fallback to mp4v if not available
             fourcc = cv2.VideoWriter_fourcc(*'avc1')  # H.264 codec
             out = cv2.VideoWriter(enhanced_video_path, fourcc, fps, (frame_width, frame_height))
+
+            # Fallback to mp4v if H.264 not available
+            if not out.isOpened():
+                logger.warning("H.264 codec not available for enhanced video, falling back to mp4v")
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                out = cv2.VideoWriter(enhanced_video_path, fourcc, fps, (frame_width, frame_height))
 
             if not out.isOpened():
                 logger.error(f"✗ Failed to initialize video writer for {enhanced_video_path}")
@@ -2480,11 +2494,20 @@ class PAPIVideoGenerator:
                     video_output_path = os.path.join(self.output_dir, video_filename)
                     video_paths[light_name] = video_output_path
                     
-                    # Create video writer with H.264 codec for browser compatibility
+                    # Create video writer with H.264 codec (best browser support)
+                    # Try H.264 first (avc1), fallback to mp4v if not available
                     fourcc = cv2.VideoWriter_fourcc(*'avc1')  # H.264 codec
                     video_writers[light_name] = cv2.VideoWriter(
                         video_output_path, fourcc, fps, (300, 350)  # Fixed 300x350 output size (50px for footer)
                     )
+
+                    # Fallback to mp4v if H.264 not available
+                    if not video_writers[light_name].isOpened():
+                        logger.warning(f"H.264 codec not available for {light_name}, falling back to mp4v")
+                        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                        video_writers[light_name] = cv2.VideoWriter(
+                            video_output_path, fourcc, fps, (300, 350)
+                        )
             
             frame_count = 0
             while True:

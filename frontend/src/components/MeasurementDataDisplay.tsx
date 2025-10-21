@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -101,20 +101,20 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
     
     data.drone_positions.forEach((pos, index) => {
       const row = [
-        pos.frame,
-        pos.timestamp.toFixed(2),
+        pos.frame ?? 0,
+        (pos.timestamp ?? 0).toFixed(2),
         data.papi_data.PAPI_A?.statuses[index] || 'unknown',
-        (data.papi_data.PAPI_A?.angles[index] || 0).toFixed(2),
+        (data.papi_data.PAPI_A?.angles[index] ?? 0).toFixed(2),
         data.papi_data.PAPI_B?.statuses[index] || 'unknown',
-        (data.papi_data.PAPI_B?.angles[index] || 0).toFixed(2),
+        (data.papi_data.PAPI_B?.angles[index] ?? 0).toFixed(2),
         data.papi_data.PAPI_C?.statuses[index] || 'unknown',
-        (data.papi_data.PAPI_C?.angles[index] || 0).toFixed(2),
+        (data.papi_data.PAPI_C?.angles[index] ?? 0).toFixed(2),
         data.papi_data.PAPI_D?.statuses[index] || 'unknown',
-        (data.papi_data.PAPI_D?.angles[index] || 0).toFixed(2),
-        pos.latitude.toFixed(6),
-        pos.longitude.toFixed(6),
-        (pos.elevation - groundElevation).toFixed(1), // Height above ground level
-        pos.elevation.toFixed(1) // Absolute elevation above sea level
+        (data.papi_data.PAPI_D?.angles[index] ?? 0).toFixed(2),
+        (pos.latitude ?? 0).toFixed(6),
+        (pos.longitude ?? 0).toFixed(6),
+        ((pos.elevation ?? 0) - groundElevation).toFixed(1), // Height above ground level
+        (pos.elevation ?? 0).toFixed(1) // Absolute elevation above sea level
       ];
       csvLines.push(row.join(','));
     });
@@ -147,36 +147,36 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
     }
     
     return data.drone_positions.map((pos, index) => ({
-      frame: pos.frame,
-      timestamp: pos.timestamp,
-      PAPI_A: data.papi_data.PAPI_A?.angles[index] || 0,
-      PAPI_B: data.papi_data.PAPI_B?.angles[index] || 0,
-      PAPI_C: data.papi_data.PAPI_C?.angles[index] || 0,
-      PAPI_D: data.papi_data.PAPI_D?.angles[index] || 0,
-      latitude: pos.latitude,
-      longitude: pos.longitude,
-      elevation: pos.elevation - groundElevation, // Show height above ground level
-      elevationAbsolute: pos.elevation, // Absolute elevation from GPS
-      elevationExact: pos.elevation // Exact drone elevation for the height profile chart
+      frame: pos.frame ?? 0,
+      timestamp: pos.timestamp ?? 0,
+      PAPI_A: data.papi_data.PAPI_A?.angles[index] ?? 0,
+      PAPI_B: data.papi_data.PAPI_B?.angles[index] ?? 0,
+      PAPI_C: data.papi_data.PAPI_C?.angles[index] ?? 0,
+      PAPI_D: data.papi_data.PAPI_D?.angles[index] ?? 0,
+      latitude: pos.latitude ?? 0,
+      longitude: pos.longitude ?? 0,
+      elevation: (pos.elevation ?? 0) - groundElevation, // Show height above ground level
+      elevationAbsolute: pos.elevation ?? 0, // Absolute elevation from GPS
+      elevationExact: pos.elevation ?? 0 // Exact drone elevation for the height profile chart
     }));
   };
 
   const formatRGBChartData = (lightName: string) => {
     if (!data || !data.papi_data[lightName]) return [];
-    
+
     const lightData = data.papi_data[lightName];
     return lightData.timestamps.map((timestamp, index) => {
       const rgb = lightData.rgb_values[index] || [0, 0, 0];
       const [r, g, b] = Array.isArray(rgb) ? rgb : [0, 0, 0];
-      
-      
+
+
       return {
-        timestamp: timestamp,
-        time: timestamp.toFixed(2),
-        red: r,
-        green: g,
-        blue: b,
-        angle: lightData.angles[index] || 0
+        timestamp: timestamp ?? 0,
+        time: (timestamp ?? 0).toFixed(2),
+        red: r ?? 0,
+        green: g ?? 0,
+        blue: b ?? 0,
+        angle: lightData.angles[index] ?? 0
       };
     });
   };
@@ -313,7 +313,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                 </div>
                 <div>
                   <span className="font-medium">Duration:</span>
-                  <p className="text-gray-600">{data.summary.duration.toFixed(1)}s</p>
+                  <p className="text-gray-600">{(data.summary.duration ?? 0).toFixed(1)}s</p>
                 </div>
                 <div>
                   <span className="font-medium">Total Frames:</span>
@@ -398,18 +398,20 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                           domain={[0, 255]}
                         />
                         {/* Right Y-axis for angles */}
-                        <YAxis 
+                        <YAxis
                           yAxisId="angle"
                           orientation="right"
                           label={{ value: 'Elevation Angle (°)', angle: 90, position: 'insideRight' }}
+                          domain={['dataMin - 1', 'dataMax + 1']}
                         />
-                        <Tooltip 
+                        <Tooltip
                           formatter={(value: any, name: string) => {
+                            if (value == null) return ['N/A', name];
                             if (name === 'angle') return [`${value.toFixed(2)}°`, 'Angle'];
                             if (['red', 'green', 'blue'].includes(name)) return [`${Math.round(value)}`, name.toUpperCase()];
                             return [`${value.toFixed(2)}`, name];
                           }}
-                          labelFormatter={(value: any) => `Time: ${value.toFixed(2)}s`}
+                          labelFormatter={(value: any) => `Time: ${(value ?? 0).toFixed(2)}s`}
                         />
                         <Legend />
                         {/* RGB Lines on left axis */}
@@ -503,9 +505,9 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                     label={{ value: 'Exact Elevation (m)', angle: -90, position: 'insideLeft' }}
                     domain={['dataMin - 5', 'dataMax + 5']}
                   />
-                  <Tooltip 
-                    formatter={(value: any) => [`${value.toFixed(1)}m`, 'Exact Elevation']}
-                    labelFormatter={(value: any) => `Time: ${value.toFixed(2)}s`}
+                  <Tooltip
+                    formatter={(value: any) => [`${(value ?? 0).toFixed(1)}m`, 'Exact Elevation']}
+                    labelFormatter={(value: any) => `Time: ${(value ?? 0).toFixed(2)}s`}
                   />
                   <Line type="monotone" dataKey="elevationExact" stroke="#3b82f6" strokeWidth={2} dot={false} />
                 </LineChart>
@@ -524,12 +526,26 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
             </CardHeader>
             <CardContent>
               <div className="aspect-video">
-                <video 
-                  width="100%" 
-                  height="100%" 
-                  controls 
+                <video
+                  key={data.video_urls?.enhanced_main}
+                  width="100%"
+                  height="100%"
+                  controls
+                  preload="metadata"
                   className="rounded-lg border"
-                  src={data.video_urls.enhanced_main}
+                  src={data.video_urls?.enhanced_main}
+                  onError={(e) => {
+                    const video = e.currentTarget as HTMLVideoElement;
+                    console.error('Enhanced video error:', {
+                      error: video.error,
+                      code: video.error?.code,
+                      message: video.error?.message,
+                      networkState: video.networkState,
+                      readyState: video.readyState,
+                      src: data.video_urls?.enhanced_main
+                    });
+                  }}
+                  onLoadedMetadata={() => console.log('Video loaded:', data.video_urls?.enhanced_main)}
                 >
                   Your browser does not support the video tag.
                 </video>
@@ -551,12 +567,24 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                   <div key={light} className="space-y-3">
                     <h4 className="font-medium text-center">{light.replace('_', ' ')}</h4>
                     <div className="aspect-video">
-                      <video 
-                        width="100%" 
-                        height="100%" 
-                        controls 
+                      <video
+                        key={data.video_urls?.[light as keyof typeof data.video_urls]}
+                        width="100%"
+                        height="100%"
+                        controls
+                        preload="metadata"
                         className="rounded border"
                         src={data.video_urls?.[light as keyof typeof data.video_urls]}
+                        onError={(e) => {
+                          const video = e.currentTarget as HTMLVideoElement;
+                          console.error('Video error:', light, {
+                            error: video.error,
+                            networkState: video.networkState,
+                            readyState: video.readyState,
+                            src: data.video_urls?.[light as keyof typeof data.video_urls]
+                          });
+                        }}
+                        onLoadedMetadata={() => console.log('Video loaded:', light)}
                       >
                         Your browser does not support the video tag.
                       </video>
@@ -585,10 +613,10 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                 <div key={pointId} className="bg-gray-50 p-3 rounded">
                   <h4 className="font-medium">{pointId.replace('_', ' ')}</h4>
                   <div className="mt-2 space-y-1 text-xs text-gray-600">
-                    <p>Lat: {point.latitude.toFixed(6)}</p>
-                    <p>Lon: {point.longitude.toFixed(6)}</p>
-                    <p>Elev: {point.elevation.toFixed(1)}m</p>
-                    <p className="capitalize">Type: {point.point_type.replace('_', ' ')}</p>
+                    <p>Lat: {(point.latitude ?? 0).toFixed(6)}</p>
+                    <p>Lon: {(point.longitude ?? 0).toFixed(6)}</p>
+                    <p>Elev: {(point.elevation ?? 0).toFixed(1)}m</p>
+                    <p className="capitalize">Type: {point.point_type?.replace('_', ' ') ?? 'unknown'}</p>
                   </div>
                 </div>
               ))}

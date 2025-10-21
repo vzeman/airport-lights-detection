@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     )
     
     # API Base URL for serving content (videos, reports, etc.)
-    API_BASE_URL: str = Field(default="http://localhost:8002", env="API_BASE_URL")
+    API_BASE_URL: str = Field(default="http://localhost:8001", env="API_BASE_URL")
     
     # File Storage
     DATA_PATH: str = Field(default="/data", env="DATA_PATH")

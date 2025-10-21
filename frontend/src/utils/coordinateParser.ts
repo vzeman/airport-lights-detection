@@ -4,6 +4,8 @@
  * - Decimal degrees: 48.123456 or -17.654321
  * - Degrees and decimal minutes: N48°52.01' or S12°30.5'
  * - Degrees, minutes, and seconds: N48°52'00.6" or E18°0'15"
+ * - European DMS with comma separator: 49° 13' 57,63" N or 18° 36' 33,396" E
+ * - Compact aviation format: 491400N or 0183649E
  */
 
 export interface CoordinateParseResult {
@@ -106,12 +108,14 @@ function parseDecimalCoordinate(input: string): number | null {
  * - N48°52.01'
  * - E18°0.25'
  * - W100°30'
+ * - 49° 13' 57,63" N (European format with comma)
+ * - 18° 36' 33,396" E (European format with comma)
  * - 491400N (aviation format: DDMMSS + direction)
  * - 0183649E (aviation format: DDDMMSS + direction)
  */
 function parseDMSCoordinate(input: string, type: 'latitude' | 'longitude'): number | null {
-  // Remove spaces for easier parsing
-  const cleaned = input.replace(/\s/g, '');
+  // Remove spaces and normalize comma to dot for decimal separator
+  const cleaned = input.replace(/\s/g, '').replace(/,/g, '.');
 
   // Extract direction (N/S/E/W) if present
   let direction = '';
@@ -236,6 +240,7 @@ export function getCoordinateExamples(type: 'latitude' | 'longitude'): string[] 
       '48.123456 (decimal)',
       'N48°52.01\' (degrees, minutes)',
       'N48°52\'30" (DMS)',
+      '49° 13\' 57,63" N (European DMS)',
       '491400N (compact aviation)',
     ];
   } else {
@@ -243,6 +248,7 @@ export function getCoordinateExamples(type: 'latitude' | 'longitude'): string[] 
       '17.654321 (decimal)',
       'E18°0.25\' (degrees, minutes)',
       'E18°0\'15" (DMS)',
+      '18° 36\' 33,396" E (European DMS)',
       '0183649E (compact aviation)',
     ];
   }
