@@ -431,6 +431,80 @@ REM Stop and remove all data (WARNING: deletes database)
 docker compose down -v
 ```
 
+## Quick Start Scripts (Local Development)
+
+For rapid local development, we provide convenient startup scripts that automatically start both backend and frontend servers with a single command.
+
+### Using the Startup Scripts
+
+**On Linux/macOS**:
+```bash
+./start.sh
+```
+
+**On Windows (PowerShell)**:
+```powershell
+.\start.ps1
+```
+
+**On Windows (Command Prompt/Batch)**:
+```cmd
+start.bat
+```
+
+### What the Scripts Do
+
+The startup scripts automatically:
+1. ✓ Check if Docker is running (for MySQL and Redis)
+2. ✓ Start MySQL and Redis containers if not running
+3. ✓ Create Python virtual environment if needed
+4. ✓ Install backend dependencies if needed
+5. ✓ Start backend server on http://localhost:8000
+6. ✓ Install frontend dependencies if needed
+7. ✓ Start frontend server on http://localhost:3000
+8. ✓ Display status and URLs
+9. ✓ Clean up all processes when you press Ctrl+C
+
+### Script Features
+
+- **Automatic dependency installation**: First run installs all required packages
+- **Background processes**: Both servers run in parallel
+- **Easy shutdown**: Press Ctrl+C to stop both servers cleanly
+- **Log files**: Output is saved to `backend.log` and `frontend.log`
+- **Status checks**: Verifies that all services started successfully
+
+### Accessing the Application
+
+Once the scripts complete, you can access:
+- **Frontend**: http://localhost:3000
+- **Backend API**: http://localhost:8000
+- **API Documentation**: http://localhost:8000/docs
+
+### Default Login Credentials
+
+The application creates a default admin user on first startup:
+- **Email**: admin@airport.com
+- **Password**: Admin123!
+
+### Troubleshooting Startup Scripts
+
+**Problem**: "Docker is not running"
+- **Solution**: Start Docker Desktop before running the script
+
+**Problem**: "Failed to start backend server"
+- **Solution**: Check `backend.log` for error details
+- Ensure port 8000 is not already in use
+
+**Problem**: "Failed to start frontend server"
+- **Solution**: Check `frontend.log` for error details
+- Ensure port 3000 is not already in use
+
+**Problem**: PowerShell script blocked on Windows
+- **Solution**: Run PowerShell as Administrator and execute:
+  ```powershell
+  Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+  ```
+
 ## Local Development (Without Docker Containers)
 
 If you prefer to run the application locally without Docker containers (useful for development and debugging):

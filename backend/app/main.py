@@ -7,6 +7,8 @@ import logging
 import os
 import stat
 from pathlib import Path
+from alembic.config import Config
+from alembic import command
 
 from app.core.config import settings
 from app.api import auth, users, airports, airport_import, airspace, item_types, missions, papi_measurements, runways, reference_points
@@ -23,15 +25,22 @@ async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
     # Startup
     logger.info("Starting up...")
-    # Create tables (in production, use Alembic migrations instead)
+
+    # Create database tables
+    logger.info("Creating database tables...")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    logger.info("Database tables created/verified")
 
     # Initialize default admin user if no users exist
+    logger.info("Initializing default admin user...")
     async with AsyncSessionLocal() as session:
         await init_default_admin(session)
+    logger.info("Default admin initialization complete")
 
+    logger.info("Application startup complete")
     yield
+
     # Shutdown
     logger.info("Shutting down...")
 

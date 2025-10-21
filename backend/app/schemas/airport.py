@@ -161,11 +161,12 @@ class AirportItemResponse(AirportItemBase):
 
 class RunwayBase(BaseModel):
     name: str
-    heading_1: int = Field(..., ge=0, le=360)
-    heading_2: int = Field(..., ge=0, le=360)
+    heading: float = Field(..., ge=0, le=360)
     length: float = Field(..., gt=0)
     width: float = Field(..., gt=0)
     surface_type: Optional[str] = None
+    start_lat: Optional[float] = None
+    start_lon: Optional[float] = None
 
 
 class RunwayCreate(RunwayBase):
@@ -176,11 +177,12 @@ class RunwayCreate(RunwayBase):
 
 class RunwayUpdate(BaseModel):
     name: Optional[str] = None
-    heading_1: Optional[int] = Field(None, ge=0, le=360)
-    heading_2: Optional[int] = Field(None, ge=0, le=360)
+    heading: Optional[float] = Field(None, ge=0, le=360)
     length: Optional[float] = Field(None, gt=0)
     width: Optional[float] = Field(None, gt=0)
     surface_type: Optional[str] = None
+    start_lat: Optional[float] = None
+    start_lon: Optional[float] = None
     geometry: Optional[Dict[str, Any]] = None
     boundary: Optional[Dict[str, Any]] = None
     is_active: Optional[bool] = None
@@ -194,5 +196,8 @@ class RunwayResponse(RunwayBase):
     is_active: bool
     created_at: datetime
     updated_at: datetime
-    
+    # end_lat and end_lon are calculated properties in the model
+    end_lat: Optional[float] = None
+    end_lon: Optional[float] = None
+
     model_config = ConfigDict(from_attributes=True)

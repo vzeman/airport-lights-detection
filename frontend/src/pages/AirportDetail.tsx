@@ -4,6 +4,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card'
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
+import { LatitudeInput, LongitudeInput } from '../components/ui/coordinate-input';
 import { ArrowLeft, Plus, Save, Trash2, Edit2, MapPin } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
@@ -32,11 +33,12 @@ interface Airport {
 interface Runway {
   id?: string;
   name: string;
-  heading_1: number;
-  heading_2: number;
+  heading: number;
   length: number;
   width: number;
   surface_type: string;
+  start_lat?: number;
+  start_lon?: number;
   is_active: boolean;
 }
 
@@ -67,8 +69,7 @@ const AirportDetail: React.FC = () => {
   // Form states
   const [runwayForm, setRunwayForm] = useState<Runway>({
     name: '',
-    heading_1: 0,
-    heading_2: 0,
+    heading: 0,
     length: 0,
     width: 0,
     surface_type: 'asphalt',
@@ -154,8 +155,7 @@ const AirportDetail: React.FC = () => {
       setEditingRunway(null);
       setRunwayForm({
         name: '',
-        heading_1: 0,
-        heading_2: 0,
+        heading: 0,
         length: 0,
         width: 0,
         surface_type: 'asphalt',
@@ -275,8 +275,7 @@ const AirportDetail: React.FC = () => {
                 setEditingRunway(null);
                 setRunwayForm({
                   name: '',
-                  heading_1: 0,
-                  heading_2: 0,
+                  heading: 0,
                   length: 0,
                   width: 0,
                   surface_type: 'asphalt',
@@ -299,8 +298,8 @@ const AirportDetail: React.FC = () => {
                     <h3 className="font-semibold text-lg">Runway {runway.name}</h3>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
                       <div>
-                        <span className="text-sm text-muted-foreground">Headings:</span>
-                        <p className="font-medium">{runway.heading_1}° / {runway.heading_2}°</p>
+                        <span className="text-sm text-muted-foreground">Heading:</span>
+                        <p className="font-medium">{runway.heading}°</p>
                       </div>
                       <div>
                         <span className="text-sm text-muted-foreground">Dimensions:</span>
@@ -367,23 +366,37 @@ const AirportDetail: React.FC = () => {
                 placeholder="09/27"
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Heading 1</Label>
-                <Input
-                  type="number"
-                  value={runwayForm.heading_1}
-                  onChange={(e) => setRunwayForm({...runwayForm, heading_1: parseInt(e.target.value)})}
+            <div>
+              <Label>Heading (degrees)</Label>
+              <Input
+                type="number"
+                step="0.1"
+                min="0"
+                max="360"
+                value={runwayForm.heading}
+                onChange={(e) => setRunwayForm({...runwayForm, heading: parseFloat(e.target.value) || 0})}
+                placeholder="0.0 - 360.0"
+              />
+            </div>
+            <div className="space-y-4">
+              <Label className="text-base font-semibold">Runway Start Position (GPS)</Label>
+              <div className="grid grid-cols-2 gap-4">
+                <LatitudeInput
+                  label="Start Latitude"
+                  value={runwayForm.start_lat}
+                  onChange={(value) => setRunwayForm({...runwayForm, start_lat: value ?? undefined})}
+                  placeholder="e.g., 48.123456 or N48°52.01'"
+                />
+                <LongitudeInput
+                  label="Start Longitude"
+                  value={runwayForm.start_lon}
+                  onChange={(value) => setRunwayForm({...runwayForm, start_lon: value ?? undefined})}
+                  placeholder="e.g., 17.123456 or E17°30.5'"
                 />
               </div>
-              <div>
-                <Label>Heading 2</Label>
-                <Input
-                  type="number"
-                  value={runwayForm.heading_2}
-                  onChange={(e) => setRunwayForm({...runwayForm, heading_2: parseInt(e.target.value)})}
-                />
-              </div>
+              <p className="text-xs text-muted-foreground">
+                End coordinates will be automatically calculated based on start position, length, and heading.
+              </p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -439,43 +452,47 @@ const AirportDetail: React.FC = () => {
                   {point && (
                     <div className="grid grid-cols-3 gap-2">
                       <div>
-                        <Label className="text-xs">Latitude</Label>
                         {isEditing ? (
-                          <Input
-                            type="number"
-                            step="0.0001"
+                          <LatitudeInput
+                            label="Latitude"
                             value={point.latitude}
-                            onChange={(e) => {
+                            onChange={(value) => {
                               const updated = referencePoints.map(p =>
                                 p.point_type === point.point_type
-                                  ? {...p, latitude: parseFloat(e.target.value) || 0}
+                                  ? {...p, latitude: value || 0}
                                   : p
                               );
                               setReferencePoints(updated);
                             }}
+                            showHelp={false}
                           />
                         ) : (
-                          <p className="text-sm font-mono">{point.latitude?.toFixed(6) || 'N/A'}</p>
+                          <div>
+                            <Label className="text-xs">Latitude</Label>
+                            <p className="text-sm font-mono">{point.latitude?.toFixed(6) || 'N/A'}</p>
+                          </div>
                         )}
                       </div>
                       <div>
-                        <Label className="text-xs">Longitude</Label>
                         {isEditing ? (
-                          <Input
-                            type="number"
-                            step="0.0001"
+                          <LongitudeInput
+                            label="Longitude"
                             value={point.longitude}
-                            onChange={(e) => {
+                            onChange={(value) => {
                               const updated = referencePoints.map(p =>
                                 p.point_type === point.point_type
-                                  ? {...p, longitude: parseFloat(e.target.value) || 0}
+                                  ? {...p, longitude: value || 0}
                                   : p
                               );
                               setReferencePoints(updated);
                             }}
+                            showHelp={false}
                           />
                         ) : (
-                          <p className="text-sm font-mono">{point.longitude?.toFixed(6) || 'N/A'}</p>
+                          <div>
+                            <Label className="text-xs">Longitude</Label>
+                            <p className="text-sm font-mono">{point.longitude?.toFixed(6) || 'N/A'}</p>
+                          </div>
                         )}
                       </div>
                       <div>

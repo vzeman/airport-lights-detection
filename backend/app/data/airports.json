@@ -17,8 +17,7 @@
           "length": 3682,
           "width": 61,
           "surface": "ASPHALT",
-          "heading_1": 44,
-          "heading_2": 224,
+          "heading": 44.0,
           "ils": true,
           "lighting": ["PAPI", "ALS", "CENTERLINE", "EDGE", "TDZ"]
         },
@@ -27,8 +26,7 @@
           "length": 2560,
           "width": 61,
           "surface": "ASPHALT",
-          "heading_1": 44,
-          "heading_2": 224,
+          "heading": 44.0,
           "ils": true,
           "lighting": ["PAPI", "EDGE"]
         },
@@ -37,8 +35,7 @@
           "length": 4423,
           "width": 61,
           "surface": "CONCRETE",
-          "heading_1": 135,
-          "heading_2": 315,
+          "heading": 135.0,
           "ils": true,
           "lighting": ["PAPI", "ALS", "CENTERLINE", "EDGE", "TDZ"]
         },
@@ -47,8 +44,7 @@
           "length": 3048,
           "width": 46,
           "surface": "ASPHALT",
-          "heading_1": 135,
-          "heading_2": 315,
+          "heading": 135.0,
           "ils": true,
           "lighting": ["PAPI", "EDGE"]
         }
@@ -291,8 +287,7 @@
           "length": 2900,
           "width": 60,
           "surface": "CONCRETE",
-          "heading_1": 40,
-          "heading_2": 220,
+          "heading": 40.0,
           "ils": true,
           "lighting": ["PAPI", "ALS", "CENTERLINE", "EDGE", "TDZ"]
         },
@@ -301,8 +296,7 @@
           "length": 3190,
           "width": 45,
           "surface": "ASPHALT",
-          "heading_1": 130,
-          "heading_2": 310,
+          "heading": 130.0,
           "ils": true,
           "lighting": ["PAPI", "EDGE"]
         }
@@ -333,8 +327,7 @@
           "length": 3500,
           "width": 45,
           "surface": "ASPHALT",
-          "heading_1": 110,
-          "heading_2": 290,
+          "heading": 110.0,
           "ils": true,
           "lighting": ["PAPI", "ALS", "CENTERLINE", "EDGE"]
         },
@@ -343,8 +336,7 @@
           "length": 3600,
           "width": 60,
           "surface": "CONCRETE",
-          "heading_1": 160,
-          "heading_2": 340,
+          "heading": 160.0,
           "ils": true,
           "lighting": ["PAPI", "ALS", "CENTERLINE", "EDGE", "TDZ"]
         }
@@ -370,8 +362,7 @@
           "length": 3715,
           "width": 45,
           "surface": "CONCRETE",
-          "heading_1": 60,
-          "heading_2": 240,
+          "heading": 60.0,
           "ils": true,
           "lighting": ["PAPI", "ALS", "CENTERLINE", "EDGE"]
         },
@@ -380,8 +371,7 @@
           "length": 3250,
           "width": 45,
           "surface": "CONCRETE",
-          "heading_1": 120,
-          "heading_2": 300,
+          "heading": 120.0,
           "ils": true,
           "lighting": ["PAPI", "EDGE"]
         }
@@ -403,8 +393,7 @@
           "length": 2800,
           "width": 50,
           "surface": "CONCRETE",
-          "heading_1": 110,
-          "heading_2": 290,
+          "heading": 110.0,
           "ils": true,
           "lighting": ["PAPI", "ALS", "EDGE"]
         },
@@ -413,8 +402,7 @@
           "length": 3690,
           "width": 60,
           "surface": "CONCRETE",
-          "heading_1": 150,
-          "heading_2": 330,
+          "heading": 150.0,
           "ils": true,
           "lighting": ["PAPI", "ALS", "CENTERLINE", "EDGE", "TDZ"]
         }
@@ -436,8 +424,7 @@
           "length": 3010,
           "width": 45,
           "surface": "CONCRETE",
-          "heading_1": 130,
-          "heading_2": 310,
+          "heading": 130.0,
           "ils": true,
           "lighting": ["PAPI", "ALS", "CENTERLINE", "EDGE"]
         },
@@ -446,8 +433,7 @@
           "length": 3707,
           "width": 45,
           "surface": "CONCRETE",
-          "heading_1": 130,
-          "heading_2": 310,
+          "heading": 130.0,
           "ils": true,
           "lighting": ["PAPI", "ALS", "CENTERLINE", "EDGE", "TDZ"]
         }

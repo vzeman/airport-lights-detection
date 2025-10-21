@@ -47,25 +47,33 @@ class AirportItemsService:
         length_m = runway.length * 0.3048  # Convert feet to meters
         
         # Calculate endpoints
-        heading_rad_1 = math.radians(runway.heading_1)
-        heading_rad_2 = math.radians(runway.heading_2)
-        
-        # Approximate calculation (works for small distances)
-        lat_offset = (length_m / 2) / 111111  # degrees latitude per meter
-        lon_offset = (length_m / 2) / (111111 * math.cos(math.radians(center_lat)))
-        
-        # Runway end positions
-        end1_lat = center_lat + lat_offset * math.cos(heading_rad_1)
-        end1_lon = center_lon + lon_offset * math.sin(heading_rad_1)
-        end2_lat = center_lat - lat_offset * math.cos(heading_rad_1)
-        end2_lon = center_lon - lon_offset * math.sin(heading_rad_1)
+        heading_rad = math.radians(runway.heading)
+        opposite_heading = (runway.heading + 180) % 360
+        opposite_heading_rad = math.radians(opposite_heading)
+
+        # Use stored GPS coordinates if available, otherwise calculate
+        if runway.start_lat and runway.start_lon and runway.end_lat and runway.end_lon:
+            end1_lat = runway.start_lat
+            end1_lon = runway.start_lon
+            end2_lat = runway.end_lat
+            end2_lon = runway.end_lon
+        else:
+            # Approximate calculation (works for small distances)
+            lat_offset = (length_m / 2) / 111111  # degrees latitude per meter
+            lon_offset = (length_m / 2) / (111111 * math.cos(math.radians(center_lat)))
+
+            # Runway end positions
+            end1_lat = center_lat + lat_offset * math.cos(heading_rad)
+            end1_lon = center_lon + lon_offset * math.sin(heading_rad)
+            end2_lat = center_lat - lat_offset * math.cos(heading_rad)
+            end2_lon = center_lon - lon_offset * math.sin(heading_rad)
         
         # Create PAPI lights if runway has them
         if 'PAPI' in runway_data.get('lighting', []):
             # PAPI lights are typically 300m from threshold on left side
             for end_num, (end_lat, end_lon, heading) in enumerate([
-                (end1_lat, end1_lon, runway.heading_1),
-                (end2_lat, end2_lon, runway.heading_2)
+                (end1_lat, end1_lon, runway.heading),
+                (end2_lat, end2_lon, opposite_heading)
             ], 1):
                 if item_types.get('PAPI Lights'):
                     papi_item = AirportItem(
@@ -104,7 +112,7 @@ class AirportItemsService:
                         
                         # Offset perpendicular to runway
                         width_offset = runway.width * 0.3048 / 2  # Half width in meters
-                        perpendicular_heading = runway.heading_1 + (90 if side == 'right' else -90)
+                        perpendicular_heading = runway.heading + (90 if side == 'right' else -90)
                         perpendicular_rad = math.radians(perpendicular_heading)
                         
                         lat += (width_offset / 111111) * math.cos(perpendicular_rad)
@@ -137,8 +145,8 @@ class AirportItemsService:
                 num_bars = 15  # Number of light bars
                 
                 for end_num, (end_lat, end_lon, heading) in enumerate([
-                    (end1_lat, end1_lon, runway.heading_2),  # Approach to end 1
-                    (end2_lat, end2_lon, runway.heading_1)   # Approach to end 2
+                    (end1_lat, end1_lon, opposite_heading),  # Approach to end 1
+                    (end2_lat, end2_lon, runway.heading)     # Approach to end 2
                 ], 1):
                     for i in range(num_bars):
                         distance = (i + 1) * (approach_distance / num_bars)

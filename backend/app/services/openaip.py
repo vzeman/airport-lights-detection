@@ -197,25 +197,19 @@ class OpenAIPService:
             
         for runway_data in runways_data:
             try:
-                # Parse runway designator (e.g., "04L/22R" -> two headings)
+                # Parse runway designator (e.g., "04L/22R" -> heading from first part)
                 designator = runway_data.get('designator', '')
                 headings = designator.split('/')
-                
-                heading_1 = runway_data.get('heading_1', 0)
-                heading_2 = runway_data.get('heading_2', 0)
-                
-                # If headings not provided, try to extract from designator
-                if not heading_1 and len(headings) > 0:
+
+                heading = runway_data.get('heading', 0.0)
+
+                # If heading not provided, try to extract from designator
+                if not heading and len(headings) > 0:
                     try:
-                        heading_1 = int(''.join(filter(str.isdigit, headings[0]))) * 10
+                        # Extract numeric part from designator (e.g., "04L" -> 40.0 degrees)
+                        heading = float(int(''.join(filter(str.isdigit, headings[0]))) * 10)
                     except:
-                        heading_1 = 0
-                
-                if not heading_2 and len(headings) > 1:
-                    try:
-                        heading_2 = int(''.join(filter(str.isdigit, headings[1]))) * 10
-                    except:
-                        heading_2 = 0
+                        heading = 0.0
                 
                 # Check if runway exists
                 result = await db.execute(
@@ -234,7 +228,7 @@ class OpenAIPService:
                     # Calculate endpoints based on heading
                     lat = airport.latitude
                     lon = airport.longitude
-                    heading_rad = radians(heading_1)
+                    heading_rad = radians(heading)
                     
                     # Simplified calculation for small distances
                     km_to_deg_lat = 1 / 111.0  
@@ -265,8 +259,11 @@ class OpenAIPService:
                         id=str(uuid.uuid4()),
                         airport_id=airport_id,
                         name=designator,
-                        heading_1=heading_1,
-                        heading_2=heading_2,
+                        heading=heading,
+                        start_lat=lat1,
+                        start_lon=lon1,
+                        end_lat=lat2,
+                        end_lon=lon2,
                         length=float(runway_data.get('length', 0)),
                         width=float(runway_data.get('width', 0)),
                         surface_type=runway_data.get('surface', 'UNKNOWN'),

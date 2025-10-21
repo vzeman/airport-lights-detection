@@ -18,21 +18,27 @@ router = APIRouter()
 
 class RunwayCreate(BaseModel):
     name: str
-    heading_1: int
-    heading_2: int
+    heading: float
     length: int
     width: int
     surface_type: str = "asphalt"
+    start_lat: Optional[float] = None
+    start_lon: Optional[float] = None
+    end_lat: Optional[float] = None
+    end_lon: Optional[float] = None
     is_active: bool = True
 
 
 class RunwayUpdate(BaseModel):
     name: Optional[str] = None
-    heading_1: Optional[int] = None
-    heading_2: Optional[int] = None
+    heading: Optional[float] = None
     length: Optional[int] = None
     width: Optional[int] = None
     surface_type: Optional[str] = None
+    start_lat: Optional[float] = None
+    start_lon: Optional[float] = None
+    end_lat: Optional[float] = None
+    end_lon: Optional[float] = None
     is_active: Optional[bool] = None
 
 
@@ -40,11 +46,14 @@ class RunwayResponse(BaseModel):
     id: str
     airport_id: str
     name: str
-    heading_1: int
-    heading_2: int
+    heading: float
     length: int
     width: int
     surface_type: str
+    start_lat: Optional[float] = None
+    start_lon: Optional[float] = None
+    end_lat: Optional[float] = None
+    end_lon: Optional[float] = None
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -163,8 +172,11 @@ async def update_runway(
     
     # Update runway
     update_data = runway_data.dict(exclude_unset=True)
+    # Exclude calculated properties (end_lat and end_lon are computed from start_lat, start_lon, heading, and length)
+    calculated_fields = {'end_lat', 'end_lon'}
     for field, value in update_data.items():
-        setattr(runway, field, value)
+        if field not in calculated_fields:
+            setattr(runway, field, value)
     
     runway.updated_at = datetime.utcnow()
     
