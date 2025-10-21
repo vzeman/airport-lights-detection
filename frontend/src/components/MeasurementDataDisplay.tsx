@@ -343,39 +343,45 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
     const lightData = data.papi_data[lightName];
     const transitionPoints: number[] = [];
 
-    // Use the backend's status data directly - it already knows red vs white!
-    // Look for sustained status changes: red <-> white
-    const minSustainedFrames = 3; // Require new status to be sustained for 3 frames
+    // New algorithm: compute 2*R - G - B for each frame
+    const colorMetrics: number[] = [];
 
-    let currentStatus = lightData.statuses[0];
-    let statusStartIndex = 0;
-    let frameCount = 0;
+    for (let i = 0; i < lightData.rgb_values.length; i++) {
+      const rgb = lightData.rgb_values[i] || [0, 0, 0];
+      const [r, g, b] = Array.isArray(rgb) ? rgb : [0, 0, 0];
 
-    for (let i = 1; i < lightData.statuses.length; i++) {
-      const status = lightData.statuses[i];
+      // Calculate the color transition metric: 2*R - G - B
+      const metric = 2 * r - g - b;
+      colorMetrics.push(metric);
+    }
 
-      if (status === currentStatus) {
-        frameCount++;
-      } else {
-        // Status changed - check if it's a meaningful transition
-        if (frameCount >= minSustainedFrames &&
-            ((currentStatus === 'red' && status === 'white') ||
-             (currentStatus === 'white' && status === 'red'))) {
-          transitionPoints.push(lightData.timestamps[i]);
-        }
+    // Find minimum and maximum values
+    const minMetric = Math.min(...colorMetrics);
+    const maxMetric = Math.max(...colorMetrics);
 
-        currentStatus = status;
-        statusStartIndex = i;
-        frameCount = 1;
+    // Calculate 50% threshold value
+    const threshold = minMetric + (maxMetric - minMetric) * 0.5;
+
+    console.log(`[${lightName}] Color metric range: [${minMetric.toFixed(2)}, ${maxMetric.toFixed(2)}]`);
+    console.log(`[${lightName}] Transition threshold (50%): ${threshold.toFixed(2)}`);
+
+    // Find all transition points where the metric crosses the threshold
+    for (let i = 1; i < colorMetrics.length; i++) {
+      const prevMetric = colorMetrics[i - 1];
+      const currMetric = colorMetrics[i];
+
+      // Check if the metric crossed the threshold (in either direction)
+      if ((prevMetric < threshold && currMetric >= threshold) ||
+          (prevMetric > threshold && currMetric <= threshold)) {
+        transitionPoints.push(lightData.timestamps[i]);
       }
     }
 
-    console.log(`[${lightName}] Status values present:`, [...new Set(lightData.statuses)]);
     console.log(`[${lightName}] Raw transitions detected: ${transitionPoints.length}`);
 
     // Group nearby transitions (within 1.5 seconds) and keep only the first one
     const groupedTransitions: number[] = [];
-    const groupWindow = 1.5; // seconds (balanced)
+    const groupWindow = 1.5; // seconds
 
     for (let i = 0; i < transitionPoints.length; i++) {
       const currentPoint = transitionPoints[i];
@@ -867,6 +873,26 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
             );
             const nominalAngle = lightPoint?.[1]?.nominal_angle;
 
+            // Get angle at each transition point
+            const transitionInfo = transitionPoints.map(timestamp => {
+              const dataPoint = rgbData.find(d => Math.abs(d.timestamp - timestamp) < 0.01);
+              return {
+                timestamp,
+                angle: dataPoint?.angle ?? 0
+              };
+            });
+
+            // Check if transitions are within tolerance
+            const tolerance = lightPoint?.[1]?.tolerance ?? 0.25; // Default 0.25° if not specified
+            const allTransitionsValid = transitionInfo.every(t => {
+              if (!nominalAngle) return true; // Can't validate without nominal angle
+              const deviation = Math.abs(t.angle - nominalAngle);
+              return deviation <= tolerance;
+            });
+
+            const hasTransitions = transitionInfo.length > 0;
+            const canValidate = nominalAngle !== undefined && nominalAngle !== null;
+
             return (
               <Card key={lightName}>
                 <CardHeader>
@@ -876,10 +902,21 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                   {/* Combined RGB Values and Elevation Angles Chart */}
                   <div className="mb-6">
                     <h4 className="text-sm font-medium mb-3">RGB Values and Elevation Angles Over Time</h4>
-                    {transitionPoints.length > 0 ? (
-                      <p className="text-xs text-gray-600 mb-2">
-                        Color transition points marked at: {transitionPoints.map(t => t.toFixed(2) + 's').join(', ')}
-                      </p>
+                    {hasTransitions ? (
+                      <div className="mb-2">
+                        <p className="text-xs text-gray-600 inline">
+                          Color transition points: {transitionInfo.map(t => `${t.timestamp.toFixed(2)}s @ ${t.angle.toFixed(2)}°`).join(', ')}
+                        </p>
+                        {canValidate && (
+                          <span className="ml-3">
+                            {allTransitionsValid ? (
+                              <span className="text-green-600 font-bold text-sm">✓ CORRECT</span>
+                            ) : (
+                              <span className="text-red-600 font-bold text-lg">✗ FAILED</span>
+                            )}
+                          </span>
+                        )}
+                      </div>
                     ) : (
                       <p className="text-xs text-gray-500 mb-2">
                         No color transitions detected (light remained stable)
@@ -916,22 +953,31 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                           labelFormatter={(value: any) => `Time: ${(value ?? 0).toFixed(2)}s`}
                         />
                         <Legend />
-                        {/* Transition Point Markers */}
-                        {transitionPoints.map((timestamp, idx) => (
-                          <ReferenceLine
-                            key={`transition-${idx}`}
-                            x={timestamp}
-                            stroke="#9333ea"
-                            strokeWidth={2}
-                            strokeDasharray="5 5"
-                            label={{
-                              value: 'Transition',
-                              position: 'top',
-                              fill: '#9333ea',
-                              fontSize: 12
-                            }}
-                          />
-                        ))}
+                        {/* Transition Point Markers - horizontal lines at the angle */}
+                        {transitionInfo.map((transition, idx) => {
+                          let label = `Transition @ ${transition.timestamp.toFixed(2)}s`;
+                          if (nominalAngle !== undefined && nominalAngle !== null) {
+                            const deviation = transition.angle - nominalAngle;
+                            const sign = deviation >= 0 ? '+' : '';
+                            label += ` (Δ ${sign}${deviation.toFixed(2)}°)`;
+                          }
+                          return (
+                            <ReferenceLine
+                              key={`transition-${idx}`}
+                              yAxisId="angle"
+                              y={transition.angle}
+                              stroke="#9333ea"
+                              strokeWidth={2}
+                              strokeDasharray="5 5"
+                              label={{
+                                value: label,
+                                position: 'right',
+                                fill: '#9333ea',
+                                fontSize: 10
+                              }}
+                            />
+                          );
+                        })}
                         {/* Nominal angle reference line */}
                         {nominalAngle && (
                           <ReferenceLine
@@ -963,9 +1009,26 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                   {/* Chromaticity Chart */}
                   <div>
                     <h4 className="text-sm font-medium mb-3">Chromaticity (Normalized RGB) and Elevation Angle Over Time</h4>
-                    <p className="text-xs text-gray-600 mb-2">
-                      Red light: red chromaticity ≈ 50-70% | White light: all chromaticity ≈ 33% (balanced)
-                    </p>
+                    {hasTransitions ? (
+                      <div className="mb-2">
+                        <p className="text-xs text-gray-600 inline">
+                          Red light: red chromaticity ≈ 50-70% | White light: all chromaticity ≈ 33% (balanced)
+                        </p>
+                        {canValidate && (
+                          <span className="ml-3">
+                            {allTransitionsValid ? (
+                              <span className="text-green-600 font-bold text-sm">✓ CORRECT</span>
+                            ) : (
+                              <span className="text-red-600 font-bold text-lg">✗ FAILED</span>
+                            )}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-600 mb-2">
+                        Red light: red chromaticity ≈ 50-70% | White light: all chromaticity ≈ 33% (balanced)
+                      </p>
+                    )}
                     <ResponsiveContainer width="100%" height={300}>
                       <LineChart data={rgbData}>
                         <CartesianGrid strokeDasharray="3 3" />
@@ -995,22 +1058,31 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                           labelFormatter={(value: any) => `Time: ${(value ?? 0).toFixed(2)}s`}
                         />
                         <Legend />
-                        {/* Transition Point Markers */}
-                        {transitionPoints.map((timestamp, idx) => (
-                          <ReferenceLine
-                            key={`chroma-transition-${idx}`}
-                            x={timestamp}
-                            stroke="#9333ea"
-                            strokeWidth={2}
-                            strokeDasharray="5 5"
-                            label={{
-                              value: 'Transition',
-                              position: 'top',
-                              fill: '#9333ea',
-                              fontSize: 12
-                            }}
-                          />
-                        ))}
+                        {/* Transition Point Markers - horizontal lines at the angle */}
+                        {transitionInfo.map((transition, idx) => {
+                          let label = `Transition @ ${transition.timestamp.toFixed(2)}s`;
+                          if (nominalAngle !== undefined && nominalAngle !== null) {
+                            const deviation = transition.angle - nominalAngle;
+                            const sign = deviation >= 0 ? '+' : '';
+                            label += ` (Δ ${sign}${deviation.toFixed(2)}°)`;
+                          }
+                          return (
+                            <ReferenceLine
+                              key={`chroma-transition-${idx}`}
+                              yAxisId="angle"
+                              y={transition.angle}
+                              stroke="#9333ea"
+                              strokeWidth={2}
+                              strokeDasharray="5 5"
+                              label={{
+                                value: label,
+                                position: 'right',
+                                fill: '#9333ea',
+                                fontSize: 10
+                              }}
+                            />
+                          );
+                        })}
                         {/* Reference line at 33% (balanced white light) */}
                         <ReferenceLine
                           yAxisId="chroma"
@@ -1230,32 +1302,432 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
 
       {/* Reference Points */}
       {Object.keys(data.reference_points).length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Reference Points</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
-              {Object.entries(data.reference_points).map(([pointId, point]) => (
-                <div key={pointId} className="bg-gray-50 p-3 rounded">
-                  <h4 className="font-medium">{pointId.replace('_', ' ')}</h4>
-                  <div className="mt-2 space-y-1 text-xs text-gray-600">
-                    <p>Lat: {(point.latitude ?? 0).toFixed(6)}</p>
-                    <p>Lon: {(point.longitude ?? 0).toFixed(6)}</p>
-                    <p>Elev: {(point.elevation ?? 0).toFixed(1)}m</p>
-                    <p className="capitalize">Type: {point.point_type?.replace('_', ' ') ?? 'unknown'}</p>
-                    {point.nominal_angle !== undefined && point.nominal_angle !== null && (
-                      <p className="font-medium text-blue-600">Nominal Angle: {point.nominal_angle.toFixed(2)}°</p>
-                    )}
-                    {point.tolerance !== undefined && point.tolerance !== null && (
-                      <p className="font-medium text-orange-600">Tolerance: ±{point.tolerance.toFixed(2)}°</p>
-                    )}
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle>Reference Points</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+                {Object.entries(data.reference_points)
+                  .sort(([, a], [, b]) => {
+                    // Sort by point_type alphabetically
+                    const typeA = a.point_type ?? '';
+                    const typeB = b.point_type ?? '';
+                    return typeA.localeCompare(typeB);
+                  })
+                  .map(([pointId, point]) => {
+                  // Check if this is a PAPI light
+                  const isPAPILight = pointId.includes('PAPI_A') || pointId.includes('PAPI_B') ||
+                                     pointId.includes('PAPI_C') || pointId.includes('PAPI_D') ||
+                                     pointId.includes('PAPI_E') || pointId.includes('PAPI_F') ||
+                                     pointId.includes('PAPI_G') || pointId.includes('PAPI_H');
+
+                  let lightName = '';
+                  let transitionAngles: number[] = [];
+
+                  if (isPAPILight) {
+                    // Extract light name (e.g., "PAPI_A")
+                    if (pointId.includes('PAPI_A')) lightName = 'PAPI_A';
+                    else if (pointId.includes('PAPI_B')) lightName = 'PAPI_B';
+                    else if (pointId.includes('PAPI_C')) lightName = 'PAPI_C';
+                    else if (pointId.includes('PAPI_D')) lightName = 'PAPI_D';
+                    else if (pointId.includes('PAPI_E')) lightName = 'PAPI_E';
+                    else if (pointId.includes('PAPI_F')) lightName = 'PAPI_F';
+                    else if (pointId.includes('PAPI_G')) lightName = 'PAPI_G';
+                    else if (pointId.includes('PAPI_H')) lightName = 'PAPI_H';
+
+                    // Calculate transition angles for this light
+                    const transitionPoints = findColorTransitionPoints(lightName);
+                    const rgbData = formatRGBChartData(lightName);
+                    transitionAngles = transitionPoints.map(timestamp => {
+                      const dataPoint = rgbData.find(d => Math.abs(d.timestamp - timestamp) < 0.01);
+                      return dataPoint?.angle ?? 0;
+                    });
+                  }
+
+                  return (
+                    <div key={pointId} className="bg-gray-50 p-3 rounded">
+                      <h4 className="font-medium">{pointId.replace('_', ' ')}</h4>
+                      <div className="mt-2 space-y-1 text-xs text-gray-600">
+                        <p>Lat: {(point.latitude ?? 0).toFixed(6)}</p>
+                        <p>Lon: {(point.longitude ?? 0).toFixed(6)}</p>
+                        <p>Elev: {(point.elevation ?? 0).toFixed(1)}m</p>
+                        <p className="capitalize">Type: {point.point_type?.replace('_', ' ') ?? 'unknown'}</p>
+                        {point.nominal_angle !== undefined && point.nominal_angle !== null && (
+                          <p className="font-medium text-blue-600">Nominal Angle: {point.nominal_angle.toFixed(2)}°</p>
+                        )}
+                        {point.tolerance !== undefined && point.tolerance !== null && (
+                          <p className="font-medium text-orange-600">Tolerance: ±{point.tolerance.toFixed(2)}°</p>
+                        )}
+                        {isPAPILight && transitionAngles.length > 0 && (
+                          <>
+                            <p className="font-medium text-purple-600 mt-2">
+                              Transition Angle{transitionAngles.length > 1 ? 's' : ''}: {transitionAngles.map(a => a.toFixed(2) + '°').join(', ')}
+                            </p>
+                            {point.nominal_angle !== undefined && point.nominal_angle !== null && transitionAngles.map((angle, idx) => {
+                              const correction = point.nominal_angle! - angle;
+                              const sign = correction >= 0 ? '+' : '';
+                              const isWithinTolerance = Math.abs(angle - point.nominal_angle!) <= (point.tolerance ?? 0.25);
+                              return (
+                                <p key={idx} className={`font-bold ${isWithinTolerance ? 'text-green-600' : 'text-red-600 text-sm'}`}>
+                                  Required Correction: {sign}{correction.toFixed(2)}° {isWithinTolerance ? '✓' : '✗'}
+                                </p>
+                              );
+                            })}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* PAPI Transition Angle Differences Table */}
+          <Card>
+            <CardHeader>
+              <CardTitle>PAPI Light Transition Angle Differences</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {(() => {
+                // Get transition angles for all PAPI lights
+                const papiLights = ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D', 'PAPI_E', 'PAPI_F', 'PAPI_G', 'PAPI_H'];
+                const papiTransitionData: { [key: string]: number | null } = {};
+
+                papiLights.forEach(lightName => {
+                  // Check if this PAPI light exists in the data
+                  const hasData = data.papi_data && data.papi_data[lightName];
+                  if (!hasData) {
+                    papiTransitionData[lightName] = null;
+                    return;
+                  }
+
+                  const transitionPoints = findColorTransitionPoints(lightName);
+                  const rgbData = formatRGBChartData(lightName);
+
+                  if (transitionPoints.length > 0) {
+                    const dataPoint = rgbData.find(d => Math.abs(d.timestamp - transitionPoints[0]) < 0.01);
+                    papiTransitionData[lightName] = dataPoint?.angle ?? null;
+                  } else {
+                    papiTransitionData[lightName] = null;
+                  }
+                });
+
+                // Calculate differences between consecutive pairs
+                const pairs: Array<{ light1: string; light2: string; angle1: number; angle2: number; difference: number }> = [];
+                const consecutivePairs = [
+                  ['PAPI_A', 'PAPI_B'],
+                  ['PAPI_B', 'PAPI_C'],
+                  ['PAPI_C', 'PAPI_D'],
+                  ['PAPI_D', 'PAPI_E'],
+                  ['PAPI_E', 'PAPI_F'],
+                  ['PAPI_F', 'PAPI_G'],
+                  ['PAPI_G', 'PAPI_H']
+                ];
+
+                consecutivePairs.forEach(([light1, light2]) => {
+                  const angle1 = papiTransitionData[light1];
+                  const angle2 = papiTransitionData[light2];
+
+                  if (angle1 !== null && angle2 !== null) {
+                    pairs.push({
+                      light1,
+                      light2,
+                      angle1,
+                      angle2,
+                      difference: angle2 - angle1
+                    });
+                  }
+                });
+
+                if (pairs.length === 0) {
+                  return (
+                    <p className="text-sm text-gray-500">No consecutive PAPI light pairs found with transition data.</p>
+                  );
+                }
+
+                // Define tolerance for differences
+                const nominalDifference = 0.33; // degrees
+                const differenceTolerance = 0.1; // degrees
+                const minAcceptable = nominalDifference - differenceTolerance; // 0.23°
+                const maxAcceptable = nominalDifference + differenceTolerance; // 0.43°
+
+                return (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            PAPI Pair
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            First Light Angle
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Second Light Angle
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Difference
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Tolerance
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Status
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {pairs.map((pair, idx) => {
+                          const absDifference = Math.abs(pair.difference);
+                          const isWithinTolerance = absDifference >= minAcceptable && absDifference <= maxAcceptable;
+
+                          return (
+                            <tr key={idx} className="hover:bg-gray-50">
+                              <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
+                                {pair.light1.replace('_', ' ')} → {pair.light2.replace('_', ' ')}
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                                {pair.angle1.toFixed(2)}°
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                                {pair.angle2.toFixed(2)}°
+                              </td>
+                              <td className={`px-4 py-3 whitespace-nowrap text-sm font-bold ${
+                                isWithinTolerance ? 'text-blue-600' :
+                                Math.abs(pair.difference) < 0.1 ? 'text-green-600' :
+                                Math.abs(pair.difference) < 0.5 ? 'text-orange-600' :
+                                'text-red-600'
+                              }`}>
+                                {pair.difference >= 0 ? '+' : ''}{pair.difference.toFixed(2)}°
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                                0.33 ± 0.1°
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap text-sm font-bold">
+                                {isWithinTolerance ? (
+                                  <span className="text-green-600">✓ CORRECT</span>
+                                ) : (
+                                  <span className="text-red-600 text-base">✗ FAILED</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+                );
+              })()}
+            </CardContent>
+          </Card>
+
+          {/* Red Chromaticity Comparison Table */}
+          <Card>
+            <CardHeader>
+              <CardTitle>PAPI Light Red Chromaticity Comparison</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {(() => {
+                // Get chromaticity data for all PAPI lights
+                const papiLights = ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D', 'PAPI_E', 'PAPI_F', 'PAPI_G', 'PAPI_H'];
+                const chromaData: Array<{ light: string; min: number; max: number }> = [];
+
+                papiLights.forEach(lightName => {
+                  // Check if this PAPI light exists in the data
+                  const hasData = data.papi_data && data.papi_data[lightName];
+                  if (!hasData) return;
+
+                  const rgbData = formatRGBChartData(lightName);
+                  if (rgbData.length === 0) return;
+
+                  const chromaticities = rgbData.map(d => d.redChromaticity);
+                  const minChroma = Math.min(...chromaticities);
+                  const maxChroma = Math.max(...chromaticities);
+
+                  chromaData.push({ light: lightName, min: minChroma, max: maxChroma });
+                });
+
+                if (chromaData.length === 0) {
+                  return <p className="text-sm text-gray-500">No PAPI light chromaticity data available.</p>;
+                }
+
+                // Calculate average min and max across all lights for comparison
+                const allMins = chromaData.map(d => d.min);
+                const allMaxs = chromaData.map(d => d.max);
+                const avgMin = allMins.reduce((a, b) => a + b, 0) / allMins.length;
+                const avgMax = allMaxs.reduce((a, b) => a + b, 0) / allMaxs.length;
+
+                return (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            PAPI Light
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Min Red Chromaticity
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Min Status
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Max Red Chromaticity
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Max Status
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {chromaData.map((item) => {
+                          // Check if min/max deviate by more than 10% from average
+                          const minDeviationPercent = Math.abs((item.min - avgMin) / avgMin) * 100;
+                          const maxDeviationPercent = Math.abs((item.max - avgMax) / avgMax) * 100;
+                          const minFailed = minDeviationPercent > 10;
+                          const maxFailed = maxDeviationPercent > 10;
+
+                          return (
+                            <tr key={item.light} className="hover:bg-gray-50">
+                              <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
+                                {item.light.replace('_', ' ')}
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                                {item.min.toFixed(1)}%
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap text-sm font-bold">
+                                {minFailed ? (
+                                  <span className="text-red-600 text-base">✗ FAILED</span>
+                                ) : (
+                                  <span className="text-green-600">✓ CORRECT</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                                {item.max.toFixed(1)}%
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap text-sm font-bold">
+                                {maxFailed ? (
+                                  <span className="text-red-600 text-base">✗ FAILED</span>
+                                ) : (
+                                  <span className="text-green-600">✓ CORRECT</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
+            </CardContent>
+          </Card>
+
+          {/* Luminosity (Intensity) Comparison Table */}
+          <Card>
+            <CardHeader>
+              <CardTitle>PAPI Light Luminosity (Intensity) Comparison</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {(() => {
+                // Get intensity data for all PAPI lights
+                const papiLights = ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D', 'PAPI_E', 'PAPI_F', 'PAPI_G', 'PAPI_H'];
+                const intensityData: Array<{ light: string; min: number; max: number }> = [];
+
+                papiLights.forEach(lightName => {
+                  // Check if this PAPI light exists in the data
+                  const hasData = data.papi_data && data.papi_data[lightName];
+                  if (!hasData) return;
+
+                  const rgbData = formatRGBChartData(lightName);
+                  if (rgbData.length === 0) return;
+
+                  const intensities = rgbData.map(d => d.intensity);
+                  const minIntensity = Math.min(...intensities);
+                  const maxIntensity = Math.max(...intensities);
+
+                  intensityData.push({ light: lightName, min: minIntensity, max: maxIntensity });
+                });
+
+                if (intensityData.length === 0) {
+                  return <p className="text-sm text-gray-500">No PAPI light intensity data available.</p>;
+                }
+
+                // Calculate average min and max across all lights for comparison
+                const allMins = intensityData.map(d => d.min);
+                const allMaxs = intensityData.map(d => d.max);
+                const avgMin = allMins.reduce((a, b) => a + b, 0) / allMins.length;
+                const avgMax = allMaxs.reduce((a, b) => a + b, 0) / allMaxs.length;
+
+                return (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            PAPI Light
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Min Intensity
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Min Status
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Max Intensity
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Max Status
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {intensityData.map((item) => {
+                          // Check if min/max deviate by more than 10% from average
+                          const minDeviationPercent = Math.abs((item.min - avgMin) / avgMin) * 100;
+                          const maxDeviationPercent = Math.abs((item.max - avgMax) / avgMax) * 100;
+                          const minFailed = minDeviationPercent > 10;
+                          const maxFailed = maxDeviationPercent > 10;
+
+                          return (
+                            <tr key={item.light} className="hover:bg-gray-50">
+                              <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
+                                {item.light.replace('_', ' ')}
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                                {Math.round(item.min)}
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap text-sm font-bold">
+                                {minFailed ? (
+                                  <span className="text-red-600 text-base">✗ FAILED</span>
+                                ) : (
+                                  <span className="text-green-600">✓ CORRECT</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                                {Math.round(item.max)}
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap text-sm font-bold">
+                                {maxFailed ? (
+                                  <span className="text-red-600 text-base">✗ FAILED</span>
+                                ) : (
+                                  <span className="text-green-600">✓ CORRECT</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
+            </CardContent>
+          </Card>
+        </>
       )}
     </div>
   );
