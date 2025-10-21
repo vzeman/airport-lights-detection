@@ -16,6 +16,10 @@ class ReferencePointType(str, enum.Enum):
     PAPI_B = "PAPI_B"
     PAPI_C = "PAPI_C"
     PAPI_D = "PAPI_D"
+    PAPI_E = "PAPI_E"
+    PAPI_F = "PAPI_F"
+    PAPI_G = "PAPI_G"
+    PAPI_H = "PAPI_H"
     TOUCH_POINT = "TOUCH_POINT"
 
 

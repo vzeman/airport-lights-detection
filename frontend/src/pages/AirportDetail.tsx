@@ -5,7 +5,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { LatitudeInput, LongitudeInput } from '../components/ui/coordinate-input';
-import { ArrowLeft, Plus, Save, Trash2, Edit2, MapPin } from 'lucide-react';
+import { ArrowLeft, Plus, Save, Trash2, Edit2, MapPin, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 import {
@@ -45,7 +45,7 @@ interface Runway {
 interface ReferencePoint {
   id?: string;
   runway_id?: string;
-  point_type: 'PAPI_A' | 'PAPI_B' | 'PAPI_C' | 'PAPI_D' | 'TOUCH_POINT';
+  point_type: 'PAPI_A' | 'PAPI_B' | 'PAPI_C' | 'PAPI_D' | 'PAPI_E' | 'PAPI_F' | 'PAPI_G' | 'PAPI_H' | 'TOUCH_POINT';
   latitude: number;
   longitude: number;
   altitude: number;
@@ -431,25 +431,67 @@ const AirportDetail: React.FC = () => {
 
       {/* Reference Points Dialog */}
       <Dialog open={showPointsDialog} onOpenChange={setShowPointsDialog}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>PAPI Lights & Touch Point - Runway {selectedRunway?.name}</DialogTitle>
             <DialogDescription>
-              Configure the GPS positions for PAPI lights (A, B, C, D) and the touch point reference
+              Configure the GPS positions for PAPI lights and the touch point reference
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            {['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D', 'TOUCH_POINT'].map((type) => {
-              const point = referencePoints.find(p => p.point_type === type);
-              const isEditing = editingPoints;
-              
-              return (
-                <div key={type} className="border rounded-lg p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-medium">{type.replace('_', ' ')}</h4>
-                  </div>
-                  
-                  {point && (
+            {/* PAPI Lights Section */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-muted-foreground">PAPI Lights</h3>
+                {editingPoints && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const papiPoints = referencePoints.filter(p => p.point_type.startsWith('PAPI_'));
+                      const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+                      const usedLetters = papiPoints.map(p => p.point_type.split('_')[1]);
+                      const nextLetter = letters.find(l => !usedLetters.includes(l));
+
+                      if (nextLetter) {
+                        const newPoint: ReferencePoint = {
+                          point_type: `PAPI_${nextLetter}` as any,
+                          latitude: selectedRunway?.start_lat || 0,
+                          longitude: selectedRunway?.start_lon || 0,
+                          altitude: airport?.elevation || 0,
+                        };
+                        setReferencePoints([...referencePoints, newPoint]);
+                      } else {
+                        alert('Maximum 8 PAPI lights (A-H) allowed');
+                      }
+                    }}
+                  >
+                    + Add PAPI Light
+                  </Button>
+                )}
+              </div>
+
+              {referencePoints.filter(p => p.point_type.startsWith('PAPI_')).map((point) => {
+                const isEditing = editingPoints;
+
+                return (
+                  <div key={point.point_type} className="border rounded-lg p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="font-medium">{point.point_type.replace('_', ' ')}</h4>
+                      {isEditing && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setReferencePoints(referencePoints.filter(p => p.point_type !== point.point_type));
+                          }}
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+
                     <div className="grid grid-cols-3 gap-2">
                       <div>
                         {isEditing ? (
@@ -517,10 +559,141 @@ const AirportDetail: React.FC = () => {
                         )}
                       </div>
                     </div>
-                  )}
+                  </div>
+                );
+              })}
+
+              {referencePoints.filter(p => p.point_type.startsWith('PAPI_')).length === 0 && (
+                <div className="text-sm text-muted-foreground text-center py-4 border rounded-lg border-dashed">
+                  No PAPI lights configured. Click "Add PAPI Light" to add one.
                 </div>
-              );
-            })}
+              )}
+            </div>
+
+            {/* Touch Point Section */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-muted-foreground">Touch Point</h3>
+              {(() => {
+                const touchPoint = referencePoints.find(p => p.point_type === 'TOUCH_POINT');
+                const isEditing = editingPoints;
+
+                if (!touchPoint && isEditing) {
+                  return (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const newPoint: ReferencePoint = {
+                          point_type: 'TOUCH_POINT',
+                          latitude: selectedRunway?.start_lat || 0,
+                          longitude: selectedRunway?.start_lon || 0,
+                          altitude: airport?.elevation || 0,
+                        };
+                        setReferencePoints([...referencePoints, newPoint]);
+                      }}
+                    >
+                      + Add Touch Point
+                    </Button>
+                  );
+                }
+
+                if (!touchPoint) {
+                  return (
+                    <div className="text-sm text-muted-foreground text-center py-4 border rounded-lg border-dashed">
+                      No touch point configured
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="border rounded-lg p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="font-medium">Touch Point</h4>
+                      {isEditing && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setReferencePoints(referencePoints.filter(p => p.point_type !== 'TOUCH_POINT'));
+                          }}
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        {isEditing ? (
+                          <LatitudeInput
+                            label="Latitude"
+                            value={touchPoint.latitude}
+                            onChange={(value) => {
+                              const updated = referencePoints.map(p =>
+                                p.point_type === 'TOUCH_POINT'
+                                  ? {...p, latitude: value || 0}
+                                  : p
+                              );
+                              setReferencePoints(updated);
+                            }}
+                            showHelp={false}
+                          />
+                        ) : (
+                          <div>
+                            <Label className="text-xs">Latitude</Label>
+                            <p className="text-sm font-mono">{touchPoint.latitude?.toFixed(6) || 'N/A'}</p>
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        {isEditing ? (
+                          <LongitudeInput
+                            label="Longitude"
+                            value={touchPoint.longitude}
+                            onChange={(value) => {
+                              const updated = referencePoints.map(p =>
+                                p.point_type === 'TOUCH_POINT'
+                                  ? {...p, longitude: value || 0}
+                                  : p
+                              );
+                              setReferencePoints(updated);
+                            }}
+                            showHelp={false}
+                          />
+                        ) : (
+                          <div>
+                            <Label className="text-xs">Longitude</Label>
+                            <p className="text-sm font-mono">{touchPoint.longitude?.toFixed(6) || 'N/A'}</p>
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <Label className="text-xs">Altitude (m)</Label>
+                        {isEditing ? (
+                          <div className="flex gap-1">
+                            <Input
+                              type="number"
+                              value={touchPoint.altitude || 0}
+                              onChange={(e) => {
+                                const updated = referencePoints.map(p =>
+                                  p.point_type === 'TOUCH_POINT'
+                                    ? {...p, altitude: parseFloat(e.target.value) || 0}
+                                    : p
+                                );
+                                setReferencePoints(updated);
+                              }}
+                            />
+                          </div>
+                        ) : (
+                          <p className="text-sm font-mono">{touchPoint.altitude || 0}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
             
             <div className="flex justify-between">
               <Button

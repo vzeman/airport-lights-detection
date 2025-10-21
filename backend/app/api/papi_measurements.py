@@ -799,7 +799,8 @@ async def process_video_initial(session_id: str, video_path: str):
     import asyncio
     from sqlalchemy.ext.asyncio import AsyncSession
     from app.db.session import async_session
-    
+    from app.services.video_processor import GPSExtractor
+
     async with async_session() as db:
         try:
             # Get session from database
@@ -807,45 +808,64 @@ async def process_video_initial(session_id: str, video_path: str):
                 select(MeasurementSession).where(MeasurementSession.id == session_id)
             )
             session = result.scalar_one_or_none()
-            
+
             if not session:
                 return
-            
+
             # Extract first frame and save preview
             preview_dir = "data/measurements/previews"
             os.makedirs(preview_dir, exist_ok=True)
             preview_path = f"{preview_dir}/{session_id}.jpg"
-            
+
             # Update progress: extracting first frame
             session.current_phase = "extracting_first_frame"
             session.progress_percentage = 10.0
             await db.commit()
-            
+
             metadata = VideoProcessor.extract_first_frame(video_path, preview_path)
-            
+
             if metadata:
+                # Update progress: extracting GPS data
+                session.current_phase = "extracting_gps_data"
+                session.progress_percentage = 30.0
+                await db.commit()
+
+                # Extract GPS data from video and store in metadata
+                gps_extractor = GPSExtractor()
+                gps_data = gps_extractor.extract_gps_data(video_path)
+
+                if gps_data:
+                    logger.info(f"Extracted {len(gps_data)} GPS points during initial processing")
+                    # Convert GPS data to serializable format
+                    metadata['gps_data'] = [gp.to_dict() for gp in gps_data]
+                else:
+                    logger.warning("No GPS data found in video during initial processing")
+                    metadata['gps_data'] = []
+
                 # Update progress: detecting lights
                 session.current_phase = "detecting_lights"
-                session.progress_percentage = 50.0
+                session.progress_percentage = 60.0
                 session.total_frames = metadata.get('total_frames', 0)
                 await db.commit()
-                
+
                 # Detect lights in the first frame
                 detected_lights = VideoProcessor.detect_lights(preview_path, [])
-                
-                # Update session with metadata and detected lights
+
+                # Update session with metadata (including GPS) and detected lights
                 session.video_metadata = metadata
                 session.light_positions = detected_lights
                 session.status = "preview_ready"
                 session.current_phase = "preview_ready"
                 session.progress_percentage = 100.0
-                
+
                 await db.commit()
         except Exception as e:
             logger.error(f"Error processing video initial: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             if session:
                 session.status = "error"
-                session.error_message = f"Failed to extract first frame: {str(e)}"
+                session.error_message = f"Failed to process video: {str(e)}"
                 await db.commit()
 
 
@@ -883,16 +903,36 @@ async def process_video_full(session_id: str):
             # Initialize PAPI light tracker for dynamic position tracking
             from app.services.video_processor import PAPILightTracker
             light_tracker = PAPILightTracker(session.light_positions, frame_width, frame_height)
-            
-            # Extract real GPS data from video file
-            gps_extractor = GPSExtractor()
-            real_gps_data = gps_extractor.extract_gps_data(session.video_file_path)
+
+            # Get GPS data from session metadata (extracted during initial processing)
+            real_gps_data = []
+            if session.video_metadata and 'gps_data' in session.video_metadata:
+                # Reconstruct GPSData objects from stored dictionaries
+                from app.services.video_processor import GPSData
+                real_gps_data = [
+                    GPSData(
+                        timestamp_ms=gp['timestamp_ms'],
+                        latitude=gp['latitude'],
+                        longitude=gp['longitude'],
+                        altitude=gp['altitude'],
+                        speed=gp.get('speed'),
+                        heading=gp.get('heading'),
+                        satellites=gp.get('satellites'),
+                        accuracy=gp.get('accuracy'),
+                        frame_number=gp.get('frame_number')
+                    )
+                    for gp in session.video_metadata['gps_data']
+                ]
+                logger.info(f"Loaded {len(real_gps_data)} GPS data points from session metadata")
+
             fps = int(cap.get(cv2.CAP_PROP_FPS)) or 30  # Get FPS for GPS interpolation
-            
-            if real_gps_data:
-                logger.info(f"Successfully extracted {len(real_gps_data)} GPS data points from video")
-            else:
-                raise ValueError("No GPS data found in video. Video must contain GPS telemetry data for PAPI measurement processing.")
+
+            if not real_gps_data:
+                raise ValueError(
+                    "No GPS data found in video. Video must contain GPS telemetry data for PAPI measurement processing. "
+                    "Supported formats: DJI SRT file, embedded GPS metadata (via exiftool), or standard GPS tags. "
+                    f"Video path: {session.video_file_path}"
+                )
 
             # Fetch reference points ONCE before processing (includes PAPI lights and TOUCH_POINT)
             from app.models import Airport, Runway
