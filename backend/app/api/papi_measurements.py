@@ -706,7 +706,9 @@ async def get_measurements_data(
             "latitude": ref_point.latitude,
             "longitude": ref_point.longitude,
             "elevation": elevation,
-            "point_type": ref_point.point_type.value
+            "point_type": ref_point.point_type.value,
+            "nominal_angle": ref_point.nominal_angle,
+            "tolerance": ref_point.tolerance
         }
     
     # Format PAPI data by grouping measurements by light

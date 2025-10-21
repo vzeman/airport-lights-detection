@@ -44,6 +44,8 @@ interface MeasurementData {
       longitude: number;
       elevation: number;
       point_type: string;
+      nominal_angle?: number;
+      tolerance?: number;
     };
   };
   video_urls?: {
@@ -683,7 +685,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                     <YAxis
                       yAxisId="chroma"
                       label={{ value: 'Red Chromaticity (%)', angle: -90, position: 'insideLeft' }}
-                      domain={[0, 100]}
+                      domain={['dataMin - 5', 'dataMax + 5']}
                     />
                     {/* Right Y-axis for Angles */}
                     <YAxis
@@ -714,6 +716,32 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                         fontSize: 11
                       }}
                     />
+                    {/* Nominal angle reference lines for each PAPI light */}
+                    {['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D'].map((lightName) => {
+                      const lightPoint = Object.entries(data.reference_points).find(([key, point]) =>
+                        key.includes(lightName)
+                      );
+                      if (lightPoint && lightPoint[1].nominal_angle) {
+                        const colors = { 'PAPI_A': '#ef4444', 'PAPI_B': '#f97316', 'PAPI_C': '#eab308', 'PAPI_D': '#22c55e' };
+                        return (
+                          <ReferenceLine
+                            key={`nominal-${lightName}`}
+                            yAxisId="angle"
+                            y={lightPoint[1].nominal_angle}
+                            stroke={colors[lightName as keyof typeof colors]}
+                            strokeDasharray="2 2"
+                            strokeWidth={1.5}
+                            label={{
+                              value: `${lightName.split('_')[1]} nom`,
+                              position: 'right',
+                              fill: colors[lightName as keyof typeof colors],
+                              fontSize: 9
+                            }}
+                          />
+                        );
+                      }
+                      return null;
+                    })}
                     {/* Chromaticity Lines on left axis */}
                     <Line yAxisId="chroma" type="monotone" dataKey="PAPI_A_redChroma" stroke="#ef4444" strokeWidth={2} dot={false} name="PAPI A Red Chroma" />
                     <Line yAxisId="chroma" type="monotone" dataKey="PAPI_B_redChroma" stroke="#f97316" strokeWidth={2} dot={false} name="PAPI B Red Chroma" />
@@ -746,8 +774,8 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                     {/* Left Y-axis for Intensity */}
                     <YAxis
                       yAxisId="intensity"
-                      label={{ value: 'Intensity (0-255)', angle: -90, position: 'insideLeft' }}
-                      domain={[0, 255]}
+                      label={{ value: 'Intensity', angle: -90, position: 'insideLeft' }}
+                      domain={['dataMin - 10', 'dataMax + 10']}
                     />
                     {/* Right Y-axis for Angles */}
                     <YAxis
@@ -778,6 +806,32 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                         fontSize: 11
                       }}
                     />
+                    {/* Nominal angle reference lines for each PAPI light */}
+                    {['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D'].map((lightName) => {
+                      const lightPoint = Object.entries(data.reference_points).find(([key, point]) =>
+                        key.includes(lightName)
+                      );
+                      if (lightPoint && lightPoint[1].nominal_angle) {
+                        const colors = { 'PAPI_A': '#ef4444', 'PAPI_B': '#f97316', 'PAPI_C': '#eab308', 'PAPI_D': '#22c55e' };
+                        return (
+                          <ReferenceLine
+                            key={`nominal-${lightName}`}
+                            yAxisId="angle"
+                            y={lightPoint[1].nominal_angle}
+                            stroke={colors[lightName as keyof typeof colors]}
+                            strokeDasharray="2 2"
+                            strokeWidth={1.5}
+                            label={{
+                              value: `${lightName.split('_')[1]} nom`,
+                              position: 'right',
+                              fill: colors[lightName as keyof typeof colors],
+                              fontSize: 9
+                            }}
+                          />
+                        );
+                      }
+                      return null;
+                    })}
                     {/* Intensity Lines on left axis */}
                     <Line yAxisId="intensity" type="monotone" dataKey="PAPI_A_intensity" stroke="#ef4444" strokeWidth={2} dot={false} name="PAPI A Intensity" />
                     <Line yAxisId="intensity" type="monotone" dataKey="PAPI_B_intensity" stroke="#f97316" strokeWidth={2} dot={false} name="PAPI B Intensity" />
@@ -807,6 +861,12 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
               'PAPI_D': '#22c55e'
             }[lightName];
 
+            // Get nominal angle for this PAPI light
+            const lightPoint = Object.entries(data.reference_points).find(([key, point]) =>
+              key.includes(lightName)
+            );
+            const nominalAngle = lightPoint?.[1]?.nominal_angle;
+
             return (
               <Card key={lightName}>
                 <CardHeader>
@@ -835,8 +895,8 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                         {/* Left Y-axis for RGB values */}
                         <YAxis
                           yAxisId="rgb"
-                          label={{ value: 'RGB Value (0-255)', angle: -90, position: 'insideLeft' }}
-                          domain={[0, 255]}
+                          label={{ value: 'RGB Value', angle: -90, position: 'insideLeft' }}
+                          domain={['dataMin - 10', 'dataMax + 10']}
                         />
                         {/* Right Y-axis for angles */}
                         <YAxis
@@ -872,6 +932,22 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                             }}
                           />
                         ))}
+                        {/* Nominal angle reference line */}
+                        {nominalAngle && (
+                          <ReferenceLine
+                            yAxisId="angle"
+                            y={nominalAngle}
+                            stroke={lightColor}
+                            strokeDasharray="2 2"
+                            strokeWidth={2}
+                            label={{
+                              value: `Nominal (${nominalAngle.toFixed(2)}°)`,
+                              position: 'right',
+                              fill: lightColor,
+                              fontSize: 11
+                            }}
+                          />
+                        )}
                         {/* RGB Lines on left axis */}
                         <Line yAxisId="rgb" type="monotone" dataKey="red" stroke="#dc2626" strokeWidth={2} dot={false} name="Red" />
                         <Line yAxisId="rgb" type="monotone" dataKey="green" stroke="#16a34a" strokeWidth={2} dot={false} name="Green" />
@@ -901,7 +977,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                         <YAxis
                           yAxisId="chroma"
                           label={{ value: 'Chromaticity (%)', angle: -90, position: 'insideLeft' }}
-                          domain={[0, 100]}
+                          domain={['dataMin - 5', 'dataMax + 5']}
                         />
                         {/* Right Y-axis for Angle */}
                         <YAxis
@@ -948,6 +1024,22 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                             fontSize: 11
                           }}
                         />
+                        {/* Nominal angle reference line */}
+                        {nominalAngle && (
+                          <ReferenceLine
+                            yAxisId="angle"
+                            y={nominalAngle}
+                            stroke={lightColor}
+                            strokeDasharray="2 2"
+                            strokeWidth={2}
+                            label={{
+                              value: `Nominal (${nominalAngle.toFixed(2)}°)`,
+                              position: 'right',
+                              fill: lightColor,
+                              fontSize: 11
+                            }}
+                          />
+                        )}
                         {/* Chromaticity Lines on left axis */}
                         <Line yAxisId="chroma" type="monotone" dataKey="redChromaticity" stroke="#dc2626" strokeWidth={2} dot={false} name="Red Chroma" />
                         <Line yAxisId="chroma" type="monotone" dataKey="greenChromaticity" stroke="#16a34a" strokeWidth={2} dot={false} name="Green Chroma" />
@@ -1152,6 +1244,12 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                     <p>Lon: {(point.longitude ?? 0).toFixed(6)}</p>
                     <p>Elev: {(point.elevation ?? 0).toFixed(1)}m</p>
                     <p className="capitalize">Type: {point.point_type?.replace('_', ' ') ?? 'unknown'}</p>
+                    {point.nominal_angle !== undefined && point.nominal_angle !== null && (
+                      <p className="font-medium text-blue-600">Nominal Angle: {point.nominal_angle.toFixed(2)}°</p>
+                    )}
+                    {point.tolerance !== undefined && point.tolerance !== null && (
+                      <p className="font-medium text-orange-600">Tolerance: ±{point.tolerance.toFixed(2)}°</p>
+                    )}
                   </div>
                 </div>
               ))}
