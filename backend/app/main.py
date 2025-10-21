@@ -10,7 +10,8 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.api import auth, users, airports, airport_import, airspace, item_types, missions, papi_measurements, runways, reference_points
-from app.db.base import engine, Base
+from app.db.base import engine, Base, AsyncSessionLocal
+from app.core.init_db import init_default_admin
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -25,6 +26,11 @@ async def lifespan(app: FastAPI):
     # Create tables (in production, use Alembic migrations instead)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    # Initialize default admin user if no users exist
+    async with AsyncSessionLocal() as session:
+        await init_default_admin(session)
+
     yield
     # Shutdown
     logger.info("Shutting down...")
