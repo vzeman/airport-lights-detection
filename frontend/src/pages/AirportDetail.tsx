@@ -49,6 +49,8 @@ interface ReferencePoint {
   latitude: number;
   longitude: number;
   altitude: number;
+  nominal_angle?: number;
+  tolerance?: number;
 }
 
 const AirportDetail: React.FC = () => {
@@ -101,27 +103,43 @@ const AirportDetail: React.FC = () => {
     }
   };
 
+  const getDefaultNominalAngle = (pointType: string): number | undefined => {
+    const defaults: Record<string, number> = {
+      'PAPI_A': 2.5,
+      'PAPI_B': 2.83,
+      'PAPI_C': 3.17,
+      'PAPI_D': 3.5,
+      'PAPI_E': 3.83,
+      'PAPI_F': 4.17,
+      'PAPI_G': 4.5,
+      'PAPI_H': 4.83
+    };
+    return defaults[pointType];
+  };
+
   const fetchReferencePoints = async (runwayId: string) => {
     try {
       const response = await api.getReferencePoints(runwayId);
       const points = response.reference_points || [];
-      
+
       // Ensure we have all required points
       const requiredTypes = ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D', 'TOUCH_POINT'];
       const existingTypes = points.map((p: ReferencePoint) => p.point_type);
-      
+
       const allPoints = requiredTypes.map(type => {
         const existing = points.find((p: ReferencePoint) => p.point_type === type);
         if (existing) return existing;
-        
+
         return {
           point_type: type as ReferencePoint['point_type'],
           latitude: airport?.latitude || 0,
           longitude: airport?.longitude || 0,
-          altitude: airport?.elevation || 0
+          altitude: airport?.elevation || 0,
+          nominal_angle: type !== 'TOUCH_POINT' ? getDefaultNominalAngle(type) : undefined,
+          tolerance: type !== 'TOUCH_POINT' ? 0.1 : undefined
         };
       });
-      
+
       setReferencePoints(allPoints);
     } catch (error) {
       console.error('Failed to fetch reference points:', error);
@@ -130,7 +148,9 @@ const AirportDetail: React.FC = () => {
         point_type: type as ReferencePoint['point_type'],
         latitude: airport?.latitude || 0,
         longitude: airport?.longitude || 0,
-        altitude: airport?.elevation || 0
+        altitude: airport?.elevation || 0,
+        nominal_angle: type !== 'TOUCH_POINT' ? getDefaultNominalAngle(type) : undefined,
+        tolerance: type !== 'TOUCH_POINT' ? 0.1 : undefined
       }));
       setReferencePoints(defaultPoints);
     }
@@ -186,13 +206,15 @@ const AirportDetail: React.FC = () => {
 
   const handleSaveAllReferencePoints = async () => {
     if (!selectedRunway?.id) return;
-    
+
     try {
       const pointsToSave = referencePoints.map(point => ({
         point_type: point.point_type,
         latitude: point.latitude,
         longitude: point.longitude,
-        altitude: point.altitude
+        altitude: point.altitude,
+        nominal_angle: point.nominal_angle,
+        tolerance: point.tolerance
       }));
       
       await api.bulkUpdateReferencePoints(selectedRunway.id, pointsToSave);
@@ -454,11 +476,14 @@ const AirportDetail: React.FC = () => {
                       const nextLetter = letters.find(l => !usedLetters.includes(l));
 
                       if (nextLetter) {
+                        const newPointType = `PAPI_${nextLetter}`;
                         const newPoint: ReferencePoint = {
-                          point_type: `PAPI_${nextLetter}` as any,
+                          point_type: newPointType as any,
                           latitude: selectedRunway?.start_lat || 0,
                           longitude: selectedRunway?.start_lon || 0,
                           altitude: airport?.elevation || 0,
+                          nominal_angle: getDefaultNominalAngle(newPointType),
+                          tolerance: 0.1
                         };
                         setReferencePoints([...referencePoints, newPoint]);
                       } else {
@@ -492,71 +517,121 @@ const AirportDetail: React.FC = () => {
                       )}
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2">
-                      <div>
-                        {isEditing ? (
-                          <LatitudeInput
-                            label="Latitude"
-                            value={point.latitude}
-                            onChange={(value) => {
-                              const updated = referencePoints.map(p =>
-                                p.point_type === point.point_type
-                                  ? {...p, latitude: value || 0}
-                                  : p
-                              );
-                              setReferencePoints(updated);
-                            }}
-                            showHelp={false}
-                          />
-                        ) : (
-                          <div>
-                            <Label className="text-xs">Latitude</Label>
-                            <p className="text-sm font-mono">{point.latitude?.toFixed(6) || 'N/A'}</p>
-                          </div>
-                        )}
-                      </div>
-                      <div>
-                        {isEditing ? (
-                          <LongitudeInput
-                            label="Longitude"
-                            value={point.longitude}
-                            onChange={(value) => {
-                              const updated = referencePoints.map(p =>
-                                p.point_type === point.point_type
-                                  ? {...p, longitude: value || 0}
-                                  : p
-                              );
-                              setReferencePoints(updated);
-                            }}
-                            showHelp={false}
-                          />
-                        ) : (
-                          <div>
-                            <Label className="text-xs">Longitude</Label>
-                            <p className="text-sm font-mono">{point.longitude?.toFixed(6) || 'N/A'}</p>
-                          </div>
-                        )}
-                      </div>
-                      <div>
-                        <Label className="text-xs">Altitude (m)</Label>
-                        {isEditing ? (
-                          <div className="flex gap-1">
-                            <Input
-                              type="number"
-                              value={point.altitude || 0}
-                              onChange={(e) => {
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          {isEditing ? (
+                            <LatitudeInput
+                              label="Latitude"
+                              value={point.latitude}
+                              onChange={(value) => {
                                 const updated = referencePoints.map(p =>
                                   p.point_type === point.point_type
-                                    ? {...p, altitude: parseFloat(e.target.value) || 0}
+                                    ? {...p, latitude: value || 0}
                                     : p
                                 );
                                 setReferencePoints(updated);
                               }}
+                              showHelp={false}
                             />
-                          </div>
-                        ) : (
-                          <p className="text-sm font-mono">{point.altitude || 0}</p>
-                        )}
+                          ) : (
+                            <div>
+                              <Label className="text-xs">Latitude</Label>
+                              <p className="text-sm font-mono">{point.latitude?.toFixed(6) || 'N/A'}</p>
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          {isEditing ? (
+                            <LongitudeInput
+                              label="Longitude"
+                              value={point.longitude}
+                              onChange={(value) => {
+                                const updated = referencePoints.map(p =>
+                                  p.point_type === point.point_type
+                                    ? {...p, longitude: value || 0}
+                                    : p
+                                );
+                                setReferencePoints(updated);
+                              }}
+                              showHelp={false}
+                            />
+                          ) : (
+                            <div>
+                              <Label className="text-xs">Longitude</Label>
+                              <p className="text-sm font-mono">{point.longitude?.toFixed(6) || 'N/A'}</p>
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <Label className="text-xs">Altitude (m)</Label>
+                          {isEditing ? (
+                            <div className="flex gap-1">
+                              <Input
+                                type="number"
+                                value={point.altitude || 0}
+                                onChange={(e) => {
+                                  const updated = referencePoints.map(p =>
+                                    p.point_type === point.point_type
+                                      ? {...p, altitude: parseFloat(e.target.value) || 0}
+                                      : p
+                                  );
+                                  setReferencePoints(updated);
+                                }}
+                              />
+                            </div>
+                          ) : (
+                            <p className="text-sm font-mono">{point.altitude || 0}</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <Label className="text-xs">Nominal Angle (°)</Label>
+                          {isEditing ? (
+                            <div className="flex gap-1">
+                              <Input
+                                type="number"
+                                step="0.01"
+                                value={point.nominal_angle ?? ''}
+                                onChange={(e) => {
+                                  const updated = referencePoints.map(p =>
+                                    p.point_type === point.point_type
+                                      ? {...p, nominal_angle: e.target.value ? parseFloat(e.target.value) : undefined}
+                                      : p
+                                  );
+                                  setReferencePoints(updated);
+                                }}
+                                placeholder="e.g., 2.5"
+                              />
+                            </div>
+                          ) : (
+                            <p className="text-sm font-mono">{point.nominal_angle?.toFixed(2) || 'N/A'}</p>
+                          )}
+                        </div>
+                        <div>
+                          <Label className="text-xs">Tolerance (°)</Label>
+                          {isEditing ? (
+                            <div className="flex gap-1">
+                              <Input
+                                type="number"
+                                step="0.01"
+                                value={point.tolerance ?? ''}
+                                onChange={(e) => {
+                                  const updated = referencePoints.map(p =>
+                                    p.point_type === point.point_type
+                                      ? {...p, tolerance: e.target.value ? parseFloat(e.target.value) : undefined}
+                                      : p
+                                  );
+                                  setReferencePoints(updated);
+                                }}
+                                placeholder="e.g., 0.1"
+                              />
+                            </div>
+                          ) : (
+                            <p className="text-sm font-mono">{point.tolerance?.toFixed(2) || 'N/A'}</p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>

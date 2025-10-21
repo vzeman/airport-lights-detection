@@ -36,6 +36,8 @@ class ReferencePoint(Base):
     longitude = Column(Float, nullable=False)
     altitude = Column(Float, nullable=True)
     elevation_wgs84 = Column(Float, nullable=True)  # WGS84 elevation
+    nominal_angle = Column(Float, nullable=True)  # Nominal angle for PAPI lights (degrees)
+    tolerance = Column(Float, nullable=True)  # Tolerance for PAPI light angles (degrees)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

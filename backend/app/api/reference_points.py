@@ -21,12 +21,16 @@ class ReferencePointCreate(BaseModel):
     latitude: float
     longitude: float
     altitude: Optional[float] = None
+    nominal_angle: Optional[float] = None
+    tolerance: Optional[float] = None
 
 
 class ReferencePointUpdate(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     altitude: Optional[float] = None
+    nominal_angle: Optional[float] = None
+    tolerance: Optional[float] = None
 
 
 class ReferencePointResponse(BaseModel):
@@ -36,6 +40,8 @@ class ReferencePointResponse(BaseModel):
     latitude: float
     longitude: float
     altitude: Optional[float]
+    nominal_angle: Optional[float]
+    tolerance: Optional[float]
     created_at: datetime
     updated_at: datetime
 
