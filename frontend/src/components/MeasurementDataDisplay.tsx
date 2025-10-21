@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from './ui/card';
 import { Button } from './ui/button';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { Loader2, Download, Map, BarChart3, Lightbulb, Video } from 'lucide-react';
 import api from '../services/api';
 import Airport3DVisualization from './Airport3DVisualization';
@@ -25,6 +25,7 @@ interface MeasurementData {
       angles: number[];
       distances: number[];
       rgb_values: Array<[number, number, number]>;
+      intensities: number[];
     };
   };
   drone_positions: Array<{
@@ -161,14 +162,162 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
     }));
   };
 
+  const calculateTouchPointAngle = (dronePos: any, touchPoint: any, groundElevation: number, debug: boolean = false): number => {
+    if (!dronePos || !touchPoint) {
+      if (debug) console.log('[Calc Debug] Missing dronePos or touchPoint');
+      return 0;
+    }
+
+    // Check for valid coordinates
+    if (!dronePos.latitude || !dronePos.longitude || !dronePos.elevation) {
+      if (debug) console.log('[Calc Debug] Invalid drone position data:', dronePos);
+      return 0;
+    }
+
+    if (!touchPoint.latitude || !touchPoint.longitude) {
+      if (debug) console.log('[Calc Debug] Invalid touch point coordinates:', touchPoint);
+      return 0;
+    }
+
+    // Use ground elevation if touch point elevation is null
+    const touchPointElevation = touchPoint.elevation ?? groundElevation;
+
+    if (debug) {
+      console.log('[Calc Debug] Touch point elevation:', touchPoint.elevation, 'Using:', touchPointElevation);
+    }
+
+    // Haversine formula to calculate horizontal distance
+    const R = 6371000; // Earth's radius in meters
+    const lat1 = dronePos.latitude * Math.PI / 180;
+    const lat2 = touchPoint.latitude * Math.PI / 180;
+    const deltaLat = (touchPoint.latitude - dronePos.latitude) * Math.PI / 180;
+    const deltaLon = (touchPoint.longitude - dronePos.longitude) * Math.PI / 180;
+
+    const a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+              Math.cos(lat1) * Math.cos(lat2) *
+              Math.sin(deltaLon / 2) * Math.sin(deltaLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const horizontalDistance = R * c;
+
+    // Calculate vertical distance (from touch point UP to drone)
+    const verticalDistance = dronePos.elevation - touchPointElevation;
+
+    // Calculate elevation angle in degrees
+    const angleRadians = Math.atan2(verticalDistance, horizontalDistance);
+    const angleDegrees = angleRadians * 180 / Math.PI;
+
+    if (debug) {
+      console.log('[Calc Debug] Calculation details:');
+      console.log('  Drone lat/lon/elev:', dronePos.latitude, dronePos.longitude, dronePos.elevation);
+      console.log('  Touch lat/lon/elev (raw):', touchPoint.latitude, touchPoint.longitude, touchPoint.elevation);
+      console.log('  Touch elevation used:', touchPointElevation);
+      console.log('  Ground elevation fallback:', groundElevation);
+      console.log('  Delta lat:', touchPoint.latitude - dronePos.latitude);
+      console.log('  Delta lon:', touchPoint.longitude - dronePos.longitude);
+      console.log('  Horizontal distance (m):', horizontalDistance.toFixed(2));
+      console.log('  Vertical distance (m):', verticalDistance.toFixed(2));
+      console.log('  atan2 inputs: atan2(' + verticalDistance.toFixed(2) + ', ' + horizontalDistance.toFixed(2) + ')');
+      console.log('  Angle (degrees):', angleDegrees.toFixed(2));
+    }
+
+    return angleDegrees;
+  };
+
   const formatRGBChartData = (lightName: string) => {
     if (!data || !data.papi_data[lightName]) return [];
 
     const lightData = data.papi_data[lightName];
+
+    // Find touch point by searching for key that contains 'TOUCH_POINT'
+    let touchPoint = null;
+    if (data.reference_points) {
+      const touchPointKey = Object.keys(data.reference_points).find(key =>
+        key.includes('TOUCH_POINT') || key.includes('ReferencePointType.TOUCH_POINT')
+      );
+      if (touchPointKey) {
+        touchPoint = data.reference_points[touchPointKey];
+      }
+    }
+
+    // Calculate ground elevation from PAPI lights for fallback
+    let groundElevation = 0;
+    if (data.reference_points) {
+      const papiKeys = Object.keys(data.reference_points).filter(key =>
+        key.includes('PAPI_A') || key.includes('PAPI_B') ||
+        key.includes('PAPI_C') || key.includes('PAPI_D')
+      );
+
+      if (lightName === 'PAPI_A') {
+        console.log('[Ground Elevation Debug] PAPI keys found:', papiKeys);
+        console.log('[Ground Elevation Debug] PAPI reference data:',
+          papiKeys.map(key => ({ key, data: data.reference_points[key] }))
+        );
+      }
+
+      const papiElevations = papiKeys
+        .map(key => data.reference_points[key]?.elevation)
+        .filter(elev => elev !== null && elev !== undefined);
+
+      if (lightName === 'PAPI_A') {
+        console.log('[Ground Elevation Debug] PAPI elevations extracted:', papiElevations);
+      }
+
+      if (papiElevations.length > 0) {
+        groundElevation = papiElevations.reduce((sum, elev) => sum + elev, 0) / papiElevations.length;
+      }
+    }
+
+    // Debug: Check available reference points
+    if (lightName === 'PAPI_A') {
+      console.log('[Touch Point Debug] Available reference points:', Object.keys(data.reference_points || {}));
+      console.log('[Touch Point Debug] Selected touch point:', touchPoint);
+      console.log('[Touch Point Debug] Calculated ground elevation:', groundElevation);
+      if (data.drone_positions && data.drone_positions[0]) {
+        console.log('[Touch Point Debug] First drone position:', data.drone_positions[0]);
+      }
+    }
+
     return lightData.timestamps.map((timestamp, index) => {
       const rgb = lightData.rgb_values[index] || [0, 0, 0];
       const [r, g, b] = Array.isArray(rgb) ? rgb : [0, 0, 0];
 
+      // Calculate chromaticity (normalized RGB)
+      const sum = r + g + b;
+      const redChromaticity = sum > 0 ? r / sum : 0;
+      const greenChromaticity = sum > 0 ? g / sum : 0;
+      const blueChromaticity = sum > 0 ? b / sum : 0;
+
+      // Scale chromaticity to 0-100 for better visualization (0-1 range scaled up)
+      const redChroma = redChromaticity * 100;
+      const greenChroma = greenChromaticity * 100;
+      const blueChroma = blueChromaticity * 100;
+
+      // Calculate intensity from RGB if not available in API response (backward compatibility)
+      let intensity = 0;
+      if (lightData.intensities && lightData.intensities[index] !== undefined) {
+        intensity = lightData.intensities[index];
+      } else {
+        // Fallback: calculate intensity as mean of RGB
+        intensity = (r + g + b) / 3;
+      }
+
+      // Calculate touch point angle
+      const dronePos = data.drone_positions[index];
+      let touchPointAngle = 0;
+
+      if (touchPoint && dronePos) {
+        // Enable debug logging for first calculation
+        const enableDebug = lightName === 'PAPI_A' && index === 0;
+        touchPointAngle = calculateTouchPointAngle(dronePos, touchPoint, groundElevation, enableDebug);
+
+        if (enableDebug) {
+          console.log('[Touch Point Debug] First calculation result:', touchPointAngle);
+        }
+      } else {
+        if (lightName === 'PAPI_A' && index === 0) {
+          console.log('[Touch Point Debug] Missing data - touchPoint:', !!touchPoint, 'dronePos:', !!dronePos);
+        }
+      }
 
       return {
         timestamp: timestamp ?? 0,
@@ -176,8 +325,154 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
         red: r ?? 0,
         green: g ?? 0,
         blue: b ?? 0,
-        angle: lightData.angles[index] ?? 0
+        intensity: intensity,
+        redChromaticity: redChroma,
+        greenChromaticity: greenChroma,
+        blueChromaticity: blueChroma,
+        angle: lightData.angles[index] ?? 0,
+        touchPointAngle: touchPointAngle
       };
+    });
+  };
+
+  const findColorTransitionPoints = (lightName: string): number[] => {
+    if (!data || !data.papi_data[lightName]) return [];
+
+    const lightData = data.papi_data[lightName];
+    const transitionPoints: number[] = [];
+
+    // Use the backend's status data directly - it already knows red vs white!
+    // Look for sustained status changes: red <-> white
+    const minSustainedFrames = 3; // Require new status to be sustained for 3 frames
+
+    let currentStatus = lightData.statuses[0];
+    let statusStartIndex = 0;
+    let frameCount = 0;
+
+    for (let i = 1; i < lightData.statuses.length; i++) {
+      const status = lightData.statuses[i];
+
+      if (status === currentStatus) {
+        frameCount++;
+      } else {
+        // Status changed - check if it's a meaningful transition
+        if (frameCount >= minSustainedFrames &&
+            ((currentStatus === 'red' && status === 'white') ||
+             (currentStatus === 'white' && status === 'red'))) {
+          transitionPoints.push(lightData.timestamps[i]);
+        }
+
+        currentStatus = status;
+        statusStartIndex = i;
+        frameCount = 1;
+      }
+    }
+
+    console.log(`[${lightName}] Status values present:`, [...new Set(lightData.statuses)]);
+    console.log(`[${lightName}] Raw transitions detected: ${transitionPoints.length}`);
+
+    // Group nearby transitions (within 1.5 seconds) and keep only the first one
+    const groupedTransitions: number[] = [];
+    const groupWindow = 1.5; // seconds (balanced)
+
+    for (let i = 0; i < transitionPoints.length; i++) {
+      const currentPoint = transitionPoints[i];
+
+      // Check if this point is close to any already grouped point
+      const isNearExisting = groupedTransitions.some(
+        existingPoint => Math.abs(currentPoint - existingPoint) < groupWindow
+      );
+
+      if (!isNearExisting) {
+        groupedTransitions.push(currentPoint);
+      }
+    }
+
+    // Debug logging
+    console.log(`[${lightName}] Detected ${groupedTransitions.length} final transitions:`, groupedTransitions);
+
+    return groupedTransitions.sort((a, b) => a - b);
+  };
+
+  const formatComparisonChartData = () => {
+    if (!data) return [];
+
+    // Get the longest timestamp array to use as base
+    const allLights = ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D'];
+    const baseLight = allLights.find(light => data.papi_data[light]?.timestamps?.length > 0);
+    if (!baseLight) return [];
+
+    const baseTimestamps = data.papi_data[baseLight].timestamps;
+
+    // Find touch point for angle calculation
+    let touchPoint = null;
+    if (data.reference_points) {
+      const touchPointKey = Object.keys(data.reference_points).find(key =>
+        key.includes('TOUCH_POINT') || key.includes('ReferencePointType.TOUCH_POINT')
+      );
+      if (touchPointKey) {
+        touchPoint = data.reference_points[touchPointKey];
+      }
+    }
+
+    // Calculate ground elevation from PAPI lights for fallback
+    let groundElevation = 0;
+    if (data.reference_points) {
+      const papiKeys = Object.keys(data.reference_points).filter(key =>
+        key.includes('PAPI_A') || key.includes('PAPI_B') ||
+        key.includes('PAPI_C') || key.includes('PAPI_D')
+      );
+      const papiElevations = papiKeys
+        .map(key => data.reference_points[key]?.elevation)
+        .filter(elev => elev !== null && elev !== undefined);
+      if (papiElevations.length > 0) {
+        groundElevation = papiElevations.reduce((sum, elev) => sum + elev, 0) / papiElevations.length;
+      }
+    }
+
+    return baseTimestamps.map((timestamp, index) => {
+      const dataPoint: any = {
+        timestamp: timestamp ?? 0,
+        time: (timestamp ?? 0).toFixed(2),
+      };
+
+      // Add data for each PAPI light
+      allLights.forEach(lightName => {
+        const lightData = data.papi_data[lightName];
+        if (lightData && lightData.timestamps[index] !== undefined) {
+          const rgb = lightData.rgb_values[index] || [0, 0, 0];
+          const [r, g, b] = Array.isArray(rgb) ? rgb : [0, 0, 0];
+          const sum = r + g + b;
+          const redChromaticity = sum > 0 ? (r / sum) * 100 : 0;
+
+          // Calculate intensity from RGB if not available in API response (backward compatibility)
+          let intensity = 0;
+          if (lightData.intensities && lightData.intensities[index] !== undefined) {
+            intensity = lightData.intensities[index];
+          } else {
+            // Fallback: calculate intensity as mean of RGB
+            intensity = (r + g + b) / 3;
+          }
+
+          // Get angle
+          const angle = lightData.angles[index] ?? 0;
+
+          dataPoint[`${lightName}_redChroma`] = redChromaticity;
+          dataPoint[`${lightName}_intensity`] = intensity;
+          dataPoint[`${lightName}_angle`] = angle;
+        }
+      });
+
+      // Calculate touch point angle
+      const dronePos = data.drone_positions[index];
+      if (touchPoint && dronePos) {
+        const touchPointAngle = calculateTouchPointAngle(dronePos, touchPoint, groundElevation, false);
+        dataPoint['touchPoint_angle'] = touchPointAngle;
+      } else {
+        dataPoint['touchPoint_angle'] = 0;
+      }
+
+      return dataPoint;
     });
   };
 
@@ -365,16 +660,153 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
 
       {activeTab === 'charts' && (
         <div className="space-y-6">
+          {/* Comparison Charts - All PAPI Lights */}
+          <Card>
+            <CardHeader>
+              <CardTitle>All PAPI Lights Comparison</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Chromaticity Comparison Chart */}
+              <div>
+                <h4 className="text-sm font-medium mb-3">Red Chromaticity and Elevation Angles - All Lights</h4>
+                <p className="text-xs text-gray-600 mb-2">
+                  Compare color quality and elevation angles across all PAPI lights. Red light ≈ 50-70%, White light ≈ 33%
+                </p>
+                <ResponsiveContainer width="100%" height={350}>
+                  <LineChart data={formatComparisonChartData()}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="timestamp"
+                      label={{ value: 'Time (s)', position: 'insideBottom', offset: -5 }}
+                    />
+                    {/* Left Y-axis for Red Chromaticity */}
+                    <YAxis
+                      yAxisId="chroma"
+                      label={{ value: 'Red Chromaticity (%)', angle: -90, position: 'insideLeft' }}
+                      domain={[0, 100]}
+                    />
+                    {/* Right Y-axis for Angles */}
+                    <YAxis
+                      yAxisId="angle"
+                      orientation="right"
+                      label={{ value: 'Elevation Angle (°)', angle: 90, position: 'insideRight' }}
+                      domain={['dataMin - 1', 'dataMax + 1']}
+                    />
+                    <Tooltip
+                      formatter={(value: any, name: string) => {
+                        if (value == null) return ['N/A', name];
+                        if (name.includes('Angle') || name === 'Touch Pt Angle') return [`${value.toFixed(2)}°`, name];
+                        return [`${value.toFixed(1)}%`, name];
+                      }}
+                      labelFormatter={(value: any) => `Time: ${(value ?? 0).toFixed(2)}s`}
+                    />
+                    <Legend />
+                    {/* Reference line at 33% (balanced white light) */}
+                    <ReferenceLine
+                      yAxisId="chroma"
+                      y={33.33}
+                      stroke="#94a3b8"
+                      strokeDasharray="3 3"
+                      label={{
+                        value: 'White (33%)',
+                        position: 'right',
+                        fill: '#64748b',
+                        fontSize: 11
+                      }}
+                    />
+                    {/* Chromaticity Lines on left axis */}
+                    <Line yAxisId="chroma" type="monotone" dataKey="PAPI_A_redChroma" stroke="#ef4444" strokeWidth={2} dot={false} name="PAPI A Red Chroma" />
+                    <Line yAxisId="chroma" type="monotone" dataKey="PAPI_B_redChroma" stroke="#f97316" strokeWidth={2} dot={false} name="PAPI B Red Chroma" />
+                    <Line yAxisId="chroma" type="monotone" dataKey="PAPI_C_redChroma" stroke="#eab308" strokeWidth={2} dot={false} name="PAPI C Red Chroma" />
+                    <Line yAxisId="chroma" type="monotone" dataKey="PAPI_D_redChroma" stroke="#22c55e" strokeWidth={2} dot={false} name="PAPI D Red Chroma" />
+                    {/* Angle Lines on right axis (dashed to differentiate) */}
+                    <Line yAxisId="angle" type="monotone" dataKey="PAPI_A_angle" stroke="#ef4444" strokeWidth={2} strokeDasharray="5 5" dot={false} name="PAPI A Angle" />
+                    <Line yAxisId="angle" type="monotone" dataKey="PAPI_B_angle" stroke="#f97316" strokeWidth={2} strokeDasharray="5 5" dot={false} name="PAPI B Angle" />
+                    <Line yAxisId="angle" type="monotone" dataKey="PAPI_C_angle" stroke="#eab308" strokeWidth={2} strokeDasharray="5 5" dot={false} name="PAPI C Angle" />
+                    <Line yAxisId="angle" type="monotone" dataKey="PAPI_D_angle" stroke="#22c55e" strokeWidth={2} strokeDasharray="5 5" dot={false} name="PAPI D Angle" />
+                    {/* Touch Point Angle */}
+                    <Line yAxisId="angle" type="monotone" dataKey="touchPoint_angle" stroke="#8b5cf6" strokeWidth={3} dot={false} name="Touch Pt Angle" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Intensity Comparison Chart */}
+              <div>
+                <h4 className="text-sm font-medium mb-3">Luminosity (Intensity) and Elevation Angles - All Lights</h4>
+                <p className="text-xs text-gray-600 mb-2">
+                  Compare brightness levels and elevation angles across all PAPI lights over time
+                </p>
+                <ResponsiveContainer width="100%" height={350}>
+                  <LineChart data={formatComparisonChartData()}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="timestamp"
+                      label={{ value: 'Time (s)', position: 'insideBottom', offset: -5 }}
+                    />
+                    {/* Left Y-axis for Intensity */}
+                    <YAxis
+                      yAxisId="intensity"
+                      label={{ value: 'Intensity (0-255)', angle: -90, position: 'insideLeft' }}
+                      domain={[0, 255]}
+                    />
+                    {/* Right Y-axis for Angles */}
+                    <YAxis
+                      yAxisId="angle"
+                      orientation="right"
+                      label={{ value: 'Elevation Angle (°)', angle: 90, position: 'insideRight' }}
+                      domain={['dataMin - 1', 'dataMax + 1']}
+                    />
+                    <Tooltip
+                      formatter={(value: any, name: string) => {
+                        if (value == null) return ['N/A', name];
+                        if (name.includes('Angle') || name === 'Touch Pt Angle') return [`${value.toFixed(2)}°`, name];
+                        return [`${Math.round(value)}`, name];
+                      }}
+                      labelFormatter={(value: any) => `Time: ${(value ?? 0).toFixed(2)}s`}
+                    />
+                    <Legend />
+                    {/* Reference line at 30 (not visible threshold) */}
+                    <ReferenceLine
+                      yAxisId="intensity"
+                      y={30}
+                      stroke="#94a3b8"
+                      strokeDasharray="3 3"
+                      label={{
+                        value: 'Not Visible (30)',
+                        position: 'right',
+                        fill: '#64748b',
+                        fontSize: 11
+                      }}
+                    />
+                    {/* Intensity Lines on left axis */}
+                    <Line yAxisId="intensity" type="monotone" dataKey="PAPI_A_intensity" stroke="#ef4444" strokeWidth={2} dot={false} name="PAPI A Intensity" />
+                    <Line yAxisId="intensity" type="monotone" dataKey="PAPI_B_intensity" stroke="#f97316" strokeWidth={2} dot={false} name="PAPI B Intensity" />
+                    <Line yAxisId="intensity" type="monotone" dataKey="PAPI_C_intensity" stroke="#eab308" strokeWidth={2} dot={false} name="PAPI C Intensity" />
+                    <Line yAxisId="intensity" type="monotone" dataKey="PAPI_D_intensity" stroke="#22c55e" strokeWidth={2} dot={false} name="PAPI D Intensity" />
+                    {/* Angle Lines on right axis (dashed to differentiate) */}
+                    <Line yAxisId="angle" type="monotone" dataKey="PAPI_A_angle" stroke="#ef4444" strokeWidth={2} strokeDasharray="5 5" dot={false} name="PAPI A Angle" />
+                    <Line yAxisId="angle" type="monotone" dataKey="PAPI_B_angle" stroke="#f97316" strokeWidth={2} strokeDasharray="5 5" dot={false} name="PAPI B Angle" />
+                    <Line yAxisId="angle" type="monotone" dataKey="PAPI_C_angle" stroke="#eab308" strokeWidth={2} strokeDasharray="5 5" dot={false} name="PAPI C Angle" />
+                    <Line yAxisId="angle" type="monotone" dataKey="PAPI_D_angle" stroke="#22c55e" strokeWidth={2} strokeDasharray="5 5" dot={false} name="PAPI D Angle" />
+                    {/* Touch Point Angle */}
+                    <Line yAxisId="angle" type="monotone" dataKey="touchPoint_angle" stroke="#8b5cf6" strokeWidth={3} dot={false} name="Touch Pt Angle" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* PAPI Analysis Charts - One for each light */}
           {['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D'].map((lightName) => {
             const rgbData = formatRGBChartData(lightName);
+            const transitionPoints = findColorTransitionPoints(lightName);
             const lightColor = {
               'PAPI_A': '#ef4444',
-              'PAPI_B': '#f97316', 
+              'PAPI_B': '#f97316',
               'PAPI_C': '#eab308',
               'PAPI_D': '#22c55e'
             }[lightName];
-            
+
             return (
               <Card key={lightName}>
                 <CardHeader>
@@ -382,17 +814,26 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                 </CardHeader>
                 <CardContent>
                   {/* Combined RGB Values and Elevation Angles Chart */}
-                  <div>
+                  <div className="mb-6">
                     <h4 className="text-sm font-medium mb-3">RGB Values and Elevation Angles Over Time</h4>
+                    {transitionPoints.length > 0 ? (
+                      <p className="text-xs text-gray-600 mb-2">
+                        Color transition points marked at: {transitionPoints.map(t => t.toFixed(2) + 's').join(', ')}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-gray-500 mb-2">
+                        No color transitions detected (light remained stable)
+                      </p>
+                    )}
                     <ResponsiveContainer width="100%" height={400}>
                       <LineChart data={rgbData}>
                         <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis 
-                          dataKey="timestamp" 
-                          label={{ value: 'Time (s)', position: 'insideBottom', offset: -5 }} 
+                        <XAxis
+                          dataKey="timestamp"
+                          label={{ value: 'Time (s)', position: 'insideBottom', offset: -5 }}
                         />
                         {/* Left Y-axis for RGB values */}
-                        <YAxis 
+                        <YAxis
                           yAxisId="rgb"
                           label={{ value: 'RGB Value (0-255)', angle: -90, position: 'insideLeft' }}
                           domain={[0, 255]}
@@ -407,19 +848,113 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                         <Tooltip
                           formatter={(value: any, name: string) => {
                             if (value == null) return ['N/A', name];
-                            if (name === 'angle') return [`${value.toFixed(2)}°`, 'Angle'];
+                            if (name === 'Angle' || name === 'Touch Pt Angle') return [`${value.toFixed(2)}°`, name];
                             if (['red', 'green', 'blue'].includes(name)) return [`${Math.round(value)}`, name.toUpperCase()];
+                            if (name === 'intensity') return [`${Math.round(value)}`, 'Intensity'];
                             return [`${value.toFixed(2)}`, name];
                           }}
                           labelFormatter={(value: any) => `Time: ${(value ?? 0).toFixed(2)}s`}
                         />
                         <Legend />
+                        {/* Transition Point Markers */}
+                        {transitionPoints.map((timestamp, idx) => (
+                          <ReferenceLine
+                            key={`transition-${idx}`}
+                            x={timestamp}
+                            stroke="#9333ea"
+                            strokeWidth={2}
+                            strokeDasharray="5 5"
+                            label={{
+                              value: 'Transition',
+                              position: 'top',
+                              fill: '#9333ea',
+                              fontSize: 12
+                            }}
+                          />
+                        ))}
                         {/* RGB Lines on left axis */}
                         <Line yAxisId="rgb" type="monotone" dataKey="red" stroke="#dc2626" strokeWidth={2} dot={false} name="Red" />
                         <Line yAxisId="rgb" type="monotone" dataKey="green" stroke="#16a34a" strokeWidth={2} dot={false} name="Green" />
                         <Line yAxisId="rgb" type="monotone" dataKey="blue" stroke="#2563eb" strokeWidth={2} dot={false} name="Blue" />
-                        {/* Angle Line on right axis */}
+                        <Line yAxisId="rgb" type="monotone" dataKey="intensity" stroke="#a855f7" strokeWidth={2} strokeDasharray="3 3" dot={false} name="Intensity" />
+                        {/* Angle Lines on right axis */}
                         <Line yAxisId="angle" type="monotone" dataKey="angle" stroke={lightColor} strokeWidth={3} dot={false} name="Angle" />
+                        <Line yAxisId="angle" type="monotone" dataKey="touchPointAngle" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 5" dot={false} name="Touch Pt Angle" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  {/* Chromaticity Chart */}
+                  <div>
+                    <h4 className="text-sm font-medium mb-3">Chromaticity (Normalized RGB) and Elevation Angle Over Time</h4>
+                    <p className="text-xs text-gray-600 mb-2">
+                      Red light: red chromaticity ≈ 50-70% | White light: all chromaticity ≈ 33% (balanced)
+                    </p>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <LineChart data={rgbData}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis
+                          dataKey="timestamp"
+                          label={{ value: 'Time (s)', position: 'insideBottom', offset: -5 }}
+                        />
+                        {/* Left Y-axis for Chromaticity */}
+                        <YAxis
+                          yAxisId="chroma"
+                          label={{ value: 'Chromaticity (%)', angle: -90, position: 'insideLeft' }}
+                          domain={[0, 100]}
+                        />
+                        {/* Right Y-axis for Angle */}
+                        <YAxis
+                          yAxisId="angle"
+                          orientation="right"
+                          label={{ value: 'Elevation Angle (°)', angle: 90, position: 'insideRight' }}
+                          domain={['dataMin - 1', 'dataMax + 1']}
+                        />
+                        <Tooltip
+                          formatter={(value: any, name: string) => {
+                            if (value == null) return ['N/A', name];
+                            if (name === 'Angle' || name === 'Touch Pt Angle') return [`${value.toFixed(2)}°`, name];
+                            return [`${value.toFixed(1)}%`, name];
+                          }}
+                          labelFormatter={(value: any) => `Time: ${(value ?? 0).toFixed(2)}s`}
+                        />
+                        <Legend />
+                        {/* Transition Point Markers */}
+                        {transitionPoints.map((timestamp, idx) => (
+                          <ReferenceLine
+                            key={`chroma-transition-${idx}`}
+                            x={timestamp}
+                            stroke="#9333ea"
+                            strokeWidth={2}
+                            strokeDasharray="5 5"
+                            label={{
+                              value: 'Transition',
+                              position: 'top',
+                              fill: '#9333ea',
+                              fontSize: 12
+                            }}
+                          />
+                        ))}
+                        {/* Reference line at 33% (balanced white light) */}
+                        <ReferenceLine
+                          yAxisId="chroma"
+                          y={33.33}
+                          stroke="#94a3b8"
+                          strokeDasharray="3 3"
+                          label={{
+                            value: 'White (33%)',
+                            position: 'right',
+                            fill: '#64748b',
+                            fontSize: 11
+                          }}
+                        />
+                        {/* Chromaticity Lines on left axis */}
+                        <Line yAxisId="chroma" type="monotone" dataKey="redChromaticity" stroke="#dc2626" strokeWidth={2} dot={false} name="Red Chroma" />
+                        <Line yAxisId="chroma" type="monotone" dataKey="greenChromaticity" stroke="#16a34a" strokeWidth={2} dot={false} name="Green Chroma" />
+                        <Line yAxisId="chroma" type="monotone" dataKey="blueChromaticity" stroke="#2563eb" strokeWidth={2} dot={false} name="Blue Chroma" />
+                        {/* Angle Lines on right axis */}
+                        <Line yAxisId="angle" type="monotone" dataKey="angle" stroke={lightColor} strokeWidth={3} dot={false} name="Angle" />
+                        <Line yAxisId="angle" type="monotone" dataKey="touchPointAngle" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 5" dot={false} name="Touch Pt Angle" />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>

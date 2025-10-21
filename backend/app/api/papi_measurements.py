@@ -700,19 +700,21 @@ async def get_measurements_data(
     # Format reference points
     reference_points = {}
     for ref_point in reference_points_db:
+        # Use elevation_wgs84 if available, otherwise fall back to altitude
+        elevation = ref_point.elevation_wgs84 if ref_point.elevation_wgs84 is not None else ref_point.altitude
         reference_points[ref_point.point_id] = {
             "latitude": ref_point.latitude,
             "longitude": ref_point.longitude,
-            "elevation": ref_point.elevation_wgs84,
+            "elevation": elevation,
             "point_type": ref_point.point_type.value
         }
     
     # Format PAPI data by grouping measurements by light
     papi_data = {
-        "PAPI_A": {"timestamps": [], "statuses": [], "angles": [], "distances": [], "rgb_values": []},
-        "PAPI_B": {"timestamps": [], "statuses": [], "angles": [], "distances": [], "rgb_values": []},
-        "PAPI_C": {"timestamps": [], "statuses": [], "angles": [], "distances": [], "rgb_values": []},
-        "PAPI_D": {"timestamps": [], "statuses": [], "angles": [], "distances": [], "rgb_values": []}
+        "PAPI_A": {"timestamps": [], "statuses": [], "angles": [], "distances": [], "rgb_values": [], "intensities": []},
+        "PAPI_B": {"timestamps": [], "statuses": [], "angles": [], "distances": [], "rgb_values": [], "intensities": []},
+        "PAPI_C": {"timestamps": [], "statuses": [], "angles": [], "distances": [], "rgb_values": [], "intensities": []},
+        "PAPI_D": {"timestamps": [], "statuses": [], "angles": [], "distances": [], "rgb_values": [], "intensities": []}
     }
     
     # Format drone positions
@@ -735,13 +737,13 @@ async def get_measurements_data(
         
         # Add PAPI measurements
         papi_lights = [
-            ("PAPI_A", frame.papi_a_status, frame.papi_a_angle, frame.papi_a_distance_ground, frame.papi_a_rgb),
-            ("PAPI_B", frame.papi_b_status, frame.papi_b_angle, frame.papi_b_distance_ground, frame.papi_b_rgb),
-            ("PAPI_C", frame.papi_c_status, frame.papi_c_angle, frame.papi_c_distance_ground, frame.papi_c_rgb),
-            ("PAPI_D", frame.papi_d_status, frame.papi_d_angle, frame.papi_d_distance_ground, frame.papi_d_rgb)
+            ("PAPI_A", frame.papi_a_status, frame.papi_a_angle, frame.papi_a_distance_ground, frame.papi_a_rgb, frame.papi_a_intensity),
+            ("PAPI_B", frame.papi_b_status, frame.papi_b_angle, frame.papi_b_distance_ground, frame.papi_b_rgb, frame.papi_b_intensity),
+            ("PAPI_C", frame.papi_c_status, frame.papi_c_angle, frame.papi_c_distance_ground, frame.papi_c_rgb, frame.papi_c_intensity),
+            ("PAPI_D", frame.papi_d_status, frame.papi_d_angle, frame.papi_d_distance_ground, frame.papi_d_rgb, frame.papi_d_intensity)
         ]
-        
-        for light_name, status, angle, distance, rgb in papi_lights:
+
+        for light_name, status, angle, distance, rgb, intensity in papi_lights:
             papi_data[light_name]["timestamps"].append(timestamp)
             papi_data[light_name]["statuses"].append(status.value if status else "not_visible")
             papi_data[light_name]["angles"].append(angle if angle is not None else 0.0)
@@ -752,6 +754,7 @@ async def get_measurements_data(
             else:
                 rgb_array = [0, 0, 0]
             papi_data[light_name]["rgb_values"].append(rgb_array)
+            papi_data[light_name]["intensities"].append(intensity if intensity is not None else 0.0)
     
     # Format summary data
     summary = {

@@ -1301,7 +1301,7 @@ def calculate_angle(drone_data: Dict, light_pos: Dict) -> float:
         else:
             angle = 90.0 if height_diff > 0 else -90.0
         
-        logger.debug(f"Angle calculation - Final angle: {angle:.6f}°")
+        logger.debug(f"Angle calculation - Final angle: {angle:.6f}")
         return angle
         
     except Exception as e:
@@ -2001,7 +2001,7 @@ class PAPIVideoGenerator:
                         }
 
                         angle = calculate_angle(drone_data, papi_gps)
-                        angle_text = f" {angle:.1f}°"
+                        angle_text = f" {angle:.2f}"
                         
                 except Exception as e:
                     # If angle calculation fails, continue without angle
@@ -2082,7 +2082,7 @@ class PAPIVideoGenerator:
                     }
 
                     touch_angle = calculate_angle(touch_data, touch_gps)
-                    touch_point_angle_text = f"Touch Point Angle: {touch_angle:.1f}°"
+                    touch_point_angle_text = f"Touch Point Angle: {touch_angle:.2f}"
             except Exception as e:
                 # If angle calculation fails, continue without angle
                 logger.debug(f"Failed to calculate touch point angle: {e}")
@@ -2090,10 +2090,10 @@ class PAPIVideoGenerator:
         # Basic drone data (removed speed, added touch point angle)
         basic_texts = [
             f"Frame: {frame_number + 1} | {gps_source}{gps_quality}",
-            f"Lat: {drone_data.get('latitude', 0):.6f}°",
-            f"Lon: {drone_data.get('longitude', 0):.6f}°",
+            f"Lat: {drone_data.get('latitude', 0):.6f}",
+            f"Lon: {drone_data.get('longitude', 0):.6f}",
             f"Alt: {drone_data.get('elevation', 0):.1f}m",
-            f"Heading: {drone_data.get('heading', 0):.1f}°",
+            f"Heading: {drone_data.get('heading', 0):.2f}",
         ]
 
         # Add touch point angle if available (replaces speed parameter)
@@ -2321,10 +2321,10 @@ class PAPIVideoGenerator:
         basic_texts = [
             f"",
             f"Frame: {frame_number + 1} | {gps_source}{gps_quality}",
-            f"Lat: {drone_data.get('latitude', 0):.6f}°",
-            f"Lon: {drone_data.get('longitude', 0):.6f}°", 
+            f"Lat: {drone_data.get('latitude', 0):.6f}",
+            f"Lon: {drone_data.get('longitude', 0):.6f}",
             f"Alt: {drone_data.get('elevation', 0):.1f}m",
-            f"Heading: {drone_data.get('heading', 0):.1f}°",
+            f"Heading: {drone_data.get('heading', 0):.2f}",
             "",  # Empty line separator
             "📐 Angles to Targets:"
         ]
@@ -2349,14 +2349,14 @@ class PAPIVideoGenerator:
         for i, (papi_id, angle_data) in enumerate(angles_data.items()):
             if papi_id.startswith('PAPI_'):
                 color = papi_colors.get(papi_id, (255, 255, 255))
-                angle_text = f"{papi_id}: {angle_data['angle']:.1f}° ({angle_data['distance']:.0f}m)"
+                angle_text = f"{papi_id}: {angle_data['angle']:.2f}° ({angle_data['distance']:.0f}m)"
                 y_pos = y_offset + i * line_height
                 cv2.putText(frame, angle_text, (25, y_pos), font, font_scale, color, 1)
         
         # Touch point angle (if available)
         if 'touch_point' in angles_data:
             touch_data = angles_data['touch_point']
-            touch_text = f"Touch Pt: {touch_data['angle']:.1f}° ({touch_data['distance']:.0f}m)"
+            touch_text = f"Touch Pt: {touch_data['angle']:.2f}° ({touch_data['distance']:.0f}m)"
             y_pos = y_offset + len([k for k in angles_data.keys() if k.startswith('PAPI_')]) * line_height
             cv2.putText(frame, touch_text, (25, y_pos), font, font_scale, (255, 255, 255), 1)
     
@@ -2612,7 +2612,7 @@ class PAPIVideoGenerator:
                                 if light_name in frame_measurements:
                                     angle = frame_measurements[light_name].get('angle')
                                     if angle is not None:
-                                        angle_text = f"Angle: {angle:.2f}°"
+                                        angle_text = f"Angle: {angle:.2f}"
                                         cv2.putText(final_frame, angle_text, (170, y_pos),
                                                   font, font_scale, (0, 0, 0), thickness)  # Black text
                             
@@ -2733,7 +2733,7 @@ class PAPIVideoGenerator:
                         else:
                             angle = 90.0 if alt_diff > 0 else -90.0
                         
-                        angle_text = f"{papi_name}: {angle:.1f}°"
+                        angle_text = f"{papi_name}: {angle:.2f}"
                         cv2.putText(frame, angle_text, (info_x, y_pos), 
                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
                         y_pos += line_height
@@ -2754,7 +2754,7 @@ class PAPIVideoGenerator:
                     else:
                         angle = 90.0 if alt_diff > 0 else -90.0
                     
-                    angle_text = f"Touch Point: {angle:.1f}°"
+                    angle_text = f"Touch Point: {angle:.2f}"
                     cv2.putText(frame, angle_text, (info_x, y_pos), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
                     
@@ -3067,7 +3067,7 @@ class PAPIReportGenerator:
                     <td>{status_counts.get('transition', 0)}</td>
                     <td>{status_counts.get('not_visible', 0)}</td>
                     <td>{avg_intensity:.1f}</td>
-                    <td>{avg_angle:.1f}°</td>
+                    <td>{avg_angle:.2f}°</td>
                     <td>{avg_distance:.1f}m</td>
                 </tr>
                 """
