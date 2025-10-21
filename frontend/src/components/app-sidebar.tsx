@@ -4,12 +4,10 @@ import {
   Plane,
   LayoutDashboard,
   Users,
-  Map,
-  ClipboardList,
   Settings,
   Package,
-  MapPin,
   ChevronRight,
+  Activity,
 } from "lucide-react"
 
 import {
@@ -33,12 +31,12 @@ import { User, LogOut } from "lucide-react"
 const data = {
   navMain: [
     {
-      title: "Overview",
+      title: "Operations",
       items: [
         {
-          title: "Dashboard",
-          url: "/",
-          icon: LayoutDashboard,
+          title: "PAPI Measurements",
+          url: "/papi-measurements/history",
+          icon: Activity,
           isActive: false,
           roles: ['all']
         },
@@ -54,32 +52,6 @@ const data = {
           isActive: false,
           roles: ['all']
         },
-        {
-          title: "Mission Planning",
-          url: "/mission-planning",
-          icon: MapPin,
-          isActive: false,
-          roles: ['all']
-        },
-        {
-          title: "Map View",
-          url: "/map",
-          icon: Map,
-          isActive: false,
-          roles: ['all']
-        },
-      ],
-    },
-    {
-      title: "Operations",
-      items: [
-        {
-          title: "Tasks",
-          url: "/tasks",
-          icon: ClipboardList,
-          isActive: false,
-          roles: ['all']
-        },
       ],
     },
     {
@@ -91,20 +63,6 @@ const data = {
           icon: Users,
           isActive: false,
           roles: ['admin']
-        },
-        {
-          title: "Item Types",
-          url: "/item-types",
-          icon: Package,
-          isActive: false,
-          roles: ['admin']
-        },
-        {
-          title: "Settings",
-          url: "/settings",
-          icon: Settings,
-          isActive: false,
-          roles: ['all']
         },
       ],
     },

@@ -106,7 +106,7 @@ class MaintenanceTask(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     
     # Relationships
-    item_type = relationship("ItemType", back_populates="maintenance_tasks")
+    item_type = relationship("ItemType")
     mission_templates = relationship("MissionTemplate", back_populates="task", cascade="all, delete-orphan")
     prerequisites = relationship(
         "MaintenanceTask",

@@ -64,6 +64,7 @@ class Airport(Base):
     items = relationship("AirportItem", back_populates="airport", cascade="all, delete-orphan")
     runways = relationship("Runway", back_populates="airport", cascade="all, delete-orphan")
     tasks = relationship("Task", back_populates="airport", cascade="all, delete-orphan")
+    measurement_sessions = relationship("MeasurementSession", back_populates="airport", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Airport {self.icao_code}: {self.name}>"
@@ -153,48 +154,10 @@ class AirportItem(Base):
     # Relationships
     airport = relationship("Airport", back_populates="items")
     item_type = relationship("ItemType", back_populates="items")
-    runway = relationship("Runway", back_populates="items")
+    runway = relationship("Runway")
     tasks = relationship("Task", back_populates="item")
     measurements = relationship("Measurement", back_populates="item", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<AirportItem {self.name} at {self.airport_id}>"
 
-
-class Runway(Base):
-    __tablename__ = 'runways'
-    
-    id = Column(CHAR(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    airport_id = Column(CHAR(36), ForeignKey('airports.id', ondelete='CASCADE'), nullable=False)
-    
-    # Identification
-    name = Column(String(10), nullable=False)  # e.g., "09/27", "18L/36R"
-    heading_1 = Column(Integer, nullable=False)  # First heading (e.g., 90 for 09)
-    heading_2 = Column(Integer, nullable=False)  # Second heading (e.g., 270 for 27)
-    
-    # Dimensions
-    length = Column(Float, nullable=False)  # in meters
-    width = Column(Float, nullable=False)  # in meters
-    
-    # Surface
-    surface_type = Column(String(50), nullable=True)  # asphalt, concrete, grass, etc.
-    
-    # Geometry
-    # geometry = Column(Geometry('LINESTRING'), nullable=True)  # Centerline geometry
-    # boundary = Column(Geometry('POLYGON'), nullable=True)  # Runway boundary polygon
-    geometry = Column(JSON, nullable=True)  # Using JSON instead of Geometry for SQLite
-    boundary = Column(JSON, nullable=True)  # Using JSON instead of Geometry for SQLite
-    
-    # Status
-    is_active = Column(Boolean, default=True, nullable=False)
-    
-    # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-    
-    # Relationships
-    airport = relationship("Airport", back_populates="runways")
-    items = relationship("AirportItem", back_populates="runway")
-    
-    def __repr__(self):
-        return f"<Runway {self.name} at {self.airport_id}>"

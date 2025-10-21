@@ -14,8 +14,8 @@ from app.schemas.airport import (
     RunwayCreate, RunwayUpdate, RunwayResponse
 )
 from app.core.deps import get_current_user, require_role
-# from shapely.geometry import Point, Polygon, LineString  # Commented out for SQLite compatibility
-# from geoalchemy2.shape import from_shape, to_shape  # Commented out for SQLite compatibility
+# from shapely.geometry import Point, Polygon, LineString  # Commented out for MySQL compatibility
+# from geoalchemy2.shape import from_shape, to_shape  # Commented out for MySQL compatibility
 import json
 
 router = APIRouter(prefix="/airports", tags=["Airports"])
@@ -295,7 +295,7 @@ async def create_airport_item(
         **item_dict
     )
     
-    # Set geometry if provided (storing as JSON directly for SQLite)
+    # Set geometry if provided (storing as JSON directly for MySQL)
     if geometry_data:
         item.geometry = geometry_data  # Store GeoJSON directly
     
@@ -303,10 +303,10 @@ async def create_airport_item(
     await db.commit()
     await db.refresh(item)
     
-    # Convert geometry back to GeoJSON for response
+    # Convert geometry back to GeoJSON for response (using JSON directly)
     item_response = {
         **item.__dict__,
-        "geometry": to_shape(item.geometry).__geo_interface__ if item.geometry else None
+        "geometry": item.geometry if item.geometry else None  # Direct JSON storage
     }
     
     return AirportItemResponse(**item_response)

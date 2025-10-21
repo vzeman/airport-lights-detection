@@ -26,13 +26,24 @@ class ApiClient {
       (error) => Promise.reject(error)
     );
 
-    // Response interceptor to handle token refresh
+    // Response interceptor to handle token refresh and authentication errors
     this.client.interceptors.response.use(
       (response) => response,
       async (error) => {
         const originalRequest = error.config;
 
-        if (error.response?.status === 401 && !originalRequest._retry) {
+        // Handle authentication errors
+        if (error.response?.status === 401 || 
+            (error.response?.status === 422 && 
+             error.response?.data?.detail === "Could not validate credentials")) {
+          
+          // Don't retry if already attempted or if it's a credential validation error
+          if (originalRequest._retry || error.response?.data?.detail === "Could not validate credentials") {
+            this.logout();
+            window.location.href = '/login';
+            return Promise.reject(error);
+          }
+
           originalRequest._retry = true;
 
           if (!this.refreshing) {
@@ -146,6 +157,31 @@ class ApiClient {
     return this.client.delete(`/airports/${id}`);
   }
 
+  // Runway management
+  async getAirportRunways(airportId: string) {
+    const response = await this.client.get(`/airports/${airportId}/runways`);
+    return response.data;
+  }
+
+  async createRunway(airportId: string, data: any) {
+    const response = await this.client.post(`/airports/${airportId}/runways`, data);
+    return response.data;
+  }
+
+  async updateRunway(airportId: string, runwayId: string, data: any) {
+    const response = await this.client.put(`/airports/${airportId}/runways/${runwayId}`, data);
+    return response.data;
+  }
+
+  async deleteRunway(airportId: string, runwayId: string) {
+    return this.client.delete(`/airports/${airportId}/runways/${runwayId}`);
+  }
+
+  async getRunway(airportId: string, runwayId: string) {
+    const response = await this.client.get(`/airports/${airportId}/runways/${runwayId}`);
+    return response.data;
+  }
+
   // Airport items
   async getAirportItems(airportId: string, params?: any) {
     const response = await this.client.get(`/airports/${airportId}/items`, { params });
@@ -175,6 +211,37 @@ class ApiClient {
   async post(url: string, data?: any, config?: any) {
     const response = await this.client.post(url, data, config);
     return response;
+  }
+
+  // Reference Points API
+  async getReferencePoints(runwayId: string) {
+    const response = await this.client.get(`/runways/${runwayId}/reference-points`);
+    return response.data;
+  }
+
+  async createReferencePoint(runwayId: string, data: any) {
+    const response = await this.client.post(`/runways/${runwayId}/reference-points`, data);
+    return response.data;
+  }
+
+  async updateReferencePoint(runwayId: string, pointId: string, data: any) {
+    const response = await this.client.put(`/runways/${runwayId}/reference-points/${pointId}`, data);
+    return response.data;
+  }
+
+  async deleteReferencePoint(runwayId: string, pointId: string) {
+    return this.client.delete(`/runways/${runwayId}/reference-points/${pointId}`);
+  }
+
+  async bulkUpdateReferencePoints(runwayId: string, points: any[]) {
+    const response = await this.client.post(`/runways/${runwayId}/reference-points/bulk`, points);
+    return response.data;
+  }
+
+  // PAPI Measurement Sessions API
+  async getPAPIMeasurementSessions(page: number = 1, pageSize: number = 20) {
+    const response = await this.client.get(`/papi-measurements/sessions?page=${page}&page_size=${pageSize}`);
+    return response.data;
   }
 }
 

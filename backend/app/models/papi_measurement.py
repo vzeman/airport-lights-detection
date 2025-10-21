@@ -1,0 +1,140 @@
+"""
+Database models for PAPI light measurements
+"""
+from sqlalchemy import Column, String, Float, Integer, ForeignKey, DateTime, Text, JSON, Enum as SQLEnum
+from sqlalchemy.dialects.mysql import CHAR
+from sqlalchemy.orm import relationship
+from datetime import datetime
+import enum
+
+from app.db.base import Base
+import uuid
+
+
+class PAPIReferencePointType(str, enum.Enum):
+    PAPI_A = "PAPI_A"
+    PAPI_B = "PAPI_B"
+    PAPI_C = "PAPI_C"
+    PAPI_D = "PAPI_D"
+    TOUCH_POINT = "TOUCH_POINT"
+
+
+class LightStatus(str, enum.Enum):
+    NOT_VISIBLE = "not_visible"
+    RED = "red"
+    WHITE = "white"
+    TRANSITION = "transition"
+
+
+class PAPIReferencePoint(Base):
+    __tablename__ = "reference_points"
+    
+    id = Column(CHAR(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    airport_icao_code = Column(String(4), ForeignKey("airports.icao_code"), nullable=False)
+    runway_code = Column(String(10), nullable=False)
+    point_id = Column(String(50), nullable=False)
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
+    elevation_wgs84 = Column(Float, nullable=False)
+    point_type = Column(SQLEnum(PAPIReferencePointType), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    airport = relationship("Airport")
+    
+
+class MeasurementSession(Base):
+    __tablename__ = "measurement_sessions"
+    
+    id = Column(CHAR(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    airport_icao_code = Column(String(4), ForeignKey("airports.icao_code"), nullable=False)
+    runway_code = Column(String(10), nullable=False)
+    video_file_path = Column(String(500), nullable=False)
+    video_metadata = Column(JSON)  # Store drone metadata from video
+    user_id = Column(CHAR(36), ForeignKey("users.id"), nullable=False)
+    status = Column(String(50), default="pending")  # pending, processing, completed, error
+    error_message = Column(Text)  # Store detailed error information
+    created_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime)
+    
+    # Progress tracking
+    total_frames = Column(Integer, default=0)  # Total frames in video
+    processed_frames = Column(Integer, default=0)  # Frames processed so far
+    progress_percentage = Column(Float, default=0.0)  # Progress as percentage (0-100)
+    current_phase = Column(String(100), default="initializing")  # current processing phase
+    
+    # Store user-adjusted light positions
+    light_positions = Column(JSON)  # {"PAPI_A": {"x": 100, "y": 200, "width": 50, "height": 50}, ...}
+    
+    # Relationships
+    airport = relationship("Airport", back_populates="measurement_sessions")
+    user = relationship("User", back_populates="measurement_sessions")
+    frame_measurements = relationship("FrameMeasurement", back_populates="session", cascade="all, delete-orphan")
+    
+
+class FrameMeasurement(Base):
+    __tablename__ = "frame_measurements"
+    
+    id = Column(CHAR(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    session_id = Column(CHAR(36), ForeignKey("measurement_sessions.id"), nullable=False)
+    frame_number = Column(Integer, nullable=False)
+    timestamp = Column(Float, nullable=False)  # Time in seconds from video start
+    
+    # Drone position data
+    drone_latitude = Column(Float, nullable=False)
+    drone_longitude = Column(Float, nullable=False)
+    drone_elevation = Column(Float, nullable=False)
+    gimbal_pitch = Column(Float)
+    gimbal_roll = Column(Float)
+    gimbal_yaw = Column(Float)
+    
+    # Measurements for each PAPI light
+    papi_a_status = Column(SQLEnum(LightStatus))
+    papi_a_rgb = Column(JSON)  # {"r": 255, "g": 0, "b": 0}
+    papi_a_intensity = Column(Float)
+    papi_a_angle = Column(Float)  # Angle from ground
+    papi_a_distance_ground = Column(Float)  # Distance on ground
+    papi_a_distance_direct = Column(Float)  # Direct distance to drone
+    
+    papi_b_status = Column(SQLEnum(LightStatus))
+    papi_b_rgb = Column(JSON)
+    papi_b_intensity = Column(Float)
+    papi_b_angle = Column(Float)
+    papi_b_distance_ground = Column(Float)
+    papi_b_distance_direct = Column(Float)
+    
+    papi_c_status = Column(SQLEnum(LightStatus))
+    papi_c_rgb = Column(JSON)
+    papi_c_intensity = Column(Float)
+    papi_c_angle = Column(Float)
+    papi_c_distance_ground = Column(Float)
+    papi_c_distance_direct = Column(Float)
+    
+    papi_d_status = Column(SQLEnum(LightStatus))
+    papi_d_rgb = Column(JSON)
+    papi_d_intensity = Column(Float)
+    papi_d_angle = Column(Float)
+    papi_d_distance_ground = Column(Float)
+    papi_d_distance_direct = Column(Float)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    session = relationship("MeasurementSession", back_populates="frame_measurements")
+
+
+class MeasurementReport(Base):
+    __tablename__ = "measurement_reports"
+    
+    id = Column(CHAR(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    session_id = Column(CHAR(36), ForeignKey("measurement_sessions.id"), nullable=False)
+    report_type = Column(String(10), nullable=False)  # "html", "pdf", "csv"
+    file_path = Column(String(500), nullable=False)
+    generated_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Summary data
+    summary_data = Column(JSON)  # Store calculated angles, transition points, etc.
+    
+    # Relationships
+    session = relationship("MeasurementSession")

@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     
     # Database
     DATABASE_URL: str = Field(
-        default="mysql+aiomysql://airport_user:airport_pass@localhost:3306/airport_mgmt",
+        default="mysql+aiomysql://airport_user:airport_pass@localhost:3307/airport_mgmt",
         env="DATABASE_URL"
     )
     
@@ -29,13 +29,16 @@ class Settings(BaseSettings):
         env="SECRET_KEY"
     )
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     
     # CORS
     CORS_ORIGINS: List[str] = Field(
         default=["http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000"],
     )
+    
+    # API Base URL for serving content (videos, reports, etc.)
+    API_BASE_URL: str = Field(default="http://localhost:8002", env="API_BASE_URL")
     
     # File Storage
     DATA_PATH: str = Field(default="/data", env="DATA_PATH")

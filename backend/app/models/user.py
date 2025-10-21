@@ -73,6 +73,7 @@ class User(Base):
     created_airports = relationship("Airport", back_populates="created_by_user", foreign_keys="Airport.created_by")
     tasks = relationship("Task", back_populates="assigned_user")
     audit_logs = relationship("AuditLog", back_populates="user")
+    measurement_sessions = relationship("MeasurementSession", back_populates="user")
     
     def __repr__(self):
         return f"<User {self.email}>"

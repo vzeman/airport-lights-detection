@@ -13,8 +13,9 @@ import uuid
 # Add parent directory to path
 sys.path.append('.')
 
-from app.db.base import AsyncSessionLocal, engine, Base
-from app.models import User, Role, Permission, UserRole
+from app.db.base import engine, Base
+from app.db.session import async_session as AsyncSessionLocal
+from app.models import User, UserRole, Permission
 from app.core.security import get_password_hash
 
 

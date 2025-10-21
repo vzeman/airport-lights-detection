@@ -18489,3 +18489,4 @@ yolov*.pt
 /backend/node_modules/zustand/vanilla.d.ts
 /backend/node_modules/zustand/vanilla.js
 /backend/node_modules/.package-lock.json
+/backend/data/

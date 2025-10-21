@@ -8,12 +8,13 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Users from './pages/Users';
 import Airports from './pages/Airports';
+import AirportDetail from './pages/AirportDetail';
 import AirportMap from './pages/AirportMap';
 import ItemTypesManagement from './pages/ItemTypesManagement';
-import MissionPlanning from './pages/MissionPlanning';
-import TasksManagement from './pages/TasksManagement';
 import Settings from './pages/Settings';
-import GlobalMapView from './pages/GlobalMapView';
+import PAPIMeasurements from './pages/PAPIMeasurements';
+import PAPIMeasurementsHistory from './pages/PAPIMeasurementsHistory';
+import PAPIMeasurementsResults from './pages/PAPIMeasurementsResults';
 import Layout from './components/Layout';
 
 // Create Query Client
@@ -61,15 +62,15 @@ const AppRoutes: React.FC = () => {
           </ProtectedRoute>
         }
       >
-        <Route index element={<Dashboard />} />
+        <Route index element={<PAPIMeasurementsHistory />} />
         <Route path="users" element={<Users />} />
         <Route path="airports" element={<Airports />} />
-        <Route path="airports/:airportId" element={<Dashboard />} />
+        <Route path="airports/:airportId" element={<AirportDetail />} />
         <Route path="airports/:airportId/map" element={<AirportMap />} />
         <Route path="item-types" element={<ItemTypesManagement />} />
-        <Route path="mission-planning" element={<MissionPlanning />} />
-        <Route path="tasks" element={<TasksManagement />} />
-        <Route path="map" element={<GlobalMapView />} />
+        <Route path="papi-measurements" element={<PAPIMeasurements />} />
+        <Route path="papi-measurements/history" element={<PAPIMeasurementsHistory />} />
+        <Route path="papi-measurements/results/:sessionId" element={<PAPIMeasurementsResults />} />
         <Route path="settings" element={<Settings />} />
         <Route path="profile" element={<div className="p-6">Profile (TODO)</div>} />
       </Route>

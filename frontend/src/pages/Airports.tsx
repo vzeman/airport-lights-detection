@@ -15,10 +15,10 @@ import {
   Trash2,
   Search,
   RefreshCw,
-  Map as MapIcon,
   Eye,
   ChevronLeft,
   ChevronRight,
+  Loader2,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
@@ -50,7 +50,7 @@ const Airports: React.FC = () => {
   const navigate = useNavigate();
   const { isSuperAdmin, isAirportAdmin } = useAuth();
   const [airports, setAirports] = useState<Airport[]>([]);
-  const [, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
   const [rowsPerPage] = useState(10);
@@ -153,9 +153,6 @@ const Airports: React.FC = () => {
     navigate(`/airports/${airport.id}`);
   };
 
-  const handleViewMap = (airport: Airport) => {
-    navigate(`/airports/${airport.id}/map`);
-  };
 
   const handleSaveAirport = async () => {
     try {
@@ -255,82 +252,91 @@ const Airports: React.FC = () => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {airports.map((airport) => (
-              <TableRow key={airport.id}>
-                <TableCell>
-                  <div className="font-semibold">
-                    {airport.icao_code}
-                  </div>
-                </TableCell>
-                <TableCell>{airport.iata_code || '-'}</TableCell>
-                <TableCell>
-                  <div className="text-sm">{airport.name}</div>
-                  {airport.city && (
-                    <div className="text-xs text-gray-500">
-                      {airport.city}
-                    </div>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <div className="text-sm">{airport.country}</div>
-                  <div className="text-xs text-gray-500">
-                    {airport.latitude.toFixed(4)}, {airport.longitude.toFixed(4)}
-                  </div>
-                </TableCell>
-                <TableCell>{airport.runway_count}</TableCell>
-                <TableCell>
-                  <Badge variant="outline">
-                    {airport.compliance_framework}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <Badge variant={airport.is_active ? "default" : "secondary"}>
-                    {airport.is_active ? 'Active' : 'Inactive'}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <div className="flex gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleViewAirport(airport)}
-                      title="View Details"
-                    >
-                      <Eye className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleViewMap(airport)}
-                      title="View Map"
-                    >
-                      <MapIcon className="h-4 w-4" />
-                    </Button>
-                    {(isSuperAdmin || isAirportAdmin) && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleEditAirport(airport)}
-                        title="Edit"
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                    )}
-                    {isSuperAdmin && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteAirport(airport)}
-                        title="Delete"
-                        className="text-red-600 hover:text-red-700"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    )}
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={8} className="text-center py-8">
+                  <div className="flex items-center justify-center gap-2">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <span>Loading airports...</span>
                   </div>
                 </TableCell>
               </TableRow>
-            ))}
+            ) : airports.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                  No airports found
+                </TableCell>
+              </TableRow>
+            ) : (
+              airports.map((airport) => (
+                <TableRow key={airport.id}>
+                  <TableCell>
+                    <div className="font-semibold">
+                      {airport.icao_code}
+                    </div>
+                  </TableCell>
+                  <TableCell>{airport.iata_code || '-'}</TableCell>
+                  <TableCell>
+                    <div className="text-sm">{airport.name}</div>
+                    {airport.city && (
+                      <div className="text-xs text-gray-500">
+                        {airport.city}
+                      </div>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div className="text-sm">{airport.country}</div>
+                    <div className="text-xs text-gray-500">
+                      {airport.latitude?.toFixed(4) || 'N/A'}, {airport.longitude?.toFixed(4) || 'N/A'}
+                    </div>
+                  </TableCell>
+                  <TableCell>{airport.runway_count}</TableCell>
+                  <TableCell>
+                    <Badge variant="outline">
+                      {airport.compliance_framework}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={airport.is_active ? "default" : "secondary"}>
+                      {airport.is_active ? 'Active' : 'Inactive'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleViewAirport(airport)}
+                        title="View Details"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      {(isSuperAdmin || isAirportAdmin) && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleEditAirport(airport)}
+                          title="Edit"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                      )}
+                      {isSuperAdmin && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteAirport(airport)}
+                          title="Delete"
+                          className="text-red-600 hover:text-red-700"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
         

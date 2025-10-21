@@ -25,6 +25,8 @@ import base64
 from io import BytesIO
 from PIL import Image
 import os
+import subprocess
+import shutil
 
 # Import GPS extractor
 try:
@@ -502,6 +504,176 @@ class RGBAnalyzer:
         return color_changes[:10]  # Return top 10 most significant changes
 
 
+class LightVideoExtractor:
+    """Extract individual video clips for each tracked light"""
+    
+    @staticmethod
+    def extract_light_videos(video_path: Path, tracks: Dict[int, TrackedLight], output_dir: Path, 
+                            video_size: int = 128, max_videos: int = 50) -> Dict[int, Path]:
+        """Extract small video clips centered on each tracked light
+        
+        Args:
+            video_path: Path to source video
+            tracks: Dictionary of tracked lights
+            output_dir: Directory to save video clips
+            video_size: Size of the output video (square)
+            max_videos: Maximum number of videos to generate
+            
+        Returns:
+            Dictionary mapping track_id to video clip path
+        """
+        # Create subdirectory for light videos
+        videos_dir = output_dir / "light_videos"
+        videos_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Filter tracks with sufficient frames
+        valid_tracks = {
+            tid: track for tid, track in tracks.items()
+            if len(track.lights) >= 10  # Need at least 10 frames for a meaningful video
+        }
+        
+        # Limit number of videos
+        track_ids = list(valid_tracks.keys())[:max_videos]
+        
+        if not track_ids:
+            logger.info("No valid tracks for video extraction")
+            return {}
+        
+        logger.info(f"Extracting {len(track_ids)} light videos...")
+        
+        # Open source video
+        cap = cv2.VideoCapture(str(video_path))
+        if not cap.isOpened():
+            logger.error(f"Failed to open video: {video_path}")
+            return {}
+        
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        if fps <= 0:
+            fps = 30
+            
+        # Process each track
+        video_paths = {}
+        
+        for track_id in track_ids:
+            track = valid_tracks[track_id]
+            
+            # Get frame range for this track
+            frame_numbers = [light.frame_num for light in track.lights]
+            min_frame = min(frame_numbers)
+            max_frame = max(frame_numbers)
+            
+            # Create video writer for this light with unique filename
+            source_name = video_path.stem  # Get source video name without extension
+            video_name = f"{source_name}_light_{track_id}_{track.class_name}.mp4"
+            video_path_out = videos_dir / video_name
+            
+            # Try different codec for browser compatibility
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            temp_path = str(video_path_out).replace('.mp4', '_temp.mp4')
+            out = cv2.VideoWriter(temp_path, fourcc, fps, (video_size, video_size))
+            
+            # Create frame lookup for this track
+            frame_to_light = {light.frame_num: light for light in track.lights}
+            
+            # Process frames for this track
+            cap.set(cv2.CAP_PROP_POS_FRAMES, min_frame)
+            
+            for frame_idx in range(min_frame, max_frame + 1):
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                    
+                # Get light position for this frame (interpolate if needed)
+                if frame_idx in frame_to_light:
+                    light = frame_to_light[frame_idx]
+                    cx, cy = int(light.x), int(light.y)
+                else:
+                    # Interpolate position from nearest frames
+                    prev_frame = max([f for f in frame_to_light.keys() if f < frame_idx], default=None)
+                    next_frame = min([f for f in frame_to_light.keys() if f > frame_idx], default=None)
+                    
+                    if prev_frame and next_frame:
+                        prev_light = frame_to_light[prev_frame]
+                        next_light = frame_to_light[next_frame]
+                        
+                        # Linear interpolation
+                        alpha = (frame_idx - prev_frame) / (next_frame - prev_frame)
+                        cx = int(prev_light.x + alpha * (next_light.x - prev_light.x))
+                        cy = int(prev_light.y + alpha * (next_light.y - prev_light.y))
+                    elif prev_frame:
+                        light = frame_to_light[prev_frame]
+                        cx, cy = int(light.x), int(light.y)
+                    elif next_frame:
+                        light = frame_to_light[next_frame]
+                        cx, cy = int(light.x), int(light.y)
+                    else:
+                        continue
+                
+                # Extract region around the light
+                half_size = video_size // 2
+                h, w = frame.shape[:2]
+                
+                # Calculate crop boundaries with bounds checking
+                x1 = max(0, cx - half_size)
+                x2 = min(w, cx + half_size)
+                y1 = max(0, cy - half_size)
+                y2 = min(h, cy + half_size)
+                
+                # Extract the region
+                crop = frame[y1:y2, x1:x2]
+                
+                # Pad if necessary to maintain video_size
+                if crop.shape[0] < video_size or crop.shape[1] < video_size:
+                    # Create black background
+                    padded = np.zeros((video_size, video_size, 3), dtype=np.uint8)
+                    
+                    # Calculate placement
+                    y_offset = (video_size - crop.shape[0]) // 2
+                    x_offset = (video_size - crop.shape[1]) // 2
+                    
+                    # Place crop in center
+                    padded[y_offset:y_offset+crop.shape[0], x_offset:x_offset+crop.shape[1]] = crop
+                    crop = padded
+                
+                # Add track ID text
+                text = f"#{track_id}"
+                cv2.putText(crop, text, (5, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                
+                # Write frame
+                out.write(crop)
+            
+            out.release()
+            
+            # Convert video to ensure browser compatibility using ffmpeg
+            try:
+                # Convert using ffmpeg for proper browser playback
+                final_path = str(video_path_out)
+                cmd = [
+                    'ffmpeg', '-y', '-i', temp_path,
+                    '-c:v', 'libx264',  # Use H.264 codec
+                    '-pix_fmt', 'yuv420p',  # Pixel format for compatibility
+                    '-movflags', '+faststart',  # Enable fast start for web playback
+                    final_path
+                ]
+                subprocess.run(cmd, check=True, capture_output=True, text=True)
+                # Remove temp file
+                os.remove(temp_path)
+                logger.info(f"Created and converted video for track #{track_id}: {video_name}")
+            except subprocess.CalledProcessError as e:
+                # If ffmpeg fails, just rename the temp file
+                shutil.move(temp_path, str(video_path_out))
+                logger.warning(f"ffmpeg conversion failed, using original format for track #{track_id}")
+            except FileNotFoundError:
+                # ffmpeg not installed, just rename
+                shutil.move(temp_path, str(video_path_out))
+                logger.warning("ffmpeg not found, using original video format")
+                
+            video_paths[track_id] = video_path_out
+        
+        cap.release()
+        return video_paths
+
+
 class SnapshotGenerator:
     """Generate annotated snapshots of detected lights"""
     
@@ -593,6 +765,10 @@ class ReportGenerator:
         # Get relative path to video from report directory
         video_relative_path = os.path.relpath(video_path, self.output_dir)
         
+        # Extract individual light videos
+        video_extractor = LightVideoExtractor()
+        light_videos = video_extractor.extract_light_videos(video_path, tracks, self.output_dir)
+        
         # Filter tracks with sufficient data
         valid_tracks = {
             tid: track for tid, track in tracks.items()
@@ -628,10 +804,7 @@ class ReportGenerator:
                 total_seconds = ts / 1000.0
                 time_formatted.append(f"{total_seconds:.1f}s")
             
-            # Compute derivatives
-            r_deriv1, r_deriv2 = analyzer.compute_derivatives(r_values, timestamps)
-            g_deriv1, g_deriv2 = analyzer.compute_derivatives(g_values, timestamps)
-            b_deriv1, b_deriv2 = analyzer.compute_derivatives(b_values, timestamps)
+            # Derivatives removed - no longer computing color change rates
             
             # Detect significant color changes
             color_changes = analyzer.detect_color_changes(r_values, g_values, b_values, timestamps)
@@ -678,12 +851,6 @@ class ReportGenerator:
                 'r_values': r_values,
                 'g_values': g_values,
                 'b_values': b_values,
-                'r_deriv1': r_deriv1,
-                'g_deriv1': g_deriv1,
-                'b_deriv1': b_deriv1,
-                'r_deriv2': r_deriv2,
-                'g_deriv2': g_deriv2,
-                'b_deriv2': b_deriv2,
                 'color_changes': color_changes,
                 'x_positions': x_positions,
                 'y_positions': y_positions,
@@ -920,7 +1087,39 @@ class ReportGenerator:
         
         html_content += """
             </div>
+            """
+        
+        # Add light video gallery if videos were extracted
+        if light_videos:
+            html_content += """
+            <div class="info">
+                <h2>📹 Individual Light Videos</h2>
+                <p>Small video clips centered on each tracked light. Each video shows the light in the center with a green crosshair.</p>
+                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 15px; margin-top: 20px;">
+            """
             
+            for track_id, video_path in sorted(light_videos.items())[:30]:  # Show up to 30 videos
+                if track_id in valid_tracks:
+                    track = valid_tracks[track_id]
+                    video_relative = os.path.relpath(video_path, self.output_dir)
+                    html_content += f"""
+                    <div style="text-align: center; background: white; padding: 10px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                        <video width="128" height="128" controls loop style="border-radius: 4px;">
+                            <source src="{video_relative}" type="video/mp4">
+                        </video>
+                        <p style="margin: 5px 0 0 0; font-size: 12px;">
+                            <strong>Track #{track_id}</strong><br>
+                            <span style="color: #666;">{track.class_name.replace('_', ' ').title()}</span>
+                        </p>
+                    </div>
+                    """
+            
+            html_content += """
+                </div>
+            </div>
+            """
+        
+        html_content += """
             <div class="stats">
                 <h2>💡 Detected Light Types</h2>
                 <table>
@@ -961,7 +1160,7 @@ class ReportGenerator:
             
             <div id="charts">
                 <h2>📉 Individual Light Analysis (All Tracks)</h2>
-                <p><strong>Each light track shows:</strong> RGB color analysis, second derivatives (acceleration), and position trajectory.</p>
+                <p><strong>Each light track shows:</strong> RGB color analysis and individual light video.</p>
             </div>
         """
         
@@ -1031,88 +1230,22 @@ class ReportGenerator:
                 )
             )
             
-            # First Derivatives Chart (Rate of Color Change)
-            deriv_fig = go.Figure()
-            deriv_fig.add_trace(go.Scatter(x=track_data['time_formatted'], y=track_data['r_deriv1'], 
-                                         name="R'", line=dict(color='red', width=2)))
-            deriv_fig.add_trace(go.Scatter(x=track_data['time_formatted'], y=track_data['g_deriv1'], 
-                                         name="G'", line=dict(color='green', width=2)))
-            deriv_fig.add_trace(go.Scatter(x=track_data['time_formatted'], y=track_data['b_deriv1'], 
-                                         name="B'", line=dict(color='blue', width=2)))
+            # Get individual light video if available
+            video_html = ""
+            if track_id in light_videos:
+                video_relative = os.path.relpath(light_videos[track_id], self.output_dir)
+                video_html = f'''
+                <div style="display: flex; align-items: center; justify-content: center; height: 400px;">
+                    <div style="text-align: center;">
+                        <video width="256" height="256" controls loop autoplay muted style="border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                            <source src="{video_relative}" type="video/mp4">
+                            Your browser does not support the video tag.
+                        </video>
+                        <p style="margin-top: 10px; color: #666;">Individual Light Video<br>Track #{track_id}</p>
+                    </div>
+                </div>
+                '''
             
-            # Add markers for significant color changes
-            if track_data['color_changes']:
-                change_times = []
-                change_magnitudes = []
-                change_texts = []
-                
-                for change in track_data['color_changes'][:5]:  # Show top 5 changes
-                    idx = change['frame_index']
-                    if idx < len(track_data['time_formatted']):
-                        change_times.append(track_data['time_formatted'][idx])
-                        change_magnitudes.append(0)  # Place marker at y=0
-                        
-                        # Create hover text with GPS info
-                        text = f"Color Change<br>"
-                        text += f"Magnitude: {change['magnitude']:.1f}<br>"
-                        text += f"Type: {change['dominant_channel']}<br>"
-                        if change.get('gps_latitude'):
-                            text += f"GPS: {change['gps_latitude']:.6f}, {change['gps_longitude']:.6f}<br>"
-                            text += f"Alt: {change['gps_altitude']:.1f}m"
-                        change_texts.append(text)
-                
-                if change_times:
-                    deriv_fig.add_trace(go.Scatter(
-                        x=change_times,
-                        y=change_magnitudes,
-                        mode='markers',
-                        name='Color Changes',
-                        marker=dict(size=12, color='orange', symbol='star'),
-                        text=change_texts,
-                        hoverinfo='text'
-                    ))
-            
-            deriv_fig.update_layout(
-                title=f"Rate of Color Change (1st Derivative) - {track.class_name} #{track_id}", 
-                height=400, 
-                xaxis_title="Time (seconds)", 
-                yaxis_title="dRGB/dt",
-                margin=dict(l=60, r=40, t=60, b=80),
-                autosize=True,
-                dragmode='pan',  # Set default mode to pan
-                xaxis=dict(
-                    tickangle=-45,
-                    tickmode='auto',
-                    nticks=10,
-                    showgrid=True,
-                    automargin=True
-                )
-            )
-            
-            # Position Trajectory Chart
-            pos_fig = go.Figure()
-            pos_fig.add_trace(go.Scatter(x=track_data['x_positions'], y=track_data['y_positions'], 
-                                       mode='markers+lines', name=f"Track #{track_id}",
-                                       line=dict(color='purple', width=2), marker=dict(size=4, color='purple')))
-            if len(track_data['x_positions']) > 0:
-                # Start point (green)
-                pos_fig.add_trace(go.Scatter(x=[track_data['x_positions'][0]], y=[track_data['y_positions'][0]], 
-                                           mode='markers', name="Start", 
-                                           marker=dict(size=12, color='green', symbol='circle')))
-                # End point (red)
-                pos_fig.add_trace(go.Scatter(x=[track_data['x_positions'][-1]], y=[track_data['y_positions'][-1]], 
-                                           mode='markers', name="End", 
-                                           marker=dict(size=12, color='red', symbol='x')))
-            pos_fig.update_layout(
-                title=f"Position Trajectory - {track.class_name} #{track_id}", 
-                height=400, 
-                xaxis_title="X Position (pixels)", 
-                yaxis_title="Y Position (pixels)",
-                margin=dict(l=60, r=40, t=60, b=60),
-                autosize=True,
-                dragmode='pan'  # Set default mode to pan
-            )
-            pos_fig.update_yaxes(autorange="reversed")  # Invert Y axis for image coordinates
             
             # Add GPS info if available
             gps_info = ""
@@ -1168,10 +1301,7 @@ class ReportGenerator:
                         {pyo.plot(rgb_fig, output_type='div', include_plotlyjs=False)}
                     </div>
                     <div class="chart-container">
-                        {pyo.plot(deriv_fig, output_type='div', include_plotlyjs=False)}
-                    </div>
-                    <div class="chart-container">
-                        {pyo.plot(pos_fig, output_type='div', include_plotlyjs=False)}
+                        {video_html}
                     </div>
                 </div>
             </div>
