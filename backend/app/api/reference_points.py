@@ -79,21 +79,31 @@ async def create_reference_point(
     current_user: User = Depends(get_current_user)
 ):
     """Create a new reference point for a runway"""
+    # Get runway first
+    result = await db.execute(
+        select(Runway).where(Runway.id == runway_id)
+    )
+    runway = result.scalar_one_or_none()
+
+    if not runway:
+        raise HTTPException(status_code=404, detail="Runway not found")
+
     # Check if user is admin
     if not current_user.is_superuser:
-        # Check runway's airport
-        result = await db.execute(
-            select(Runway).where(Runway.id == runway_id)
-        )
-        runway = result.scalar_one_or_none()
-        
-        if not runway:
-            raise HTTPException(status_code=404, detail="Runway not found")
-        
         user_airports = [a.id for a in current_user.airports]
         if runway.airport_id not in user_airports:
             raise HTTPException(status_code=403, detail="Not authorized for this airport")
-    
+
+    # Get airport for ICAO code
+    from app.models import Airport
+    result = await db.execute(
+        select(Airport).where(Airport.id == runway.airport_id)
+    )
+    airport = result.scalar_one_or_none()
+
+    if not airport:
+        raise HTTPException(status_code=404, detail="Airport not found")
+
     # Check if this point type already exists for this runway
     result = await db.execute(
         select(ReferencePoint).where(
@@ -104,24 +114,27 @@ async def create_reference_point(
         )
     )
     existing = result.scalar_one_or_none()
-    
+
     if existing:
         raise HTTPException(
             status_code=400,
             detail=f"Reference point {point_data.point_type} already exists for this runway"
         )
-    
+
     # Create reference point
     ref_point = ReferencePoint(
         id=str(uuid.uuid4()),
+        point_id=f"{runway_id}_{point_data.point_type}",
         runway_id=runway_id,
+        airport_icao_code=airport.icao_code,
+        runway_code=runway.name,
         **point_data.dict()
     )
-    
+
     db.add(ref_point)
     await db.commit()
     await db.refresh(ref_point)
-    
+
     return ReferencePointResponse.from_orm(ref_point)
 
 
@@ -216,47 +229,60 @@ async def bulk_update_reference_points(
     current_user: User = Depends(get_current_user)
 ):
     """Bulk create/update reference points for a runway"""
+    # Get runway first (we need it for denormalized fields)
+    result = await db.execute(
+        select(Runway).where(Runway.id == runway_id)
+    )
+    runway = result.scalar_one_or_none()
+
+    if not runway:
+        raise HTTPException(status_code=404, detail="Runway not found")
+
     # Check if user is admin
     if not current_user.is_superuser:
-        # Check runway's airport
-        result = await db.execute(
-            select(Runway).where(Runway.id == runway_id)
-        )
-        runway = result.scalar_one_or_none()
-        
-        if not runway:
-            raise HTTPException(status_code=404, detail="Runway not found")
-        
         user_airports = [a.id for a in current_user.airports]
         if runway.airport_id not in user_airports:
             raise HTTPException(status_code=403, detail="Not authorized for this airport")
-    
+
+    # Get airport ICAO code
+    from app.models import Airport
+    result = await db.execute(
+        select(Airport).where(Airport.id == runway.airport_id)
+    )
+    airport = result.scalar_one_or_none()
+
+    if not airport:
+        raise HTTPException(status_code=404, detail="Airport not found")
+
     # Delete existing reference points
     result = await db.execute(
         select(ReferencePoint).where(ReferencePoint.runway_id == runway_id)
     )
     existing_points = result.scalars().all()
-    
+
     for point in existing_points:
         await db.delete(point)
-    
+
     # Create new reference points
     created_points = []
     for point_data in points:
         ref_point = ReferencePoint(
             id=str(uuid.uuid4()),
+            point_id=f"{runway_id}_{point_data.point_type}",
             runway_id=runway_id,
+            airport_icao_code=airport.icao_code,
+            runway_code=runway.name,
             **point_data.dict()
         )
         db.add(ref_point)
         created_points.append(ref_point)
-    
+
     await db.commit()
-    
+
     # Refresh all points
     for point in created_points:
         await db.refresh(point)
-    
+
     return {
         "reference_points": [ReferencePointResponse.from_orm(p) for p in created_points],
         "total": len(created_points)

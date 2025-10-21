@@ -126,10 +126,12 @@ async def create_runway(
         raise HTTPException(status_code=400, detail="Runway with this name already exists")
     
     # Create runway
+    # Exclude calculated properties (end_lat and end_lon are computed from start_lat, start_lon, heading, and length)
+    runway_dict = runway_data.dict(exclude={'end_lat', 'end_lon'})
     runway = Runway(
         id=str(uuid.uuid4()),
         airport_id=airport_id,
-        **runway_data.dict()
+        **runway_dict
     )
     
     db.add(runway)

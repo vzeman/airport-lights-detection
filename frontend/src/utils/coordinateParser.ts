@@ -106,6 +106,8 @@ function parseDecimalCoordinate(input: string): number | null {
  * - N48°52.01'
  * - E18°0.25'
  * - W100°30'
+ * - 491400N (aviation format: DDMMSS + direction)
+ * - 0183649E (aviation format: DDDMMSS + direction)
  */
 function parseDMSCoordinate(input: string, type: 'latitude' | 'longitude'): number | null {
   // Remove spaces for easier parsing
@@ -129,6 +131,32 @@ function parseDMSCoordinate(input: string, type: 'latitude' | 'longitude'): numb
     }
     if (type === 'longitude' && !['E', 'W'].includes(direction)) {
       return null;
+    }
+  }
+
+  // Try to parse aviation compact format (e.g., 491400N or 0183649E)
+  // Latitude: DDMMSS[N|S] (6 digits + direction)
+  // Longitude: DDDMMSS[E|W] (7 digits + direction)
+  if (direction && /^\d+$/.test(coordStr)) {
+    const expectedLength = type === 'latitude' ? 6 : 7;
+    if (coordStr.length === expectedLength) {
+      const degreesLength = type === 'latitude' ? 2 : 3;
+      const degrees = parseInt(coordStr.substring(0, degreesLength), 10);
+      const minutes = parseInt(coordStr.substring(degreesLength, degreesLength + 2), 10);
+      const seconds = parseInt(coordStr.substring(degreesLength + 2), 10);
+
+      if (minutes >= 60 || seconds >= 60) {
+        return null;
+      }
+
+      let decimal = degrees + minutes / 60 + seconds / 3600;
+
+      // Apply direction
+      if (direction === 'S' || direction === 'W') {
+        decimal = -decimal;
+      }
+
+      return decimal;
     }
   }
 
@@ -207,15 +235,15 @@ export function getCoordinateExamples(type: 'latitude' | 'longitude'): string[] 
     return [
       '48.123456 (decimal)',
       'N48°52.01\' (degrees, minutes)',
-      'N48°52\'30" (degrees, minutes, seconds)',
-      'S12°30\'15"',
+      'N48°52\'30" (DMS)',
+      '491400N (compact aviation)',
     ];
   } else {
     return [
       '17.654321 (decimal)',
       'E18°0.25\' (degrees, minutes)',
-      'E18°0\'15" (degrees, minutes, seconds)',
-      'W100°30\'45"',
+      'E18°0\'15" (DMS)',
+      '0183649E (compact aviation)',
     ];
   }
 }
