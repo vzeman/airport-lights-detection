@@ -1903,7 +1903,45 @@ class PAPIVideoGenerator:
             thickness = 3 if confidence > 0.5 else 2
             cv2.rectangle(enhanced_frame, (x1, y1), (x2, y2), rect_color, thickness)
             
-            label = f"{light_name}"
+            # Calculate angle to PAPI light if we have GPS data
+            angle_text = ""
+            if cached_drone_data and reference_points:
+                try:
+                    drone_lat = cached_drone_data.get('latitude')
+                    drone_lon = cached_drone_data.get('longitude') 
+                    drone_alt = cached_drone_data.get('elevation', 0)
+                    
+                    # Get PAPI coordinates from reference points
+                    papi_id = light_name.replace('PAPI_', '').lower()
+                    papi_key = f"papi_{papi_id}"
+                    
+                    if (drone_lat and drone_lon and papi_key in reference_points and 
+                        reference_points[papi_key].get('lat') and reference_points[papi_key].get('lon')):
+                        
+                        papi_lat = reference_points[papi_key]['lat']
+                        papi_lon = reference_points[papi_key]['lon']
+                        papi_alt = reference_points[papi_key].get('elevation', 0)
+                        
+                        # Calculate angle using our existing function
+                        drone_data = {
+                            'latitude': drone_lat,
+                            'longitude': drone_lon,
+                            'elevation': drone_alt
+                        }
+                        papi_gps = {
+                            'lat': papi_lat,
+                            'lon': papi_lon,
+                            'elevation': papi_alt
+                        }
+                        
+                        angle = calculate_angle(drone_data, papi_gps)
+                        angle_text = f" {angle:.1f}°"
+                        
+                except Exception as e:
+                    # If angle calculation fails, continue without angle
+                    pass
+            
+            label = f"{light_name}{angle_text}"
             if confidence > 0:
                 label += f" ({confidence:.2f})"
             
@@ -1953,6 +1991,37 @@ class PAPIVideoGenerator:
         if drone_data.get('accuracy'):
             gps_quality += f" ±{drone_data['accuracy']:.1f}m"
         
+        # Calculate angle to touch point if reference points available
+        touch_point_angle_text = ""
+        if reference_points and 'touch_point' in reference_points:
+            try:
+                drone_lat = drone_data.get('latitude')
+                drone_lon = drone_data.get('longitude')
+                drone_alt = drone_data.get('elevation', 0)
+                
+                touch_lat = reference_points['touch_point'].get('lat')
+                touch_lon = reference_points['touch_point'].get('lon')
+                touch_alt = reference_points['touch_point'].get('elevation', 0)
+                
+                if drone_lat and drone_lon and touch_lat and touch_lon:
+                    # Calculate angle to touch point
+                    touch_data = {
+                        'latitude': drone_lat,
+                        'longitude': drone_lon,
+                        'elevation': drone_alt
+                    }
+                    touch_gps = {
+                        'lat': touch_lat,
+                        'lon': touch_lon,
+                        'elevation': touch_alt
+                    }
+                    
+                    touch_angle = calculate_angle(touch_data, touch_gps)
+                    touch_point_angle_text = f"Touch Point: {touch_angle:.1f}°"
+            except Exception as e:
+                # If angle calculation fails, continue without angle
+                pass
+
         # Basic drone data
         basic_texts = [
             f"Frame: {frame_number + 1} | {gps_source}{gps_quality}",
@@ -1962,6 +2031,10 @@ class PAPIVideoGenerator:
             f"Speed: {drone_data.get('speed', 0):.1f} m/s",
             f"Heading: {drone_data.get('heading', 0):.1f}°",
         ]
+        
+        # Add touch point angle if available
+        if touch_point_angle_text:
+            basic_texts.append(touch_point_angle_text)
         
         # Draw information
         text_color = (255, 255, 255)
