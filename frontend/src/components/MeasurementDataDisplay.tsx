@@ -412,7 +412,10 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
     if (!data || !data.papi_data[lightName]) return [];
 
     const lightData = data.papi_data[lightName];
-    const transitionWidths: number[] = [];
+
+    // Get transition points first (timestamps where transitions occur)
+    const transitionPoints = findColorTransitionPoints(lightName);
+    if (transitionPoints.length === 0) return [];
 
     // Compute color metrics for each frame (same as in findColorTransitionPoints)
     const colorMetrics: number[] = [];
@@ -432,65 +435,71 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
     const lowerThreshold = minMetric + range * 0.2;
     const upperThreshold = minMetric + range * 0.8;
 
-    // Find all transition zones
-    interface TransitionZone {
-      startIdx: number;
-      endIdx: number;
-    }
-    const transitionZones: TransitionZone[] = [];
-    let inTransition = false;
-    let transitionStart = 0;
+    // For each transition point, find the corresponding transition width
+    const transitionWidths: number[] = [];
+    const searchWindow = 2.0; // seconds - window to search for transition zone around each transition point
 
-    for (let i = 0; i < colorMetrics.length; i++) {
-      const metric = colorMetrics[i];
-      const isInTransitionZone = metric > lowerThreshold && metric < upperThreshold;
-
-      if (isInTransitionZone && !inTransition) {
-        // Entering transition zone
-        transitionStart = i;
-        inTransition = true;
-      } else if (!isInTransitionZone && inTransition) {
-        // Exiting transition zone
-        transitionZones.push({
-          startIdx: transitionStart,
-          endIdx: i - 1
-        });
-        inTransition = false;
+    for (const transitionTimestamp of transitionPoints) {
+      // Find the frame index closest to this transition point
+      let transitionIdx = 0;
+      let minTimeDiff = Infinity;
+      for (let i = 0; i < lightData.timestamps.length; i++) {
+        const timeDiff = Math.abs(lightData.timestamps[i] - transitionTimestamp);
+        if (timeDiff < minTimeDiff) {
+          minTimeDiff = timeDiff;
+          transitionIdx = i;
+        }
       }
-    }
 
-    // If still in transition at the end
-    if (inTransition) {
-      transitionZones.push({
-        startIdx: transitionStart,
-        endIdx: colorMetrics.length - 1
-      });
-    }
+      // Find the extent of the transition zone around this point
+      let startIdx = transitionIdx;
+      let endIdx = transitionIdx;
 
-    // Group nearby transition zones (within 1.5 seconds) similar to transition points
-    const groupedZones: TransitionZone[] = [];
-    const groupWindow = 1.5; // seconds
+      // Search backwards for the start of the transition zone
+      for (let i = transitionIdx; i >= 0; i--) {
+        const timeDiff = Math.abs(lightData.timestamps[i] - transitionTimestamp);
+        if (timeDiff > searchWindow) break; // Too far from transition point
 
-    for (const zone of transitionZones) {
-      const zoneTimestamp = lightData.timestamps[zone.startIdx];
-
-      // Check if this zone is close to any already grouped zone
-      const isNearExisting = groupedZones.some(existingZone => {
-        const existingTimestamp = lightData.timestamps[existingZone.startIdx];
-        return Math.abs(zoneTimestamp - existingTimestamp) < groupWindow;
-      });
-
-      if (!isNearExisting) {
-        groupedZones.push(zone);
+        const metric = colorMetrics[i];
+        if (metric > lowerThreshold && metric < upperThreshold) {
+          startIdx = i;
+        } else if (i < transitionIdx) {
+          // We've exited the transition zone going backwards
+          break;
+        }
       }
-    }
 
-    // Calculate transition width for each grouped zone
-    for (const zone of groupedZones) {
-      const startAngle = lightData.angles[zone.startIdx] ?? 0;
-      const endAngle = lightData.angles[zone.endIdx] ?? 0;
-      const width = Math.abs(endAngle - startAngle);
-      transitionWidths.push(width);
+      // Search forwards for the end of the transition zone
+      for (let i = transitionIdx; i < colorMetrics.length; i++) {
+        const timeDiff = Math.abs(lightData.timestamps[i] - transitionTimestamp);
+        if (timeDiff > searchWindow) break; // Too far from transition point
+
+        const metric = colorMetrics[i];
+        if (metric > lowerThreshold && metric < upperThreshold) {
+          endIdx = i;
+        } else if (i > transitionIdx) {
+          // We've exited the transition zone going forwards
+          break;
+        }
+      }
+
+      // Calculate the maximum width within this transition zone
+      let maxWidth = 0;
+      const angles: number[] = [];
+      for (let i = startIdx; i <= endIdx; i++) {
+        const angle = lightData.angles[i];
+        if (angle !== undefined && angle !== null) {
+          angles.push(angle);
+        }
+      }
+
+      if (angles.length > 0) {
+        const minAngle = Math.min(...angles);
+        const maxAngle = Math.max(...angles);
+        maxWidth = maxAngle - minAngle;
+      }
+
+      transitionWidths.push(maxWidth);
     }
 
     return transitionWidths;
@@ -572,19 +581,13 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
         }
       });
 
-      // Calculate touch point angle
-      const dronePos = data.drone_positions[index];
-      if (touchPoint && dronePos) {
-        const touchPointAngle = calculateTouchPointAngle(dronePos, touchPoint, groundElevation, false);
-        dataPoint['touchPoint_angle'] = touchPointAngle;
-      } else {
-        dataPoint['touchPoint_angle'] = 0;
-      }
-
-      // Add glide path angles if available
+      // Add glide path angles if available (including touch point angle calculated in backend)
       if (data.summary.glide_path_angles) {
         dataPoint['gp_avg_all'] = data.summary.glide_path_angles.average_all_lights[index] ?? 0;
         dataPoint['gp_avg_middle'] = data.summary.glide_path_angles.average_middle_lights[index] ?? 0;
+        dataPoint['touchPoint_angle'] = data.summary.glide_path_angles.to_touch_point?.[index] ?? 0;
+      } else {
+        dataPoint['touchPoint_angle'] = 0;
       }
 
       return dataPoint;
@@ -748,40 +751,6 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
             </CardContent>
           </Card>
 
-          {/* PAPI Light Status Summary */}
-          <Card>
-            <CardHeader>
-              <CardTitle>PAPI Light Status Summary</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                {['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D'].map(papi => {
-                  const counts = getStatusCounts(papi);
-                  const total = Object.values(counts).reduce((a, b) => a + b, 0);
-                  return (
-                    <div key={papi} className="space-y-2">
-                      <h4 className="font-medium">{papi.replace('_', ' ')}</h4>
-                      <div className="space-y-1 text-xs">
-                        <div className="flex justify-between">
-                          <span className="text-red-600">Red:</span>
-                          <span>{counts.red} ({total > 0 ? ((counts.red / total) * 100).toFixed(1) : 0}%)</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">White:</span>
-                          <span>{counts.white} ({total > 0 ? ((counts.white / total) * 100).toFixed(1) : 0}%)</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-yellow-600">Transition:</span>
-                          <span>{counts.transition} ({total > 0 ? ((counts.transition / total) * 100).toFixed(1) : 0}%)</span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-
           {/* Glide Path Angles Summary */}
           {data.summary.glide_path_angles && (
             <Card>
@@ -803,11 +772,22 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                           Average of all {data.summary.glide_path_angles.num_lights} PAPI lights
                         </p>
                         {data.summary.glide_path_angles.average_all_lights.length > 0 && (
-                          <div className="text-center">
-                            <div className="text-3xl font-bold text-blue-900 font-mono">
-                              {(data.summary.glide_path_angles.average_all_lights.reduce((a, b) => a + b, 0) /
-                                data.summary.glide_path_angles.average_all_lights.length).toFixed(3)}°
+                          <div className="text-center space-y-2">
+                            <div>
+                              <div className="text-xs text-gray-600 mb-1">GP to PAPI Lights</div>
+                              <div className="text-3xl font-bold text-blue-900 font-mono">
+                                {(data.summary.glide_path_angles.average_all_lights.reduce((a, b) => a + b, 0) /
+                                  data.summary.glide_path_angles.average_all_lights.length).toFixed(3)}°
+                              </div>
                             </div>
+                            {data.summary.glide_path_angles.touch_point_at_avg_all !== undefined && data.summary.glide_path_angles.touch_point_at_avg_all !== 0 && (
+                              <div className="pt-2 border-t border-blue-300">
+                                <div className="text-xs text-gray-600 mb-1">GP to Touch Point</div>
+                                <div className="text-2xl font-bold text-indigo-700 font-mono">
+                                  {data.summary.glide_path_angles.touch_point_at_avg_all.toFixed(3)}°
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -821,11 +801,22 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                           {data.summary.glide_path_angles.num_lights >= 8 && "Average of PAPI_B, PAPI_C, PAPI_F, PAPI_G"}
                         </p>
                         {data.summary.glide_path_angles.average_middle_lights.length > 0 && (
-                          <div className="text-center">
-                            <div className="text-3xl font-bold text-green-900 font-mono">
-                              {(data.summary.glide_path_angles.average_middle_lights.reduce((a, b) => a + b, 0) /
-                                data.summary.glide_path_angles.average_middle_lights.length).toFixed(3)}°
+                          <div className="text-center space-y-2">
+                            <div>
+                              <div className="text-xs text-gray-600 mb-1">GP to PAPI Lights</div>
+                              <div className="text-3xl font-bold text-green-900 font-mono">
+                                {(data.summary.glide_path_angles.average_middle_lights.reduce((a, b) => a + b, 0) /
+                                  data.summary.glide_path_angles.average_middle_lights.length).toFixed(3)}°
+                              </div>
                             </div>
+                            {data.summary.glide_path_angles.touch_point_at_avg_middle !== undefined && data.summary.glide_path_angles.touch_point_at_avg_middle !== 0 && (
+                              <div className="pt-2 border-t border-green-300">
+                                <div className="text-xs text-gray-600 mb-1">GP to Touch Point</div>
+                                <div className="text-2xl font-bold text-indigo-700 font-mono">
+                                  {data.summary.glide_path_angles.touch_point_at_avg_middle.toFixed(3)}°
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -841,10 +832,21 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                         {data.summary.glide_path_angles.transition_based && data.summary.glide_path_angles.transition_based.length > 0 && (() => {
                           const validAngles = data.summary.glide_path_angles.transition_based.filter(a => a !== 0);
                           return validAngles.length > 0 ? (
-                            <div className="text-center">
-                              <div className="text-3xl font-bold text-purple-900 font-mono">
-                                {(validAngles.reduce((a, b) => a + b, 0) / validAngles.length).toFixed(3)}°
+                            <div className="text-center space-y-2">
+                              <div>
+                                <div className="text-xs text-gray-600 mb-1">GP to PAPI Lights</div>
+                                <div className="text-3xl font-bold text-purple-900 font-mono">
+                                  {(validAngles.reduce((a, b) => a + b, 0) / validAngles.length).toFixed(3)}°
+                                </div>
                               </div>
+                              {data.summary.glide_path_angles.touch_point_at_transition !== undefined && data.summary.glide_path_angles.touch_point_at_transition !== 0 && (
+                                <div className="pt-2 border-t border-purple-300">
+                                  <div className="text-xs text-gray-600 mb-1">GP to Touch Point</div>
+                                  <div className="text-2xl font-bold text-indigo-700 font-mono">
+                                    {data.summary.glide_path_angles.touch_point_at_transition.toFixed(3)}°
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           ) : (
                             <div className="text-center text-gray-500 text-sm">No transitions detected</div>
@@ -1732,112 +1734,119 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
               <CardTitle>Reference Points</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
-                {Object.entries(data.reference_points)
-                  .sort(([, a], [, b]) => {
-                    // Sort by point_type alphabetically
-                    const typeA = a.point_type ?? '';
-                    const typeB = b.point_type ?? '';
-                    return typeA.localeCompare(typeB);
-                  })
-                  .map(([pointId, point]) => {
-                  // Check if this is a PAPI light
-                  const isPAPILight = pointId.includes('PAPI_A') || pointId.includes('PAPI_B') ||
-                                     pointId.includes('PAPI_C') || pointId.includes('PAPI_D') ||
-                                     pointId.includes('PAPI_E') || pointId.includes('PAPI_F') ||
-                                     pointId.includes('PAPI_G') || pointId.includes('PAPI_H');
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="border-b-2 border-gray-300">
+                      <th className="text-left p-2 font-semibold">Type</th>
+                      <th className="text-right p-2 font-semibold">Coordinates</th>
+                      <th className="text-right p-2 font-semibold">Elevation</th>
+                      <th className="text-right p-2 font-semibold">Nominal Angle</th>
+                      <th className="text-right p-2 font-semibold">Tolerance</th>
+                      <th className="text-right p-2 font-semibold">Transition Angle</th>
+                      <th className="text-right p-2 font-semibold">Transition Width</th>
+                      <th className="text-right p-2 font-semibold">Correction</th>
+                      <th className="text-right p-2 font-semibold">Max Lum. H-Angle</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(data.reference_points)
+                      .sort(([, a], [, b]) => {
+                        // Sort by point_type alphabetically
+                        const typeA = a.point_type ?? '';
+                        const typeB = b.point_type ?? '';
+                        return typeA.localeCompare(typeB);
+                      })
+                      .map(([pointId, point]) => {
+                        // Check if this is a PAPI light
+                        const isPAPILight = pointId.includes('PAPI_A') || pointId.includes('PAPI_B') ||
+                                           pointId.includes('PAPI_C') || pointId.includes('PAPI_D') ||
+                                           pointId.includes('PAPI_E') || pointId.includes('PAPI_F') ||
+                                           pointId.includes('PAPI_G') || pointId.includes('PAPI_H');
 
-                  let lightName = '';
-                  let transitionAngles: number[] = [];
-                  let transitionWidths: number[] = [];
+                        let lightName = '';
+                        let transitionAngles: number[] = [];
+                        let transitionWidths: number[] = [];
+                        let maxLuminosityAngle: number | null = null;
+                        let maxIntensity = 0;
 
-                  if (isPAPILight) {
-                    // Extract light name (e.g., "PAPI_A")
-                    if (pointId.includes('PAPI_A')) lightName = 'PAPI_A';
-                    else if (pointId.includes('PAPI_B')) lightName = 'PAPI_B';
-                    else if (pointId.includes('PAPI_C')) lightName = 'PAPI_C';
-                    else if (pointId.includes('PAPI_D')) lightName = 'PAPI_D';
-                    else if (pointId.includes('PAPI_E')) lightName = 'PAPI_E';
-                    else if (pointId.includes('PAPI_F')) lightName = 'PAPI_F';
-                    else if (pointId.includes('PAPI_G')) lightName = 'PAPI_G';
-                    else if (pointId.includes('PAPI_H')) lightName = 'PAPI_H';
+                        if (isPAPILight) {
+                          // Extract light name (e.g., "PAPI_A")
+                          if (pointId.includes('PAPI_A')) lightName = 'PAPI_A';
+                          else if (pointId.includes('PAPI_B')) lightName = 'PAPI_B';
+                          else if (pointId.includes('PAPI_C')) lightName = 'PAPI_C';
+                          else if (pointId.includes('PAPI_D')) lightName = 'PAPI_D';
+                          else if (pointId.includes('PAPI_E')) lightName = 'PAPI_E';
+                          else if (pointId.includes('PAPI_F')) lightName = 'PAPI_F';
+                          else if (pointId.includes('PAPI_G')) lightName = 'PAPI_G';
+                          else if (pointId.includes('PAPI_H')) lightName = 'PAPI_H';
 
-                    // Calculate transition angles for this light
-                    const transitionPoints = findColorTransitionPoints(lightName);
-                    const rgbData = formatRGBChartData(lightName);
-                    transitionAngles = transitionPoints.map(timestamp => {
-                      const dataPoint = rgbData.find(d => Math.abs(d.timestamp - timestamp) < 0.01);
-                      return dataPoint?.angle ?? 0;
-                    });
-
-                    // Calculate transition widths for this light
-                    transitionWidths = findColorTransitionWidths(lightName);
-                  }
-
-                  return (
-                    <div key={pointId} className="bg-gray-50 p-3 rounded">
-                      <h4 className="font-medium">{pointId.replace('_', ' ')}</h4>
-                      <div className="mt-2 space-y-1 text-xs text-gray-600">
-                        <p>Lat: {Number(point.latitude ?? 0).toFixed(8)}</p>
-                        <p>Lon: {Number(point.longitude ?? 0).toFixed(8)}</p>
-                        <p>Elev: {(point.elevation ?? 0).toFixed(1)}m</p>
-                        <p className="capitalize">Type: {point.point_type?.replace('_', ' ') ?? 'unknown'}</p>
-                        {point.nominal_angle !== undefined && point.nominal_angle !== null && (
-                          <p className="font-medium text-blue-600">Nominal Angle: {point.nominal_angle.toFixed(3)}°</p>
-                        )}
-                        {point.tolerance !== undefined && point.tolerance !== null && (
-                          <p className="font-medium text-orange-600">Tolerance: ±{point.tolerance.toFixed(3)}°</p>
-                        )}
-                        {isPAPILight && transitionAngles.length > 0 && (
-                          <>
-                            <p className="font-medium text-purple-600 mt-2">
-                              Transition Angle{transitionAngles.length > 1 ? 's' : ''}: {transitionAngles.map(a => a.toFixed(3) + '°').join(', ')}
-                            </p>
-                            {transitionWidths.length > 0 && (
-                              <p className="font-medium text-indigo-600">
-                                Transition Width{transitionWidths.length > 1 ? 's' : ''}: {transitionWidths.map(w => w.toFixed(3) + '°').join(', ')}
-                              </p>
-                            )}
-                            {point.nominal_angle !== undefined && point.nominal_angle !== null && transitionAngles.map((angle, idx) => {
-                              const correction = point.nominal_angle! - angle;
-                              const sign = correction >= 0 ? '+' : '';
-                              const isWithinTolerance = Math.abs(angle - point.nominal_angle!) <= (point.tolerance ?? 0.25);
-                              return (
-                                <p key={idx} className={`font-bold ${isWithinTolerance ? 'text-green-600' : 'text-red-600 text-sm'}`}>
-                                  Required Correction: {sign}{correction.toFixed(3)}° {isWithinTolerance ? '✓' : '✗'}
-                                </p>
-                              );
-                            })}
-                          </>
-                        )}
-                        {isPAPILight && (() => {
-                          // Calculate max luminosity horizontal angle for this PAPI light
-                          const lightData = data.papi_data[pointId as 'PAPI_A' | 'PAPI_B' | 'PAPI_C' | 'PAPI_D'];
-                          if (!lightData || !lightData.intensities || !lightData.horizontal_angles) {
-                            return null;
-                          }
-
-                          let maxIntensity = 0;
-                          let maxIntensityIndex = 0;
-                          lightData.intensities.forEach((intensity: number, idx: number) => {
-                            if (intensity > maxIntensity) {
-                              maxIntensity = intensity;
-                              maxIntensityIndex = idx;
-                            }
+                          // Calculate transition angles for this light
+                          const transitionPoints = findColorTransitionPoints(lightName);
+                          const rgbData = formatRGBChartData(lightName);
+                          transitionAngles = transitionPoints.map(timestamp => {
+                            const dataPoint = rgbData.find(d => Math.abs(d.timestamp - timestamp) < 0.01);
+                            return dataPoint?.angle ?? 0;
                           });
 
-                          const maxLuminosityAngle = lightData.horizontal_angles[maxIntensityIndex];
+                          // Calculate transition widths for this light
+                          transitionWidths = findColorTransitionWidths(lightName);
 
-                          return (
-                            <p className="font-medium text-teal-600 mt-2">
-                              Max Luminosity at Horizontal Angle: {maxLuminosityAngle != null ? `${maxLuminosityAngle.toFixed(3)}°` : 'N/A'} (Intensity: {Math.round(maxIntensity)})
-                            </p>
-                          );
-                        })()}
-                      </div>
-                    </div>
-                  );
-                })}
+                          // Calculate max luminosity horizontal angle
+                          const lightData = data.papi_data[lightName as 'PAPI_A' | 'PAPI_B' | 'PAPI_C' | 'PAPI_D'];
+                          if (lightData && lightData.intensities && lightData.horizontal_angles) {
+                            let maxIntensityIndex = 0;
+                            lightData.intensities.forEach((intensity: number, idx: number) => {
+                              if (intensity > maxIntensity) {
+                                maxIntensity = intensity;
+                                maxIntensityIndex = idx;
+                              }
+                            });
+                            maxLuminosityAngle = lightData.horizontal_angles[maxIntensityIndex];
+                          }
+                        }
+
+                        const transitionAngle = transitionAngles.length > 0 ? transitionAngles[0] : null;
+                        const transitionWidth = transitionWidths.length > 0 ? transitionWidths[0] : null;
+
+                        let correction: number | null = null;
+                        let isWithinTolerance = false;
+                        if (transitionAngle !== null && point.nominal_angle !== undefined && point.nominal_angle !== null) {
+                          correction = point.nominal_angle - transitionAngle;
+                          isWithinTolerance = Math.abs(transitionAngle - point.nominal_angle) <= (point.tolerance ?? 0.25);
+                        }
+
+                        return (
+                          <tr key={pointId} className="border-b border-gray-200 hover:bg-gray-50">
+                            <td className="p-2 capitalize font-medium">{point.point_type?.replace('_', ' ') ?? 'unknown'}</td>
+                            <td className="p-2 text-right font-mono text-xs">
+                              <div>{Number(point.latitude ?? 0).toFixed(8)}</div>
+                              <div>{Number(point.longitude ?? 0).toFixed(8)}</div>
+                            </td>
+                            <td className="p-2 text-right">{(point.elevation ?? 0).toFixed(3)}m</td>
+                            <td className="p-2 text-right text-blue-600 font-medium">
+                              {point.nominal_angle !== undefined && point.nominal_angle !== null ? `${point.nominal_angle.toFixed(3)}°` : '-'}
+                            </td>
+                            <td className="p-2 text-right text-orange-600">
+                              {point.tolerance !== undefined && point.tolerance !== null ? `±${point.tolerance.toFixed(3)}°` : '-'}
+                            </td>
+                            <td className="p-2 text-right text-purple-600 font-medium">
+                              {transitionAngle !== null ? `${transitionAngle.toFixed(3)}°` : '-'}
+                            </td>
+                            <td className="p-2 text-right text-indigo-600 font-medium">
+                              {transitionWidth !== null ? `${transitionWidth.toFixed(3)}°` : '-'}
+                            </td>
+                            <td className={`p-2 text-right font-bold ${correction !== null ? (isWithinTolerance ? 'text-green-600' : 'text-red-600') : ''}`}>
+                              {correction !== null ? `${correction >= 0 ? '+' : ''}${correction.toFixed(3)}° ${isWithinTolerance ? '✓' : '✗'}` : '-'}
+                            </td>
+                            <td className="p-2 text-right text-teal-600">
+                              {maxLuminosityAngle !== null ? `${maxLuminosityAngle.toFixed(3)}°` : '-'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
               </div>
             </CardContent>
           </Card>

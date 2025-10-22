@@ -25,6 +25,8 @@ interface MeasurementSession {
   status: string;
   created_at: string;
   completed_at: string | null;
+  recording_date: string | null;
+  original_video_filename: string | null;
   duration_seconds: number | null;
   error_message: string | null;
   has_results: boolean;
@@ -154,6 +156,8 @@ const PAPIMeasurementsHistory: React.FC = () => {
                   <TableHead>Runway</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Created</TableHead>
+                  <TableHead>Recording Date</TableHead>
+                  <TableHead>Video Filename</TableHead>
                   <TableHead>Duration</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
@@ -161,7 +165,7 @@ const PAPIMeasurementsHistory: React.FC = () => {
               <TableBody>
                 {sessions.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                       No measurement sessions found. Start a new measurement to see results here.
                     </TableCell>
                   </TableRow>
@@ -176,6 +180,10 @@ const PAPIMeasurementsHistory: React.FC = () => {
                       <TableCell>
                         {format(new Date(session.created_at), 'MMM dd, yyyy HH:mm')}
                       </TableCell>
+                      <TableCell>
+                        {session.recording_date ? format(new Date(session.recording_date), 'MMM dd, yyyy HH:mm') : '-'}
+                      </TableCell>
+                      <TableCell>{session.original_video_filename || '-'}</TableCell>
                       <TableCell>{formatDuration(session.duration_seconds)}</TableCell>
                       <TableCell>
                         <div className="flex space-x-2">

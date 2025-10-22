@@ -989,42 +989,87 @@ class VideoProcessor:
     
     @staticmethod
     def _filter_papi_candidates(detected_lights_list: List[DetectedLight]) -> List[DetectedLight]:
-        """Filter lights that could be PAPI lights based on intensity, size, and characteristics"""
+        """Filter lights that could be PAPI lights based on intensity, size, characteristics, and position
+
+        Priority:
+        1. Search from middle of image (PAPI lights are typically in center region)
+        2. Prioritize red lights (PAPI starts at red)
+        3. Filter by intensity, size, and brightness
+        """
+        if not detected_lights_list:
+            return []
+
         papi_candidates = []
-        
+
+        # Get image dimensions from detected lights
+        max_y = max(light.y for light in detected_lights_list) if detected_lights_list else 1000
+        max_x = max(light.x for light in detected_lights_list) if detected_lights_list else 1000
+
+        # Define middle region (center 60% horizontal, center 70% vertical)
+        mid_x_start = max_x * 0.2
+        mid_x_end = max_x * 0.8
+        mid_y_start = max_y * 0.15
+        mid_y_end = max_y * 0.85
+
         # Calculate area statistics for size-based filtering
-        areas = [max(light.width * light.height, light.width * light.width, light.height * light.height) for light in detected_lights_list]
+        areas = [max(light.width * light.height, light.width * light.width, light.height * light.height)
+                for light in detected_lights_list]
         avg_area = np.mean(areas) if areas else 0
-        
+
         for light in detected_lights_list:
             light_area = max(light.width * light.height, light.width * light.width, light.height * light.height)
-            
-            # Primary filter: High intensity PAPI lights (very bright)
-            if light.intensity > 200:
+
+            # Calculate position-based bonus (prioritize middle region)
+            in_middle_region = (mid_x_start <= light.x <= mid_x_end and
+                              mid_y_start <= light.y <= mid_y_end)
+            position_bonus = 50 if in_middle_region else 0
+
+            # Calculate red light bonus (PAPI often starts with red lights)
+            is_red = light.class_name == "red_light" or (
+                hasattr(light, 'rgb_color') and
+                light.rgb_color and
+                light.rgb_color[0] > light.rgb_color[1] + 30 and
+                light.rgb_color[0] > light.rgb_color[2] + 30
+            )
+            red_bonus = 40 if is_red else 0
+
+            adjusted_intensity = light.intensity + position_bonus + red_bonus
+
+            # Primary filter: High intensity PAPI lights (very bright) with bonuses
+            if adjusted_intensity > 200:
+                papi_candidates.append(light)
+                logger.debug(f"Candidate: pos=({light.x:.0f},{light.y:.0f}), "
+                           f"intensity={light.intensity:.0f}+{position_bonus}+{red_bonus}, "
+                           f"class={light.class_name}")
+                continue
+
+            # Secondary filter: Large lights with good intensity in middle region
+            if in_middle_region and light_area > avg_area * 1.2 and light.intensity > 140:
                 papi_candidates.append(light)
                 continue
-            
-            # Secondary filter: Large lights with good intensity (PAPI lights are typically bigger)
-            if light_area > avg_area * 1.2 and light.intensity > 150:
+
+            # Tertiary filter: Red lights with good intensity (prioritize red)
+            if is_red and light.intensity > 160 and light_area > avg_area * 0.8:
                 papi_candidates.append(light)
                 continue
-            
-            # Tertiary filter: High brightness with specific light types
-            if (light.brightness > 180 and 
+
+            # Quaternary filter: High brightness with specific light types in middle region
+            if (in_middle_region and light.brightness > 170 and
                 light.class_name in ["white_light", "red_light", "high_intensity_light"]):
                 papi_candidates.append(light)
                 continue
-            
-            # Quaternary filter: Large lights with high brightness (surface area priority)
+
+            # Fifth filter: Large lights with high brightness
             if light_area > avg_area * 1.5 and light.brightness > 160:
                 papi_candidates.append(light)
                 continue
-            
+
             # Final filter: Very bright lights regardless of size
             if light.brightness > 220:
                 papi_candidates.append(light)
-        
-        logger.info(f"Found {len(papi_candidates)} potential PAPI candidates after intensity and size filtering")
+
+        logger.info(f"Found {len(papi_candidates)} potential PAPI candidates "
+                   f"(prioritized middle region and red lights)")
         return papi_candidates
     
     @staticmethod
@@ -1053,54 +1098,84 @@ class VideoProcessor:
     
     @staticmethod
     def _score_papi_line(lights: List[DetectedLight]) -> float:
-        """Score a potential PAPI light line based on geometric alignment, intensity, and size"""
+        """Score a potential PAPI light line based on geometric alignment, intensity, and size
+
+        PAPI characteristics:
+        - In same horizontal line (minimal Y variation)
+        - Similar spacing between lights (evenly distributed)
+        - Concentrated in same area (compact arrangement)
+        - Similar size and intensity
+        """
         if len(lights) != 4:
             return 0.0
-        
-        # Sort by x-coordinate
+
+        # Sort by x-coordinate (PAPI_A on left, PAPI_D on right)
         sorted_lights = sorted(lights, key=lambda x: x.x)
-        
-        # Check horizontal alignment (Y-coordinates should be similar)
+
+        # 1. Check horizontal alignment (Y-coordinates should be very similar)
         y_coords = [light.y for light in sorted_lights]
         y_std = np.std(y_coords)
-        alignment_score = max(0, 1 - (y_std / 50))  # Penalty for vertical misalignment
-        
-        # Check spacing consistency (lights should be evenly spaced)
+        alignment_score = max(0, 1 - (y_std / 40))  # Stricter penalty for vertical misalignment
+
+        # 2. Check spacing consistency (distances should be very similar)
         x_coords = [light.x for light in sorted_lights]
         spacings = [x_coords[i+1] - x_coords[i] for i in range(3)]
+        avg_spacing = np.mean(spacings)
         spacing_std = np.std(spacings)
-        spacing_score = max(0, 1 - (spacing_std / 30))  # Penalty for uneven spacing
-        
-        # Check intensity consistency (PAPI lights should have similar high intensity)
+        # PAPI lights should have very consistent spacing
+        spacing_consistency = max(0, 1 - (spacing_std / (avg_spacing * 0.2))) if avg_spacing > 0 else 0
+        spacing_score = spacing_consistency
+
+        # 3. Check region compactness (lights should be in concentrated area)
+        # Calculate bounding box of all lights
+        min_x, max_x = min(x_coords), max(x_coords)
+        min_y, max_y = min(y_coords), max(y_coords)
+        bbox_width = max_x - min_x
+        bbox_height = max_y - min_y
+
+        # PAPI lights are in a compact horizontal line - height should be minimal
+        compactness_score = max(0, 1 - (bbox_height / (bbox_width * 0.2))) if bbox_width > 0 else 0
+        compactness_score = min(1.0, compactness_score)  # Cap at 1.0
+
+        # 4. Check intensity consistency (PAPI lights should have similar high intensity)
         intensities = [light.intensity for light in sorted_lights]
         avg_intensity = np.mean(intensities)
-        intensity_score = min(1.0, avg_intensity / 250)  # Reward high intensity
-        
-        # Check size consistency and overall size (PAPI lights should be substantial and similar)
-        areas = [max(light.width * light.height, light.width * light.width, light.height * light.height) 
+        intensity_std = np.std(intensities)
+        intensity_score = min(1.0, avg_intensity / 230)  # Reward high intensity
+        intensity_consistency = max(0, 1 - (intensity_std / avg_intensity)) if avg_intensity > 0 else 0
+        combined_intensity_score = (intensity_score * 0.7 + intensity_consistency * 0.3)
+
+        # 5. Check size consistency (PAPI lights should be similar size)
+        areas = [max(light.width * light.height, light.width * light.width, light.height * light.height)
                 for light in sorted_lights]
         avg_area = np.mean(areas)
         area_std = np.std(areas)
-        
-        # Size score: reward larger lights and penalize size inconsistency
+
         size_score = min(1.0, avg_area / 100)  # Reward larger average area
-        size_consistency_score = max(0, 1 - (area_std / avg_area if avg_area > 0 else 1))  # Penalize size variation
-        combined_size_score = (size_score * 0.6 + size_consistency_score * 0.4)
-        
-        # Check that lights form a reasonable line length
-        line_length = x_coords[-1] - x_coords[0]
-        length_score = 1.0 if 100 < line_length < 400 else 0.5  # Reasonable PAPI spacing
-        
-        # Combined score with size consideration
-        total_score = (alignment_score * 0.25 + 
-                      spacing_score * 0.2 + 
-                      intensity_score * 0.3 + 
-                      combined_size_score * 0.15 +  # New size component
-                      length_score * 0.1)
-        
+        size_consistency_score = max(0, 1 - (area_std / avg_area)) if avg_area > 0 else 0
+        combined_size_score = (size_score * 0.5 + size_consistency_score * 0.5)
+
+        # 6. Check that lights form a reasonable line length (not too close, not too far)
+        line_length = bbox_width
+        length_score = 1.0 if 100 < line_length < 500 else 0.5  # Reasonable PAPI spacing
+
+        # 7. Bonus for red lights (PAPI often starts with red)
+        red_count = sum(1 for light in sorted_lights if light.class_name == "red_light")
+        red_bonus = min(0.1, red_count * 0.025)  # Small bonus for having red lights
+
+        # Combined score with emphasis on alignment, spacing, and compactness
+        total_score = (alignment_score * 0.25 +           # Horizontal alignment is critical
+                      spacing_score * 0.20 +              # Even spacing is critical
+                      compactness_score * 0.15 +          # Concentrated area is important
+                      combined_intensity_score * 0.25 +   # High intensity is important
+                      combined_size_score * 0.10 +        # Similar size is helpful
+                      length_score * 0.05 +               # Reasonable length
+                      red_bonus)                          # Bonus for red lights
+
         logger.debug(f"Line score: {total_score:.3f} (align:{alignment_score:.2f}, space:{spacing_score:.2f}, "
-                    f"intensity:{intensity_score:.2f}, size:{combined_size_score:.2f}, length:{length_score:.2f})")
-        
+                    f"compact:{compactness_score:.2f}, intensity:{combined_intensity_score:.2f}, "
+                    f"size:{combined_size_score:.2f}, length:{length_score:.2f}, red_bonus:{red_bonus:.2f})")
+
         return total_score
     
     @staticmethod
@@ -1136,32 +1211,62 @@ class VideoProcessor:
     
     @staticmethod
     def _fallback_papi_detection(candidates: List[DetectedLight], width: int, height: int) -> Dict[str, Dict]:
-        """Fallback PAPI detection using combined intensity and size scoring"""
-        # Calculate combined score for each candidate (intensity + size)
+        """Fallback PAPI detection using combined intensity, size, position, and color scoring
+
+        Priority:
+        1. Middle region of image
+        2. Red lights
+        3. High intensity and size
+        """
+        # Get image center region boundaries
+        mid_x_start = width * 0.2
+        mid_x_end = width * 0.8
+        mid_y_start = height * 0.15
+        mid_y_end = height * 0.85
+
+        # Calculate combined score for each candidate
         for candidate in candidates:
-            light_area = max(candidate.width * candidate.height, 
-                           candidate.width * candidate.width, 
+            light_area = max(candidate.width * candidate.height,
+                           candidate.width * candidate.width,
                            candidate.height * candidate.height)
-            
+
             # Normalize scores (intensity out of 255, area as relative score)
             intensity_score = candidate.intensity / 255.0
             size_score = min(1.0, light_area / 200)  # Normalize area to 0-1 scale
-            
-            # Combined score: 60% intensity, 40% size (PAPI lights should be both bright and large)
-            candidate.combined_score = (intensity_score * 0.6) + (size_score * 0.4)
-        
+
+            # Position bonus (prioritize middle region)
+            in_middle = (mid_x_start <= candidate.x <= mid_x_end and
+                        mid_y_start <= candidate.y <= mid_y_end)
+            position_score = 0.15 if in_middle else 0.0
+
+            # Red light bonus (PAPI often starts with red)
+            is_red = candidate.class_name == "red_light" or (
+                hasattr(candidate, 'rgb_color') and
+                candidate.rgb_color and
+                candidate.rgb_color[0] > candidate.rgb_color[1] + 30 and
+                candidate.rgb_color[0] > candidate.rgb_color[2] + 30
+            )
+            red_score = 0.10 if is_red else 0.0
+
+            # Combined score: intensity (50%) + size (30%) + position (15%) + red (5%)
+            candidate.combined_score = (intensity_score * 0.50 +
+                                       size_score * 0.30 +
+                                       position_score +
+                                       red_score)
+
         # Sort by combined score (highest first)
         candidates.sort(key=lambda x: x.combined_score, reverse=True)
-        
+
         # Take top 4 candidates with best combined score
         top_candidates = candidates[:4]
-        
+
         logger.info(f"Fallback detection selected 4 lights with combined scores: "
-                   f"{[f'{c.combined_score:.2f}' for c in top_candidates]}")
-        
+                   f"{[f'{c.combined_score:.2f}' for c in top_candidates]} "
+                   f"(middle region + red light priority)")
+
         # Sort by x-position for proper PAPI ordering (A->B->C->D from left to right)
         top_candidates.sort(key=lambda x: x.x)
-        
+
         return VideoProcessor._convert_to_papi_positions(top_candidates, width, height)
     
     @staticmethod

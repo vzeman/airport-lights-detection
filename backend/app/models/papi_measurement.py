@@ -57,7 +57,9 @@ class MeasurementSession(Base):
     error_message = Column(Text)  # Store detailed error information
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime)
-    
+    recording_date = Column(DateTime, nullable=True)  # Date when the video was recorded
+    original_video_filename = Column(String(500), nullable=True)  # Original video file name
+
     # Progress tracking
     total_frames = Column(Integer, default=0)  # Total frames in video
     processed_frames = Column(Integer, default=0)  # Frames processed so far

@@ -15,7 +15,7 @@ from app.db.session import get_db
 from app.api.auth import get_current_user
 from app.models import User, Airport, Runway, ReferencePoint, MeasurementSession, FrameMeasurement
 from app.models.papi_measurement import PAPIReferencePointType, LightStatus
-from app.services.video_processor import VideoProcessor, PAPIReportGenerator
+from app.services.video_processor import VideoProcessor, PAPIReportGenerator, calculate_angle
 from app.core.config import settings
 import logging
 
@@ -71,6 +71,8 @@ async def get_measurement_sessions(
             "status": session.status,
             "created_at": session.created_at.isoformat() if session.created_at else None,
             "completed_at": session.completed_at.isoformat() if session.completed_at else None,
+            "recording_date": session.recording_date.isoformat() if session.recording_date else None,
+            "original_video_filename": session.original_video_filename,
             "duration_seconds": duration,
             "error_message": session.error_message,
             "has_results": session.status == "completed"
@@ -896,6 +898,61 @@ async def get_measurements_data(
 
             glide_path_angles_transition.append(transition_angle if transition_angle else 0.0)
 
+    # Find touch point by point_type (not by point_id)
+    touch_point_ref = None
+    for point_id, point_data in reference_points.items():
+        if point_data.get('point_type') == 'TOUCH_POINT':
+            touch_point_ref = point_data
+            break
+
+    # Calculate touch point angles at specific positions for each algorithm
+    touch_point_at_avg_all = 0.0
+    touch_point_at_avg_middle = 0.0
+    touch_point_at_transition = 0.0
+
+    if touch_point_ref and len(frames) > 0:
+        # For "All Lights" algorithm: find frame where avg angle is closest to nominal (typically 3.0°)
+        nominal_gp = 3.0
+        if glide_path_angles_avg:
+            valid_avg_angles = [(idx, angle) for idx, angle in enumerate(glide_path_angles_avg) if angle != 0.0]
+            if valid_avg_angles:
+                # Find frame closest to nominal angle
+                closest_idx = min(valid_avg_angles, key=lambda x: abs(x[1] - nominal_gp))[0]
+                frame = frames[closest_idx]
+                drone_data = {
+                    'latitude': frame.drone_latitude,
+                    'longitude': frame.drone_longitude,
+                    'elevation': frame.drone_elevation
+                }
+                touch_point_at_avg_all = calculate_angle(drone_data, touch_point_ref)
+
+        # For "Middle Lights" algorithm: find frame where middle avg angle is closest to nominal
+        if glide_path_angles_middle:
+            valid_middle_angles = [(idx, angle) for idx, angle in enumerate(glide_path_angles_middle) if angle != 0.0]
+            if valid_middle_angles:
+                closest_idx = min(valid_middle_angles, key=lambda x: abs(x[1] - nominal_gp))[0]
+                frame = frames[closest_idx]
+                drone_data = {
+                    'latitude': frame.drone_latitude,
+                    'longitude': frame.drone_longitude,
+                    'elevation': frame.drone_elevation
+                }
+                touch_point_at_avg_middle = calculate_angle(drone_data, touch_point_ref)
+
+        # For "Transition-Based" algorithm: find frame where transition occurs
+        if glide_path_angles_transition:
+            valid_transition_angles = [(idx, angle) for idx, angle in enumerate(glide_path_angles_transition) if angle != 0.0]
+            if valid_transition_angles:
+                # Use the first transition frame (or middle if multiple)
+                transition_idx = valid_transition_angles[len(valid_transition_angles) // 2][0]
+                frame = frames[transition_idx]
+                drone_data = {
+                    'latitude': frame.drone_latitude,
+                    'longitude': frame.drone_longitude,
+                    'elevation': frame.drone_elevation
+                }
+                touch_point_at_transition = calculate_angle(drone_data, touch_point_ref)
+
     # Format summary data
     summary = {
         "total_frames": len(frames),
@@ -911,6 +968,9 @@ async def get_measurements_data(
             "average_all_lights": glide_path_angles_avg,
             "average_middle_lights": glide_path_angles_middle,
             "transition_based": glide_path_angles_transition,
+            "touch_point_at_avg_all": touch_point_at_avg_all,
+            "touch_point_at_avg_middle": touch_point_at_avg_middle,
+            "touch_point_at_transition": touch_point_at_transition,
             "num_lights": num_lights
         }
     }
