@@ -166,13 +166,13 @@ export default function Airport3DVisualization({ dronePositions, referencePoints
         scrollWheelZoom={true}
       >
         <LayersControl position="topright">
-          <LayersControl.BaseLayer checked name="Street Map">
+          <LayersControl.BaseLayer name="Street Map">
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
           </LayersControl.BaseLayer>
-          <LayersControl.BaseLayer name="Satellite">
+          <LayersControl.BaseLayer checked name="Satellite">
             <TileLayer
               attribution='&copy; <a href="https://www.esri.com/">Esri</a>'
               url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"

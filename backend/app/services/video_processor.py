@@ -25,6 +25,66 @@ import threading
 logger = logging.getLogger(__name__)
 
 
+def convert_to_h264(video_path: str) -> bool:
+    """
+    Convert video to H.264 using ffmpeg software encoder.
+    This works reliably in Docker containers without hardware encoding.
+
+    Args:
+        video_path: Path to the video file to convert
+
+    Returns:
+        True if conversion successful, False otherwise
+    """
+    try:
+        temp_path = video_path + ".temp.mp4"
+
+        # Use ffmpeg with libx264 software encoder
+        # -c:v libx264: Use H.264 software encoder (works in Docker)
+        # -preset fast: Good balance of speed/quality
+        # -crf 23: Constant quality (lower = better, 23 is good default)
+        # -pix_fmt yuv420p: Ensures broad compatibility
+        cmd = [
+            'ffmpeg', '-y',  # Overwrite output
+            '-i', video_path,  # Input file
+            '-c:v', 'libx264',  # Use H.264 software encoder
+            '-preset', 'fast',  # Encoding speed
+            '-crf', '23',  # Quality (lower = better)
+            '-pix_fmt', 'yuv420p',  # Pixel format for compatibility
+            '-c:a', 'copy',  # Copy audio if exists
+            temp_path
+        ]
+
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=300  # 5 minute timeout
+        )
+
+        if result.returncode == 0 and os.path.exists(temp_path):
+            # Replace original with H.264 version
+            os.replace(temp_path, video_path)
+            logger.info(f"✓ Converted video to H.264: {video_path}")
+            return True
+        else:
+            logger.warning(f"ffmpeg conversion failed: {result.stderr.decode()}")
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            return False
+
+    except subprocess.TimeoutExpired:
+        logger.error(f"ffmpeg conversion timed out for {video_path}")
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        return False
+    except Exception as e:
+        logger.error(f"Error converting video to H.264: {e}")
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        return False
+
+
 class GPUAccelerator:
     """GPU acceleration utilities for OpenCV operations"""
     
@@ -1240,28 +1300,30 @@ class VideoProcessor:
             y = int((y_pct / 100) * frame_height)
             w = h = int((size_pct / 100) * frame_width)  # Square region
         
-        # Create video writer with H.264 codec (best browser support)
-        # Try H.264 first (avc1), fallback to mp4v if not available
-        fourcc = cv2.VideoWriter_fourcc(*'avc1')  # H.264 codec
+        # Create video writer with mp4v codec (reliable in Docker)
+        # Will convert to H.264 after creation using ffmpeg
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps, (w, h))
 
-        # Fallback to mp4v if H.264 not available
         if not out.isOpened():
-            logger.warning("H.264 codec not available, falling back to mp4v")
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out = cv2.VideoWriter(output_path, fourcc, fps, (w, h))
-        
+            logger.error(f"Failed to create video writer for {output_path}")
+            cap.release()
+            return
+
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
-            
+
             # Extract and write ROI
             roi = frame[y:y+h, x:x+w]
             out.write(roi)
-        
+
         cap.release()
         out.release()
+
+        # Convert to H.264 for better browser support
+        convert_to_h264(output_path)
 
 
 def calculate_angle(drone_data: Dict, light_pos: Dict) -> float:
@@ -1733,16 +1795,10 @@ class PAPIVideoGenerator:
             enhanced_video_path = os.path.join(self.output_dir, enhanced_video_filename)
             logger.info(f"Step 5: Creating output video at: {enhanced_video_path}")
 
-            # Create video writer with H.264 codec (best browser support)
-            # Try H.264 first (avc1), fallback to mp4v if not available
-            fourcc = cv2.VideoWriter_fourcc(*'avc1')  # H.264 codec
+            # Create video writer with mp4v codec (reliable in Docker)
+            # Will convert to H.264 after creation using ffmpeg
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             out = cv2.VideoWriter(enhanced_video_path, fourcc, fps, (frame_width, frame_height))
-
-            # Fallback to mp4v if H.264 not available
-            if not out.isOpened():
-                logger.warning("H.264 codec not available for enhanced video, falling back to mp4v")
-                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                out = cv2.VideoWriter(enhanced_video_path, fourcc, fps, (frame_width, frame_height))
 
             if not out.isOpened():
                 logger.error(f"✗ Failed to initialize video writer for {enhanced_video_path}")
@@ -1862,6 +1918,10 @@ class PAPIVideoGenerator:
                 logger.info(f"  Frames: {frames_written}/{total_frames}")
                 logger.info(f"  Time: {total_time:.2f}s")
                 logger.info("=" * 80)
+
+                # Convert to H.264 for better browser support
+                logger.info("Converting enhanced video to H.264...")
+                convert_to_h264(enhanced_video_path)
             else:
                 logger.error("=" * 80)
                 logger.error(f"✗ ENHANCED VIDEO FILE WAS NOT CREATED!")
@@ -2494,20 +2554,12 @@ class PAPIVideoGenerator:
                     video_output_path = os.path.join(self.output_dir, video_filename)
                     video_paths[light_name] = video_output_path
                     
-                    # Create video writer with H.264 codec (best browser support)
-                    # Try H.264 first (avc1), fallback to mp4v if not available
-                    fourcc = cv2.VideoWriter_fourcc(*'avc1')  # H.264 codec
+                    # Create video writer with mp4v codec (reliable in Docker)
+                    # Will convert to H.264 after creation using ffmpeg
+                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
                     video_writers[light_name] = cv2.VideoWriter(
                         video_output_path, fourcc, fps, (300, 350)  # Fixed 300x350 output size (50px for footer)
                     )
-
-                    # Fallback to mp4v if H.264 not available
-                    if not video_writers[light_name].isOpened():
-                        logger.warning(f"H.264 codec not available for {light_name}, falling back to mp4v")
-                        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                        video_writers[light_name] = cv2.VideoWriter(
-                            video_output_path, fourcc, fps, (300, 350)
-                        )
             
             frame_count = 0
             while True:
@@ -2633,7 +2685,13 @@ class PAPIVideoGenerator:
             cap.release()
             for writer in video_writers.values():
                 writer.release()
-            
+
+            # Convert all videos to H.264 for better browser support
+            logger.info("Converting PAPI videos to H.264...")
+            for light_name, video_path in video_paths.items():
+                logger.info(f"Converting {light_name} video to H.264...")
+                convert_to_h264(video_path)
+
             logger.info(f"Generated {len(video_paths)} PAPI light videos")
             return video_paths
             

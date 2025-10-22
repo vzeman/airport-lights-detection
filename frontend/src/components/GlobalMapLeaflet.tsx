@@ -38,9 +38,9 @@ interface GlobalMapProps {
   mapStyle?: string;
 }
 
-const GlobalMapLeaflet: React.FC<GlobalMapProps> = ({ 
+const GlobalMapLeaflet: React.FC<GlobalMapProps> = ({
   selectedLayers = { airports: true },
-  mapStyle = 'streets'
+  mapStyle = 'satellite'
 }) => {
   const [airports, setAirports] = useState<Airport[]>([]);
   const [loading, setLoading] = useState(true);
