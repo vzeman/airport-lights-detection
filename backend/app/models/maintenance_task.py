@@ -2,8 +2,8 @@
 Maintenance Task and Mission Planning Models
 """
 
-from sqlalchemy import Column, String, Float, Boolean, DateTime, ForeignKey, Text, JSON, Integer, Enum, Table
-from sqlalchemy.dialects.mysql import CHAR, DECIMAL, LONGTEXT
+from sqlalchemy import Column, String, Float, Boolean, DateTime, ForeignKey, Text, JSON, Integer, Enum, Table, Numeric
+from sqlalchemy.dialects.mysql import CHAR, LONGTEXT
 from sqlalchemy.orm import relationship
 # from geoalchemy2 import Geometry  # Commented out for SQLite compatibility
 from datetime import datetime
@@ -88,7 +88,7 @@ class MaintenanceTask(Base):
     
     # Equipment requirements
     required_sensors = Column(JSON, nullable=True)  # Camera, LIDAR, thermal, etc.
-    required_accuracy_m = Column(DECIMAL(5, 3), default=0.1)  # Position accuracy needed
+    required_accuracy_m = Column(Numeric(5, 3), default=0.1)  # Position accuracy needed
     
     # Measurement specifications
     measurement_specs = Column(JSON, nullable=True)  # Detailed specs for measurements
@@ -134,10 +134,10 @@ class MissionTemplate(Base):
     is_default = Column(Boolean, default=False)  # Default template for this task
     
     # Flight parameters
-    altitude_agl_m = Column(DECIMAL(6, 2), nullable=False)  # Altitude above ground
-    speed_ms = Column(DECIMAL(5, 2), default=5.0)  # Speed in m/s
+    altitude_agl_m = Column(Numeric(6, 2), nullable=False)  # Altitude above ground
+    speed_ms = Column(Numeric(5, 2), default=5.0)  # Speed in m/s
     heading_mode = Column(String(50), default='auto')  # auto, fixed, poi
-    gimbal_pitch = Column(DECIMAL(5, 2), default=-90)  # Camera gimbal pitch
+    gimbal_pitch = Column(Numeric(5, 2), default=-90)  # Camera gimbal pitch
     
     # Pattern parameters (depends on mission_type)
     pattern_params = Column(JSON, nullable=True)
@@ -175,9 +175,9 @@ class MissionTemplate(Base):
     obstacle_avoidance = Column(Boolean, default=True)
     # geofence = Column(Geometry('POLYGON'), nullable=True)
     geofence = Column(JSON, nullable=True)  # Using JSON instead of Geometry for SQLite
-    min_altitude_m = Column(DECIMAL(6, 2), default=10)
-    max_altitude_m = Column(DECIMAL(6, 2), default=120)
-    return_to_home_altitude_m = Column(DECIMAL(6, 2), default=50)
+    min_altitude_m = Column(Numeric(6, 2), default=10)
+    max_altitude_m = Column(Numeric(6, 2), default=120)
+    return_to_home_altitude_m = Column(Numeric(6, 2), default=50)
     
     # Sensor settings
     sensor_configs = Column(JSON, nullable=True)
@@ -198,9 +198,9 @@ class MissionTemplate(Base):
     """
     
     # Mission statistics (computed)
-    total_distance_m = Column(DECIMAL(10, 2), nullable=True)
+    total_distance_m = Column(Numeric(10, 2), nullable=True)
     estimated_duration_s = Column(Integer, nullable=True)
-    coverage_area_sqm = Column(DECIMAL(12, 2), nullable=True)
+    coverage_area_sqm = Column(Numeric(12, 2), nullable=True)
     
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -251,7 +251,7 @@ class FlightPlan(Base):
     optimization_params = Column(JSON, nullable=True)  # Algorithm parameters used
     
     # Flight statistics
-    total_distance_m = Column(DECIMAL(10, 2), nullable=True)
+    total_distance_m = Column(Numeric(10, 2), nullable=True)
     total_duration_s = Column(Integer, nullable=True)
     total_items = Column(Integer, default=0)
     total_tasks = Column(Integer, default=0)
@@ -360,12 +360,12 @@ class MissionOptimization(Base):
     
     # Input
     input_items = Column(Integer, nullable=False)
-    input_distance_m = Column(DECIMAL(10, 2), nullable=True)
+    input_distance_m = Column(Numeric(10, 2), nullable=True)
     
     # Output
     optimized_sequence = Column(JSON, nullable=False)  # Optimized order
-    optimized_distance_m = Column(DECIMAL(10, 2), nullable=True)
-    improvement_pct = Column(DECIMAL(5, 2), nullable=True)
+    optimized_distance_m = Column(Numeric(10, 2), nullable=True)
+    improvement_pct = Column(Numeric(5, 2), nullable=True)
     
     # Performance
     computation_time_ms = Column(Integer, nullable=True)

@@ -88,7 +88,7 @@ const AirportImport: React.FC<AirportImportProps> = ({ open, onClose, onImport }
       
       // Show import details
       const data = response.data;
-      console.log(`Imported ${data.runways_imported} runways and ${data.items_created} items`);
+      // console.log(`Imported ${data.runways_imported} runways and ${data.items_created} items`);
       
       onImport(airport);
       setSearchResults([]);
@@ -213,8 +213,8 @@ const AirportImport: React.FC<AirportImportProps> = ({ open, onClose, onImport }
                             <MapPin className="h-3 w-3" />
                             {airport.city ? `${airport.city}, ` : ''}{airport.country}
                           </span>
-                          <span>
-                            Lat: {airport.latitude?.toFixed(4)}, Lon: {airport.longitude?.toFixed(4)}
+                          <span className="font-mono text-xs">
+                            Lat: {airport.latitude != null ? Number(airport.latitude).toFixed(8) : 'N/A'}, Lon: {airport.longitude != null ? Number(airport.longitude).toFixed(8) : 'N/A'}
                           </span>
                           {airport.elevation && (
                             <span>Elevation: {airport.elevation}ft</span>

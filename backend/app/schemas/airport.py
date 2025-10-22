@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_serializer
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+from decimal import Decimal
 from app.models.airport import ComplianceFramework
 
 
@@ -9,8 +10,8 @@ class AirportBase(BaseModel):
     iata_code: Optional[str] = Field(None, min_length=3, max_length=3)
     name: str
     full_name: Optional[str] = None
-    latitude: float = Field(..., ge=-90, le=90)
-    longitude: float = Field(..., ge=-180, le=180)
+    latitude: Decimal = Field(..., ge=-90, le=90)  # DECIMAL for centimeter precision
+    longitude: Decimal = Field(..., ge=-180, le=180)  # DECIMAL for centimeter precision
     elevation: Optional[float] = None
     timezone: str = "UTC"
     country: str
@@ -31,8 +32,8 @@ class AirportCreate(AirportBase):
 class AirportUpdate(BaseModel):
     name: Optional[str] = None
     full_name: Optional[str] = None
-    latitude: Optional[float] = Field(None, ge=-90, le=90)
-    longitude: Optional[float] = Field(None, ge=-180, le=180)
+    latitude: Optional[Decimal] = Field(None, ge=-90, le=90)
+    longitude: Optional[Decimal] = Field(None, ge=-180, le=180)
     elevation: Optional[float] = None
     timezone: Optional[str] = None
     country: Optional[str] = None
@@ -53,8 +54,13 @@ class AirportResponse(AirportBase):
     created_at: datetime
     updated_at: datetime
     created_by: Optional[str] = None
-    
+
     model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer('latitude', 'longitude')
+    def serialize_decimal(self, value: Optional[Decimal]) -> Optional[str]:
+        """Serialize Decimal to string to preserve precision"""
+        return str(value) if value is not None else None
 
 
 class AirportListResponse(BaseModel):
@@ -108,8 +114,8 @@ class AirportItemBase(BaseModel):
     name: str
     code: Optional[str] = None
     serial_number: Optional[str] = None
-    latitude: Optional[float] = Field(None, ge=-90, le=90)
-    longitude: Optional[float] = Field(None, ge=-180, le=180)
+    latitude: Optional[Decimal] = Field(None, ge=-90, le=90)
+    longitude: Optional[Decimal] = Field(None, ge=-180, le=180)
     elevation: Optional[float] = None
     properties: Optional[Dict[str, Any]] = None
     specifications: Optional[Dict[str, Any]] = None
@@ -128,8 +134,8 @@ class AirportItemUpdate(BaseModel):
     name: Optional[str] = None
     code: Optional[str] = None
     serial_number: Optional[str] = None
-    latitude: Optional[float] = Field(None, ge=-90, le=90)
-    longitude: Optional[float] = Field(None, ge=-180, le=180)
+    latitude: Optional[Decimal] = Field(None, ge=-90, le=90)
+    longitude: Optional[Decimal] = Field(None, ge=-180, le=180)
     elevation: Optional[float] = None
     geometry: Optional[Dict[str, Any]] = None
     properties: Optional[Dict[str, Any]] = None
@@ -155,8 +161,13 @@ class AirportItemResponse(AirportItemBase):
     next_maintenance_date: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer('latitude', 'longitude')
+    def serialize_decimal(self, value: Optional[Decimal]) -> Optional[str]:
+        """Serialize Decimal to string to preserve precision"""
+        return str(value) if value is not None else None
 
 
 class RunwayBase(BaseModel):
@@ -165,8 +176,8 @@ class RunwayBase(BaseModel):
     length: float = Field(..., gt=0)
     width: float = Field(..., gt=0)
     surface_type: Optional[str] = None
-    start_lat: Optional[float] = None
-    start_lon: Optional[float] = None
+    start_lat: Optional[Decimal] = None
+    start_lon: Optional[Decimal] = None
 
 
 class RunwayCreate(RunwayBase):
@@ -181,8 +192,8 @@ class RunwayUpdate(BaseModel):
     length: Optional[float] = Field(None, gt=0)
     width: Optional[float] = Field(None, gt=0)
     surface_type: Optional[str] = None
-    start_lat: Optional[float] = None
-    start_lon: Optional[float] = None
+    start_lat: Optional[Decimal] = None
+    start_lon: Optional[Decimal] = None
     geometry: Optional[Dict[str, Any]] = None
     boundary: Optional[Dict[str, Any]] = None
     is_active: Optional[bool] = None
@@ -197,7 +208,12 @@ class RunwayResponse(RunwayBase):
     created_at: datetime
     updated_at: datetime
     # end_lat and end_lon are calculated properties in the model
-    end_lat: Optional[float] = None
-    end_lon: Optional[float] = None
+    end_lat: Optional[Decimal] = None
+    end_lon: Optional[Decimal] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer('start_lat', 'start_lon', 'end_lat', 'end_lon')
+    def serialize_decimal(self, value: Optional[Decimal]) -> Optional[str]:
+        """Serialize Decimal to string to preserve precision"""
+        return str(value) if value is not None else None

@@ -1,7 +1,7 @@
 """
 Runway model for airports
 """
-from sqlalchemy import Column, String, Integer, Float, Boolean, DateTime, ForeignKey
+from sqlalchemy import Column, String, Integer, Float, Boolean, DateTime, ForeignKey, Numeric
 from sqlalchemy.dialects.mysql import CHAR
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -23,8 +23,8 @@ class Runway(Base):
     width = Column(Integer, nullable=False)  # Width in meters
     surface_type = Column(String(50), default="asphalt")  # asphalt, concrete, grass, etc.
     threshold_elevation = Column(Float, nullable=True)  # Elevation at threshold in meters
-    start_lat = Column(Float, nullable=True)  # GPS latitude of runway start point
-    start_lon = Column(Float, nullable=True)  # GPS longitude of runway start point
+    start_lat = Column(Numeric(precision=11, scale=8, asdecimal=True), nullable=True)  # GPS latitude: ±90°, 8 decimals = ~1.1mm precision
+    start_lon = Column(Numeric(precision=12, scale=8, asdecimal=True), nullable=True)  # GPS longitude: ±180°, 8 decimals = ~1.1mm precision
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

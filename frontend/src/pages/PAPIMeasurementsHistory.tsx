@@ -58,7 +58,7 @@ const PAPIMeasurementsHistory: React.FC = () => {
       setError(null);
     } catch (err) {
       setError('Failed to load measurement sessions');
-      console.error('Error fetching sessions:', err);
+      // console.error('Error fetching sessions:', err);
     } finally {
       setLoading(false);
     }

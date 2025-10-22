@@ -51,7 +51,7 @@ const PAPIMeasurements: React.FC = () => {
       const response = await api.get('/papi-measurements/airports-with-runways');
       setAirports(response.data);
     } catch (error) {
-      console.error('Failed to fetch airports:', error);
+      // console.error('Failed to fetch airports:', error);
     }
   };
 
@@ -90,7 +90,7 @@ const PAPIMeasurements: React.FC = () => {
       // Poll for preview
       setTimeout(() => fetchPreview(response.data.session_id), 2000);
     } catch (error) {
-      console.error('Upload failed:', error);
+      // console.error('Upload failed:', error);
       setProcessing(false);
     }
   };
@@ -103,7 +103,7 @@ const PAPIMeasurements: React.FC = () => {
       
       // Process detected lights or set defaults
       const detectedLights = response.data.detected_lights || {};
-      console.log('Detected lights from backend:', detectedLights);
+      // console.log('Detected lights from backend:', detectedLights);
       
       if (Object.keys(detectedLights).length > 0) {
         // Convert detected lights to our format if needed
@@ -135,7 +135,7 @@ const PAPIMeasurements: React.FC = () => {
           const imageUrl = URL.createObjectURL(imageResponse.data);
           setPreviewImageUrl(imageUrl);
         } catch (imageError) {
-          console.error('Failed to fetch preview image:', imageError);
+          // console.error('Failed to fetch preview image:', imageError);
         }
       }
       
@@ -159,7 +159,7 @@ const PAPIMeasurements: React.FC = () => {
       setStep('processing');
       pollProcessingStatus();
     } catch (error) {
-      console.error('Failed to confirm lights:', error);
+      // console.error('Failed to confirm lights:', error);
       setProcessing(false);
     }
   };
@@ -189,7 +189,7 @@ const PAPIMeasurements: React.FC = () => {
           setSession(prev => prev ? { ...prev, ...response.data } : response.data);
         }
       } catch (error) {
-        console.error('Status check failed:', error);
+        // console.error('Status check failed:', error);
       }
     }, 3000);
   };
@@ -262,7 +262,7 @@ const PAPIMeasurements: React.FC = () => {
       
       return { x: brightestX, y: brightestY };
     } catch (error) {
-      console.warn('Could not analyze image for light detection:', error);
+      // console.warn('Could not analyze image for light detection:', error);
       return { x: centerX, y: centerY };
     }
   };

@@ -65,7 +65,7 @@ const GlobalMapLeaflet: React.FC<GlobalMapProps> = ({
         const response = await api.get('/airports');
         setAirports(response.data || []);
       } catch (error) {
-        console.error('Error loading airports:', error);
+        // console.error('Error loading airports:', error);
         setAirports([]);
       } finally {
         setLoading(false);
@@ -109,8 +109,8 @@ const GlobalMapLeaflet: React.FC<GlobalMapProps> = ({
                     {airport.city}, {airport.country}
                     <br />
                     <small>
-                      Lat: {airport.latitude.toFixed(4)}, 
-                      Lng: {airport.longitude.toFixed(4)}
+                      Lat: {airport.latitude != null ? Number(airport.latitude).toFixed(8) : 'N/A'},
+                      Lng: {airport.longitude != null ? Number(airport.longitude).toFixed(8) : 'N/A'}
                     </small>
                   </div>
                 </Popup>

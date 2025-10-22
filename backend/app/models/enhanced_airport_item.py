@@ -2,7 +2,7 @@
 Enhanced Airport Item Model with comprehensive support for all airport elements
 """
 
-from sqlalchemy import Column, String, Float, Boolean, DateTime, ForeignKey, Text, JSON, Integer, Enum, DECIMAL
+from sqlalchemy import Column, String, Float, Boolean, DateTime, ForeignKey, Text, JSON, Integer, Enum, Numeric
 from sqlalchemy.dialects.mysql import CHAR, LONGTEXT
 from sqlalchemy.orm import relationship
 # from geoalchemy2 import Geometry  # Commented out for SQLite compatibility
@@ -68,15 +68,15 @@ class EnhancedAirportItem(Base):
     part_number = Column(String(255), nullable=True)
     
     # Precise positioning (using DECIMAL for exact precision)
-    latitude = Column(DECIMAL(precision=12, scale=9), nullable=True)  # 9 decimal places = ~1cm precision
-    longitude = Column(DECIMAL(precision=12, scale=9), nullable=True) # 9 decimal places = ~1cm precision
-    elevation_msl = Column(DECIMAL(precision=8, scale=3), nullable=True)  # Meters above sea level
-    height_agl = Column(DECIMAL(precision=8, scale=3), nullable=True)     # Meters above ground level
+    latitude = Column(Numeric(precision=12, scale=9, asdecimal=True), nullable=True)  # 9 decimal places = ~1cm precision
+    longitude = Column(Numeric(precision=12, scale=9, asdecimal=True), nullable=True) # 9 decimal places = ~1cm precision
+    elevation_msl = Column(Numeric(precision=8, scale=3), nullable=True)  # Meters above sea level
+    height_agl = Column(Numeric(precision=8, scale=3), nullable=True)     # Meters above ground level
     
     # Orientation and positioning
-    orientation = Column(DECIMAL(precision=6, scale=3), nullable=True)  # Degrees from north (0-359.999)
-    tilt = Column(DECIMAL(precision=5, scale=3), nullable=True)         # Degrees from horizontal
-    roll = Column(DECIMAL(precision=5, scale=3), nullable=True)         # Roll angle for complex items
+    orientation = Column(Numeric(precision=6, scale=3), nullable=True)  # Degrees from north (0-359.999)
+    tilt = Column(Numeric(precision=5, scale=3), nullable=True)         # Degrees from horizontal
+    roll = Column(Numeric(precision=5, scale=3), nullable=True)         # Roll angle for complex items
     
     # Coordinate metadata
     coordinate_accuracy = Column(Enum(CoordinateAccuracy), default=CoordinateAccuracy.MANUAL_ENTRY)

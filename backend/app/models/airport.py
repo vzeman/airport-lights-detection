@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Float, Boolean, DateTime, ForeignKey, Text, JSON, Integer, Enum
+from sqlalchemy import Column, String, Float, Boolean, DateTime, ForeignKey, Text, JSON, Integer, Enum, Numeric
 from sqlalchemy.dialects.mysql import CHAR, LONGTEXT
 from sqlalchemy.orm import relationship
 # from geoalchemy2 import Geometry  # Commented out for SQLite compatibility
@@ -26,8 +26,8 @@ class Airport(Base):
     full_name = Column(String(500), nullable=True)
     
     # Location
-    latitude = Column(Float, nullable=False)
-    longitude = Column(Float, nullable=False)
+    latitude = Column(Numeric(precision=11, scale=8, asdecimal=True), nullable=False)  # ±90°, 8 decimals = ~1.1mm precision
+    longitude = Column(Numeric(precision=12, scale=8, asdecimal=True), nullable=False)  # ±180°, 8 decimals = ~1.1mm precision
     elevation = Column(Float, nullable=True)  # in meters
     timezone = Column(String(50), nullable=False, default='UTC')
     country = Column(String(100), nullable=False)
@@ -122,8 +122,8 @@ class AirportItem(Base):
     serial_number = Column(String(255), nullable=True)
     
     # Location and geometry
-    latitude = Column(Float, nullable=True)
-    longitude = Column(Float, nullable=True)
+    latitude = Column(Numeric(precision=11, scale=8, asdecimal=True), nullable=True)  # ±90°, 8 decimals = ~1.1mm precision
+    longitude = Column(Numeric(precision=12, scale=8, asdecimal=True), nullable=True)  # ±180°, 8 decimals = ~1.1mm precision
     elevation = Column(Float, nullable=True)
     # geometry = Column(Geometry('GEOMETRY'), nullable=True)  # Can be POINT, LINESTRING, or POLYGON
     geometry = Column(JSON, nullable=True)  # Using JSON instead of Geometry for SQLite

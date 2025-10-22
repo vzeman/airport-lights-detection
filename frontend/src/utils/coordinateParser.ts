@@ -210,12 +210,18 @@ function parseDMSCoordinate(input: string, type: 'latitude' | 'longitude'): numb
 
 /**
  * Format a decimal coordinate to a string with specified precision
+ * Default precision is 8 decimal places for centimeter-level accuracy (~1.1mm)
  */
-export function formatDecimalCoordinate(value: number | null | undefined, precision: number = 6): string {
+export function formatDecimalCoordinate(value: number | string | null | undefined, precision: number = 8): string {
   if (value === null || value === undefined) {
     return '';
   }
-  return value.toFixed(precision);
+  // Convert to number if it's a string (from backend Decimal serialization)
+  const numValue = typeof value === 'string' ? parseFloat(value) : value;
+  if (isNaN(numValue)) {
+    return '';
+  }
+  return numValue.toFixed(precision);
 }
 
 /**
@@ -237,7 +243,7 @@ export function isValidCoordinateFormat(input: string, type: 'latitude' | 'longi
 export function getCoordinateExamples(type: 'latitude' | 'longitude'): string[] {
   if (type === 'latitude') {
     return [
-      '48.123456 (decimal)',
+      '48.12345678 (decimal, 8 decimals)',
       'N48°52.01\' (degrees, minutes)',
       'N48°52\'30" (DMS)',
       '49° 13\' 57,63" N (European DMS)',
@@ -245,7 +251,7 @@ export function getCoordinateExamples(type: 'latitude' | 'longitude'): string[] 
     ];
   } else {
     return [
-      '17.654321 (decimal)',
+      '17.65432198 (decimal, 8 decimals)',
       'E18°0.25\' (degrees, minutes)',
       'E18°0\'15" (DMS)',
       '18° 36\' 33,396" E (European DMS)',

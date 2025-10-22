@@ -6,6 +6,18 @@ import { Loader2, Download, Map, BarChart3, Lightbulb, Video } from 'lucide-reac
 import api from '../services/api';
 import Airport3DVisualization from './Airport3DVisualization';
 
+interface RunwayData {
+  name: string;
+  heading: number;
+  length: number;
+  width: number;
+  start_lat: number | null;
+  start_lon: number | null;
+  threshold_elevation: number | null;
+  end_lat: number | null;
+  end_lon: number | null;
+}
+
 interface MeasurementData {
   summary: {
     total_frames: number;
@@ -48,6 +60,7 @@ interface MeasurementData {
       tolerance?: number;
     };
   };
+  runway: RunwayData | null;
   video_urls?: {
     PAPI_A: string;
     PAPI_B: string;
@@ -114,8 +127,8 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
         (data.papi_data.PAPI_C?.angles[index] ?? 0).toFixed(2),
         data.papi_data.PAPI_D?.statuses[index] || 'unknown',
         (data.papi_data.PAPI_D?.angles[index] ?? 0).toFixed(2),
-        (pos.latitude ?? 0).toFixed(6),
-        (pos.longitude ?? 0).toFixed(6),
+        (Number(pos.latitude ?? 0)).toFixed(8),
+        (Number(pos.longitude ?? 0)).toFixed(8),
         ((pos.elevation ?? 0) - groundElevation).toFixed(1), // Height above ground level
         (pos.elevation ?? 0).toFixed(1) // Absolute elevation above sea level
       ];
@@ -166,18 +179,18 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
 
   const calculateTouchPointAngle = (dronePos: any, touchPoint: any, groundElevation: number, debug: boolean = false): number => {
     if (!dronePos || !touchPoint) {
-      if (debug) console.log('[Calc Debug] Missing dronePos or touchPoint');
+      // if (debug) console.log('[Calc Debug] Missing dronePos or touchPoint');
       return 0;
     }
 
     // Check for valid coordinates
     if (!dronePos.latitude || !dronePos.longitude || !dronePos.elevation) {
-      if (debug) console.log('[Calc Debug] Invalid drone position data:', dronePos);
+      // if (debug) console.log('[Calc Debug] Invalid drone position data:', dronePos);
       return 0;
     }
 
     if (!touchPoint.latitude || !touchPoint.longitude) {
-      if (debug) console.log('[Calc Debug] Invalid touch point coordinates:', touchPoint);
+      // if (debug) console.log('[Calc Debug] Invalid touch point coordinates:', touchPoint);
       return 0;
     }
 
@@ -185,7 +198,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
     const touchPointElevation = touchPoint.elevation ?? groundElevation;
 
     if (debug) {
-      console.log('[Calc Debug] Touch point elevation:', touchPoint.elevation, 'Using:', touchPointElevation);
+      // console.log('[Calc Debug] Touch point elevation:', touchPoint.elevation, 'Using:', touchPointElevation);
     }
 
     // Haversine formula to calculate horizontal distance
@@ -208,20 +221,6 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
     const angleRadians = Math.atan2(verticalDistance, horizontalDistance);
     const angleDegrees = angleRadians * 180 / Math.PI;
 
-    if (debug) {
-      console.log('[Calc Debug] Calculation details:');
-      console.log('  Drone lat/lon/elev:', dronePos.latitude, dronePos.longitude, dronePos.elevation);
-      console.log('  Touch lat/lon/elev (raw):', touchPoint.latitude, touchPoint.longitude, touchPoint.elevation);
-      console.log('  Touch elevation used:', touchPointElevation);
-      console.log('  Ground elevation fallback:', groundElevation);
-      console.log('  Delta lat:', touchPoint.latitude - dronePos.latitude);
-      console.log('  Delta lon:', touchPoint.longitude - dronePos.longitude);
-      console.log('  Horizontal distance (m):', horizontalDistance.toFixed(2));
-      console.log('  Vertical distance (m):', verticalDistance.toFixed(2));
-      console.log('  atan2 inputs: atan2(' + verticalDistance.toFixed(2) + ', ' + horizontalDistance.toFixed(2) + ')');
-      console.log('  Angle (degrees):', angleDegrees.toFixed(2));
-    }
-
     return angleDegrees;
   };
 
@@ -231,7 +230,14 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
     const lightData = data.papi_data[lightName];
 
     // Find touch point by searching for key that contains 'TOUCH_POINT'
-    let touchPoint = null;
+    let touchPoint: {
+      latitude: number;
+      longitude: number;
+      elevation: number;
+      point_type: string;
+      nominal_angle?: number;
+      tolerance?: number;
+    } | null = null;
     if (data.reference_points) {
       const touchPointKey = Object.keys(data.reference_points).find(key =>
         key.includes('TOUCH_POINT') || key.includes('ReferencePointType.TOUCH_POINT')
@@ -249,19 +255,12 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
         key.includes('PAPI_C') || key.includes('PAPI_D')
       );
 
-      if (lightName === 'PAPI_A') {
-        console.log('[Ground Elevation Debug] PAPI keys found:', papiKeys);
-        console.log('[Ground Elevation Debug] PAPI reference data:',
-          papiKeys.map(key => ({ key, data: data.reference_points[key] }))
-        );
-      }
-
       const papiElevations = papiKeys
         .map(key => data.reference_points[key]?.elevation)
         .filter(elev => elev !== null && elev !== undefined);
 
       if (lightName === 'PAPI_A') {
-        console.log('[Ground Elevation Debug] PAPI elevations extracted:', papiElevations);
+        // console.log('[Ground Elevation Debug] PAPI elevations extracted:', papiElevations);
       }
 
       if (papiElevations.length > 0) {
@@ -271,11 +270,11 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
 
     // Debug: Check available reference points
     if (lightName === 'PAPI_A') {
-      console.log('[Touch Point Debug] Available reference points:', Object.keys(data.reference_points || {}));
-      console.log('[Touch Point Debug] Selected touch point:', touchPoint);
-      console.log('[Touch Point Debug] Calculated ground elevation:', groundElevation);
+      // console.log('[Touch Point Debug] Available reference points:', Object.keys(data.reference_points || {}));
+      // console.log('[Touch Point Debug] Selected touch point:', touchPoint);
+      // console.log('[Touch Point Debug] Calculated ground elevation:', groundElevation);
       if (data.drone_positions && data.drone_positions[0]) {
-        console.log('[Touch Point Debug] First drone position:', data.drone_positions[0]);
+        // console.log('[Touch Point Debug] First drone position:', data.drone_positions[0]);
       }
     }
 
@@ -313,11 +312,11 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
         touchPointAngle = calculateTouchPointAngle(dronePos, touchPoint, groundElevation, enableDebug);
 
         if (enableDebug) {
-          console.log('[Touch Point Debug] First calculation result:', touchPointAngle);
+          // console.log('[Touch Point Debug] First calculation result:', touchPointAngle);
         }
       } else {
         if (lightName === 'PAPI_A' && index === 0) {
-          console.log('[Touch Point Debug] Missing data - touchPoint:', !!touchPoint, 'dronePos:', !!dronePos);
+          // console.log('[Touch Point Debug] Missing data - touchPoint:', !!touchPoint, 'dronePos:', !!dronePos);
         }
       }
 
@@ -362,8 +361,8 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
     // Calculate 50% threshold value
     const threshold = minMetric + (maxMetric - minMetric) * 0.5;
 
-    console.log(`[${lightName}] Color metric range: [${minMetric.toFixed(2)}, ${maxMetric.toFixed(2)}]`);
-    console.log(`[${lightName}] Transition threshold (50%): ${threshold.toFixed(2)}`);
+    // console.log(`[${lightName}] Color metric range: [${minMetric.toFixed(2)}, ${maxMetric.toFixed(2)}]`);
+    // console.log(`[${lightName}] Transition threshold (50%): ${threshold.toFixed(2)}`);
 
     // Find all transition points where the metric crosses the threshold
     for (let i = 1; i < colorMetrics.length; i++) {
@@ -377,7 +376,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
       }
     }
 
-    console.log(`[${lightName}] Raw transitions detected: ${transitionPoints.length}`);
+    // console.log(`[${lightName}] Raw transitions detected: ${transitionPoints.length}`);
 
     // Group nearby transitions (within 1.5 seconds) and keep only the first one
     const groupedTransitions: number[] = [];
@@ -397,7 +396,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
     }
 
     // Debug logging
-    console.log(`[${lightName}] Detected ${groupedTransitions.length} final transitions:`, groupedTransitions);
+    // console.log(`[${lightName}] Detected ${groupedTransitions.length} final transitions:`, groupedTransitions);
 
     return groupedTransitions.sort((a, b) => a - b);
   };
@@ -413,7 +412,14 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
     const baseTimestamps = data.papi_data[baseLight].timestamps;
 
     // Find touch point for angle calculation
-    let touchPoint = null;
+    let touchPoint: {
+      latitude: number;
+      longitude: number;
+      elevation: number;
+      point_type: string;
+      nominal_angle?: number;
+      tolerance?: number;
+    } | null = null;
     if (data.reference_points) {
       const touchPointKey = Object.keys(data.reference_points).find(key =>
         key.includes('TOUCH_POINT') || key.includes('ReferencePointType.TOUCH_POINT')
@@ -1134,58 +1140,63 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
           {/* 3D Airport Visualization */}
           <Card>
             <CardHeader>
-              <CardTitle>3D Airport Visualization</CardTitle>
+              <CardTitle>Map Visualization</CardTitle>
               <p className="text-sm text-gray-600">
-                Interactive 3D view showing runway, PAPI lights, reference points, and drone flight path
+                Interactive OpenStreetMap view showing PAPI lights, touch point, and drone flight path
               </p>
             </CardHeader>
             <CardContent>
-              <Airport3DVisualization 
+              <Airport3DVisualization
                 dronePositions={data.drone_positions}
                 referencePoints={data.reference_points}
+                runway={data.runway}
               />
-              
+
               {/* Legend */}
-              <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div className="mt-4 grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-cyan-400 rounded"></div>
+                  <div className="w-3 h-3 bg-cyan-400 rounded-full"></div>
                   <span>Drone Flight Path</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-green-500 rounded"></div>
-                  <span>Start Position</span>
+                  <div className="w-6 h-0.5 bg-green-500" style={{borderTop: '2px dashed #22c55e'}}></div>
+                  <span>Direct Line (Start-End)</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-red-500 rounded"></div>
-                  <span>End Position / Touch Point</span>
+                  <div className="w-3 h-3 bg-green-500 rounded-full border-2 border-white"></div>
+                  <span>Drone Start</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-yellow-500 rounded"></div>
-                  <span>Animated Drone</span>
+                  <div className="w-3 h-3 bg-red-500 rounded-full border-2 border-white"></div>
+                  <span>Drone End</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-purple-500 rounded-full border-2 border-white"></div>
+                  <span>Touch Point</span>
                 </div>
               </div>
-              
+
               <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-red-500 rounded"></div>
+                  <div className="w-3 h-3 bg-red-500 rounded-full border-2 border-white"></div>
                   <span>PAPI A</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-orange-500 rounded"></div>
+                  <div className="w-3 h-3 bg-orange-500 rounded-full border-2 border-white"></div>
                   <span>PAPI B</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-yellow-500 rounded"></div>
+                  <div className="w-3 h-3 bg-yellow-500 rounded-full border-2 border-white"></div>
                   <span>PAPI C</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-green-500 rounded"></div>
+                  <div className="w-3 h-3 bg-green-500 rounded-full border-2 border-white"></div>
                   <span>PAPI D</span>
                 </div>
               </div>
-              
+
               <div className="mt-4 text-xs text-gray-500">
-                💡 Use mouse to rotate, zoom, and pan the 3D view
+                💡 Click on markers for details. Scroll to zoom. Drag to pan. Use layer control (top right) to switch between Street and Satellite view.
               </div>
             </CardContent>
           </Card>
@@ -1235,16 +1246,16 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                   src={data.video_urls?.enhanced_main}
                   onError={(e) => {
                     const video = e.currentTarget as HTMLVideoElement;
-                    console.error('Enhanced video error:', {
-                      error: video.error,
-                      code: video.error?.code,
-                      message: video.error?.message,
-                      networkState: video.networkState,
-                      readyState: video.readyState,
-                      src: data.video_urls?.enhanced_main
-                    });
+                    // console.error('Enhanced video error:', {
+                    //   error: video.error,
+                    //   code: video.error?.code,
+                    //   message: video.error?.message,
+                    //   networkState: video.networkState,
+                    //   readyState: video.readyState,
+                    //   src: data.video_urls?.enhanced_main
+                    // });
                   }}
-                  onLoadedMetadata={() => console.log('Video loaded:', data.video_urls?.enhanced_main)}
+                  // onLoadedMetadata={() => console.log('Video loaded:', data.video_urls?.enhanced_main)}
                 >
                   Your browser does not support the video tag.
                 </video>
@@ -1276,14 +1287,14 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                         src={data.video_urls?.[light as keyof typeof data.video_urls]}
                         onError={(e) => {
                           const video = e.currentTarget as HTMLVideoElement;
-                          console.error('Video error:', light, {
-                            error: video.error,
-                            networkState: video.networkState,
-                            readyState: video.readyState,
-                            src: data.video_urls?.[light as keyof typeof data.video_urls]
-                          });
+                          // console.error('Video error:', light, {
+                          //   error: video.error,
+                          //   networkState: video.networkState,
+                          //   readyState: video.readyState,
+                          //   src: data.video_urls?.[light as keyof typeof data.video_urls]
+                          // });
                         }}
-                        onLoadedMetadata={() => console.log('Video loaded:', light)}
+                        // onLoadedMetadata={() => console.log('Video loaded:', light)}
                       >
                         Your browser does not support the video tag.
                       </video>
@@ -1350,8 +1361,8 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                     <div key={pointId} className="bg-gray-50 p-3 rounded">
                       <h4 className="font-medium">{pointId.replace('_', ' ')}</h4>
                       <div className="mt-2 space-y-1 text-xs text-gray-600">
-                        <p>Lat: {(point.latitude ?? 0).toFixed(6)}</p>
-                        <p>Lon: {(point.longitude ?? 0).toFixed(6)}</p>
+                        <p>Lat: {Number(point.latitude ?? 0).toFixed(8)}</p>
+                        <p>Lon: {Number(point.longitude ?? 0).toFixed(8)}</p>
                         <p>Elev: {(point.elevation ?? 0).toFixed(1)}m</p>
                         <p className="capitalize">Type: {point.point_type?.replace('_', ' ') ?? 'unknown'}</p>
                         {point.nominal_angle !== undefined && point.nominal_angle !== null && (

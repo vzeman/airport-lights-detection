@@ -97,7 +97,7 @@ const AirportDetail: React.FC = () => {
       setRunways(runwaysData.runways || []);
       
     } catch (error) {
-      console.error('Failed to fetch airport details:', error);
+      // console.error('Failed to fetch airport details:', error);
     } finally {
       setLoading(false);
     }
@@ -142,7 +142,7 @@ const AirportDetail: React.FC = () => {
 
       setReferencePoints(allPoints);
     } catch (error) {
-      console.error('Failed to fetch reference points:', error);
+      // console.error('Failed to fetch reference points:', error);
       // Initialize with default points
       const defaultPoints = ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D', 'TOUCH_POINT'].map(type => ({
         point_type: type as ReferencePoint['point_type'],
@@ -182,7 +182,7 @@ const AirportDetail: React.FC = () => {
         is_active: true
       });
     } catch (error) {
-      console.error('Failed to save runway:', error);
+      // console.error('Failed to save runway:', error);
     }
   };
 
@@ -193,7 +193,7 @@ const AirportDetail: React.FC = () => {
       await api.deleteRunway(airportId!, runwayId);
       await fetchAirportDetails();
     } catch (error) {
-      console.error('Failed to delete runway:', error);
+      // console.error('Failed to delete runway:', error);
     }
   };
 
@@ -221,7 +221,7 @@ const AirportDetail: React.FC = () => {
       setEditingPoints(false);
       alert('Reference points saved successfully!');
     } catch (error) {
-      console.error('Failed to save reference points:', error);
+      // console.error('Failed to save reference points:', error);
       alert('Failed to save reference points');
     }
   };
@@ -273,7 +273,7 @@ const AirportDetail: React.FC = () => {
             </div>
             <div>
               <Label>Coordinates</Label>
-              <p className="font-semibold">{airport.latitude?.toFixed(4) || 'N/A'}, {airport.longitude?.toFixed(4) || 'N/A'}</p>
+              <p className="font-semibold">{airport.latitude != null ? Number(airport.latitude).toFixed(8) : 'N/A'}, {airport.longitude != null ? Number(airport.longitude).toFixed(8) : 'N/A'}</p>
             </div>
             <div>
               <Label>Elevation</Label>
@@ -537,7 +537,7 @@ const AirportDetail: React.FC = () => {
                           ) : (
                             <div>
                               <Label className="text-xs">Latitude</Label>
-                              <p className="text-sm font-mono">{point.latitude?.toFixed(6) || 'N/A'}</p>
+                              <p className="text-sm font-mono">{point.latitude != null ? Number(point.latitude).toFixed(8) : 'N/A'}</p>
                             </div>
                           )}
                         </div>
@@ -559,7 +559,7 @@ const AirportDetail: React.FC = () => {
                           ) : (
                             <div>
                               <Label className="text-xs">Longitude</Label>
-                              <p className="text-sm font-mono">{point.longitude?.toFixed(6) || 'N/A'}</p>
+                              <p className="text-sm font-mono">{point.longitude != null ? Number(point.longitude).toFixed(8) : 'N/A'}</p>
                             </div>
                           )}
                         </div>
@@ -606,7 +606,7 @@ const AirportDetail: React.FC = () => {
                               />
                             </div>
                           ) : (
-                            <p className="text-sm font-mono">{point.nominal_angle?.toFixed(2) || 'N/A'}</p>
+                            <p className="text-sm font-mono">{point.nominal_angle != null ? Number(point.nominal_angle).toFixed(2) : 'N/A'}</p>
                           )}
                         </div>
                         <div>
@@ -629,7 +629,7 @@ const AirportDetail: React.FC = () => {
                               />
                             </div>
                           ) : (
-                            <p className="text-sm font-mono">{point.tolerance?.toFixed(2) || 'N/A'}</p>
+                            <p className="text-sm font-mono">{point.tolerance != null ? Number(point.tolerance).toFixed(2) : 'N/A'}</p>
                           )}
                         </div>
                       </div>
@@ -717,7 +717,7 @@ const AirportDetail: React.FC = () => {
                         ) : (
                           <div>
                             <Label className="text-xs">Latitude</Label>
-                            <p className="text-sm font-mono">{touchPoint.latitude?.toFixed(6) || 'N/A'}</p>
+                            <p className="text-sm font-mono">{touchPoint.latitude != null ? Number(touchPoint.latitude).toFixed(8) : 'N/A'}</p>
                           </div>
                         )}
                       </div>
@@ -739,7 +739,7 @@ const AirportDetail: React.FC = () => {
                         ) : (
                           <div>
                             <Label className="text-xs">Longitude</Label>
-                            <p className="text-sm font-mono">{touchPoint.longitude?.toFixed(6) || 'N/A'}</p>
+                            <p className="text-sm font-mono">{touchPoint.longitude != null ? Number(touchPoint.longitude).toFixed(8) : 'N/A'}</p>
                           </div>
                         )}
                       </div>

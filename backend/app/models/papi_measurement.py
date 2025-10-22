@@ -1,7 +1,7 @@
 """
 Database models for PAPI light measurements
 """
-from sqlalchemy import Column, String, Float, Integer, ForeignKey, DateTime, Text, JSON, Enum as SQLEnum
+from sqlalchemy import Column, String, Float, Integer, ForeignKey, DateTime, Text, JSON, Enum as SQLEnum, Numeric
 from sqlalchemy.dialects.mysql import CHAR
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -33,8 +33,8 @@ class PAPIReferencePoint(Base):
     airport_icao_code = Column(String(4), ForeignKey("airports.icao_code"), nullable=False)
     runway_code = Column(String(10), nullable=False)
     point_id = Column(String(50), nullable=False)
-    latitude = Column(Float, nullable=False)
-    longitude = Column(Float, nullable=False)
+    latitude = Column(Numeric(precision=11, scale=8, asdecimal=True), nullable=False)  # ±90°, 8 decimals = ~1.1mm precision
+    longitude = Column(Numeric(precision=12, scale=8, asdecimal=True), nullable=False)  # ±180°, 8 decimals = ~1.1mm precision
     elevation_wgs84 = Column(Float, nullable=False)
     point_type = Column(SQLEnum(PAPIReferencePointType), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -82,8 +82,8 @@ class FrameMeasurement(Base):
     timestamp = Column(Float, nullable=False)  # Time in seconds from video start
     
     # Drone position data
-    drone_latitude = Column(Float, nullable=False)
-    drone_longitude = Column(Float, nullable=False)
+    drone_latitude = Column(Numeric(precision=11, scale=8, asdecimal=True), nullable=False)  # ±90°, 8 decimals = ~1.1mm precision
+    drone_longitude = Column(Numeric(precision=12, scale=8, asdecimal=True), nullable=False)  # ±180°, 8 decimals = ~1.1mm precision
     drone_elevation = Column(Float, nullable=False)
     gimbal_pitch = Column(Float)
     gimbal_roll = Column(Float)

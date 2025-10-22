@@ -82,8 +82,8 @@ export const CoordinateInput = React.forwardRef<HTMLInputElement, CoordinateInpu
 
     const examples = getCoordinateExamples(type);
     const defaultPlaceholder = type === 'latitude'
-      ? 'e.g., 48.123456 or N48°52.01\''
-      : 'e.g., 17.654321 or E18°0.25\'';
+      ? 'e.g., 48.12345678 or N48°52.01\''
+      : 'e.g., 17.65432198 or E18°0.25\'';
 
     return (
       <div className={cn("space-y-2", className)}>

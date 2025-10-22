@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Float, Boolean, DateTime, ForeignKey, Text, JSON, Integer, Enum
+from sqlalchemy import Column, String, Float, Boolean, DateTime, ForeignKey, Text, JSON, Integer, Enum, Numeric
 from sqlalchemy.dialects.mysql import CHAR
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -102,8 +102,8 @@ class Measurement(Base):
     data = Column(JSON, nullable=True)  # Complex measurement data (arrays, objects)
     
     # Location of measurement
-    latitude = Column(Float, nullable=True)
-    longitude = Column(Float, nullable=True)
+    latitude = Column(Numeric(precision=11, scale=8, asdecimal=True), nullable=True)  # ±90°, 8 decimals = ~1.1mm precision
+    longitude = Column(Numeric(precision=12, scale=8, asdecimal=True), nullable=True)  # ±180°, 8 decimals = ~1.1mm precision
     altitude = Column(Float, nullable=True)
     
     # Media attachments

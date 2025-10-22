@@ -287,7 +287,7 @@ const Airports: React.FC = () => {
                   <TableCell>
                     <div className="text-sm">{airport.country}</div>
                     <div className="text-xs text-gray-500">
-                      {airport.latitude?.toFixed(4) || 'N/A'}, {airport.longitude?.toFixed(4) || 'N/A'}
+                      {airport.latitude != null ? Number(airport.latitude).toFixed(8) : 'N/A'}, {airport.longitude != null ? Number(airport.longitude).toFixed(8) : 'N/A'}
                     </div>
                   </TableCell>
                   <TableCell>{airport.runway_count}</TableCell>
@@ -442,9 +442,9 @@ const Airports: React.FC = () => {
                   id="latitude"
                   type="number"
                   value={formData.latitude}
-                  onChange={(e) => setFormData({ ...formData, latitude: parseFloat(e.target.value) })}
-                  placeholder="Latitude"
-                  step={0.0001}
+                  onChange={(e) => setFormData({ ...formData, latitude: e.target.value ? Number(e.target.value) : 0 })}
+                  placeholder="Latitude (8 decimals)"
+                  step={0.00000001}
                   min={-90}
                   max={90}
                   required
@@ -456,9 +456,9 @@ const Airports: React.FC = () => {
                   id="longitude"
                   type="number"
                   value={formData.longitude}
-                  onChange={(e) => setFormData({ ...formData, longitude: parseFloat(e.target.value) })}
-                  placeholder="Longitude"
-                  step={0.0001}
+                  onChange={(e) => setFormData({ ...formData, longitude: e.target.value ? Number(e.target.value) : 0 })}
+                  placeholder="Longitude (8 decimals)"
+                  step={0.00000001}
                   min={-180}
                   max={180}
                   required

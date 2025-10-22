@@ -676,16 +676,44 @@ async def get_measurements_data(
         }
         
         logger.info(f"Returning basic info for session {session_id} with video URLs: {video_urls}")
-        
+
         return {
             "summary": summary,
             "papi_data": {},
             "drone_positions": [],
             "reference_points": [],
+            "runway": None,
             "video_urls": video_urls,
             "message": f"Session status: {session.status}. Video processing may still be in progress."
         }
     
+    # Get runway information
+    from app.models.runway import Runway
+    runway_result = await db.execute(
+        select(Runway).where(
+            and_(
+                Runway.airport_id == select(Airport.id).where(Airport.icao_code == session.airport_icao_code).scalar_subquery(),
+                Runway.name == session.runway_code
+            )
+        )
+    )
+    runway_db = runway_result.scalar_one_or_none()
+
+    # Format runway data
+    runway_data = None
+    if runway_db:
+        runway_data = {
+            "name": runway_db.name,
+            "heading": runway_db.heading,
+            "length": runway_db.length,
+            "width": runway_db.width,
+            "start_lat": runway_db.start_lat,
+            "start_lon": runway_db.start_lon,
+            "threshold_elevation": runway_db.threshold_elevation,
+            "end_lat": runway_db.end_lat,
+            "end_lon": runway_db.end_lon
+        }
+
     # Get reference points
     ref_result = await db.execute(
         select(ReferencePoint).where(
@@ -788,12 +816,13 @@ async def get_measurements_data(
             video_urls[key] = f"/api/v1/videos/{filename}"
 
     logger.info(f"Returning video URLs for completed session {session_id}: {video_urls}")
-    
+
     return {
         "summary": summary,
         "papi_data": papi_data,
         "drone_positions": drone_positions,
         "reference_points": reference_points,
+        "runway": runway_data,
         "video_urls": video_urls
     }
 

@@ -29,7 +29,7 @@ const AirportMap: React.FC = () => {
         setAirportItems(itemsResponse.items || []);
       } catch (err: any) {
         setError(err.response?.data?.message || 'Failed to load airport data');
-        console.error('Error loading airport data:', err);
+        // console.error('Error loading airport data:', err);
       } finally {
         setLoading(false);
       }

@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, field_serializer
+from decimal import Decimal
 import uuid
 from datetime import datetime
 
@@ -18,16 +19,16 @@ router = APIRouter()
 
 class ReferencePointCreate(BaseModel):
     point_type: ReferencePointType
-    latitude: float
-    longitude: float
+    latitude: Decimal  # DECIMAL for centimeter precision
+    longitude: Decimal  # DECIMAL for centimeter precision
     altitude: Optional[float] = None
     nominal_angle: Optional[float] = None
     tolerance: Optional[float] = None
 
 
 class ReferencePointUpdate(BaseModel):
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
+    latitude: Optional[Decimal] = None  # DECIMAL for centimeter precision
+    longitude: Optional[Decimal] = None  # DECIMAL for centimeter precision
     altitude: Optional[float] = None
     nominal_angle: Optional[float] = None
     tolerance: Optional[float] = None
@@ -37,16 +38,20 @@ class ReferencePointResponse(BaseModel):
     id: str
     runway_id: str
     point_type: ReferencePointType
-    latitude: float
-    longitude: float
+    latitude: Decimal  # DECIMAL for centimeter precision
+    longitude: Decimal  # DECIMAL for centimeter precision
     altitude: Optional[float]
     nominal_angle: Optional[float]
     tolerance: Optional[float]
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer('latitude', 'longitude')
+    def serialize_decimal(self, value: Optional[Decimal]) -> Optional[str]:
+        """Serialize Decimal to string to preserve precision"""
+        return str(value) if value is not None else None
 
 
 @router.get("/runways/{runway_id}/reference-points", response_model=dict)
@@ -72,7 +77,7 @@ async def get_runway_reference_points(
     points = result.scalars().all()
     
     return {
-        "reference_points": [ReferencePointResponse.from_orm(p) for p in points],
+        "reference_points": [ReferencePointResponse.model_validate(p) for p in points],
         "total": len(points)
     }
 
@@ -141,7 +146,7 @@ async def create_reference_point(
     await db.commit()
     await db.refresh(ref_point)
 
-    return ReferencePointResponse.from_orm(ref_point)
+    return ReferencePointResponse.model_validate(ref_point)
 
 
 @router.put("/runways/{runway_id}/reference-points/{point_id}", response_model=ReferencePointResponse)
@@ -192,7 +197,7 @@ async def update_reference_point(
     await db.commit()
     await db.refresh(ref_point)
     
-    return ReferencePointResponse.from_orm(ref_point)
+    return ReferencePointResponse.model_validate(ref_point)
 
 
 @router.delete("/runways/{runway_id}/reference-points/{point_id}")
@@ -290,6 +295,6 @@ async def bulk_update_reference_points(
         await db.refresh(point)
 
     return {
-        "reference_points": [ReferencePointResponse.from_orm(p) for p in created_points],
+        "reference_points": [ReferencePointResponse.model_validate(p) for p in created_points],
         "total": len(created_points)
     }

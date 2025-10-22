@@ -2,7 +2,7 @@
 Airspace Model for comprehensive airspace management
 """
 
-from sqlalchemy import Column, String, Float, Boolean, DateTime, ForeignKey, Text, JSON, Integer, Enum, DECIMAL
+from sqlalchemy import Column, String, Float, Boolean, DateTime, ForeignKey, Text, JSON, Integer, Enum, Numeric
 from sqlalchemy.dialects.mysql import CHAR, LONGTEXT
 from sqlalchemy.orm import relationship
 # from geoalchemy2 import Geometry  # Commented out for SQLite compatibility
@@ -102,8 +102,8 @@ class Airspace(Base):
     area_sq_km = Column(Float, nullable=True)  # Computed area
     
     # Center point for map display
-    center_latitude = Column(DECIMAL(precision=10, scale=7), nullable=True)
-    center_longitude = Column(DECIMAL(precision=10, scale=7), nullable=True)
+    center_latitude = Column(Numeric(precision=11, scale=8, asdecimal=True), nullable=True)  # ±90°, 8 decimals = ~1.1mm precision
+    center_longitude = Column(Numeric(precision=12, scale=8, asdecimal=True), nullable=True)  # ±180°, 8 decimals = ~1.1mm precision
     
     # Operating Hours
     active_times = Column(JSON, nullable=True)
