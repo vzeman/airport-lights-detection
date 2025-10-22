@@ -217,13 +217,14 @@ async def upload_measurement_video(
         content = await video.read()
         f.write(content)
     
-    # Create measurement session
+    # Create measurement session with original filename
     session = MeasurementSession(
         airport_icao_code=airport_icao,
         runway_code=runway_code,
         video_file_path=file_path,
         user_id=current_user.id,
-        status="pending"
+        status="pending",
+        original_video_filename=video.filename
     )
     db.add(session)
     await db.commit()
@@ -1035,6 +1036,12 @@ async def process_video_initial(session_id: str, video_path: str):
             metadata = VideoProcessor.extract_first_frame(video_path, preview_path)
 
             if metadata:
+                # Extract and store recording date
+                recording_date = VideoProcessor.extract_recording_date(video_path)
+                if recording_date:
+                    session.recording_date = recording_date
+                    logger.info(f"Extracted recording date: {recording_date}")
+
                 # Update progress: extracting GPS data
                 session.current_phase = "extracting_gps_data"
                 session.progress_percentage = 30.0
