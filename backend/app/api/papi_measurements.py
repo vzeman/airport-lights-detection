@@ -787,6 +787,115 @@ async def get_measurements_data(
             papi_data[light_name]["rgb_values"].append(rgb_array)
             papi_data[light_name]["intensities"].append(intensity if intensity is not None else 0.0)
     
+    # Calculate glide path angles
+    # 1. Average glide path angle: average of all PAPI lights
+    # 2. Middle lights glide path angle: average of middle PAPI lights
+    # 3. Transition-based glide path angle: average angle when specific lights show white on left and red on right
+
+    glide_path_angles_avg = []
+    glide_path_angles_middle = []
+    glide_path_angles_transition = []
+
+    # Determine which PAPI lights are present
+    papi_lights_present = [light for light in ["PAPI_A", "PAPI_B", "PAPI_C", "PAPI_D"] if light in papi_data]
+    num_lights = len(papi_lights_present)
+
+    if num_lights > 0:
+        for frame_idx in range(len(frames)):
+            # Collect angles for this frame
+            frame_angles = []
+            for light in papi_lights_present:
+                angle = papi_data[light]["angles"][frame_idx]
+                if angle is not None and angle != 0.0:  # Only include valid angles
+                    frame_angles.append(angle)
+
+            # Calculate average glide path angle (all lights)
+            if frame_angles:
+                avg_angle = sum(frame_angles) / len(frame_angles)
+                glide_path_angles_avg.append(avg_angle)
+            else:
+                glide_path_angles_avg.append(0.0)
+
+            # Calculate middle lights glide path angle based on number of lights
+            middle_angles = []
+            if num_lights == 4:
+                # 4 lights: average of PAPI_B and PAPI_C
+                if "PAPI_B" in papi_data and "PAPI_C" in papi_data:
+                    angle_b = papi_data["PAPI_B"]["angles"][frame_idx]
+                    angle_c = papi_data["PAPI_C"]["angles"][frame_idx]
+                    if angle_b is not None and angle_b != 0.0:
+                        middle_angles.append(angle_b)
+                    if angle_c is not None and angle_c != 0.0:
+                        middle_angles.append(angle_c)
+            elif num_lights == 2:
+                # 2 lights: average of PAPI_A and PAPI_B
+                if "PAPI_A" in papi_data and "PAPI_B" in papi_data:
+                    angle_a = papi_data["PAPI_A"]["angles"][frame_idx]
+                    angle_b = papi_data["PAPI_B"]["angles"][frame_idx]
+                    if angle_a is not None and angle_a != 0.0:
+                        middle_angles.append(angle_a)
+                    if angle_b is not None and angle_b != 0.0:
+                        middle_angles.append(angle_b)
+            elif num_lights >= 8:
+                # 8 lights: average of PAPI_B, PAPI_C, PAPI_F, PAPI_G
+                for light in ["PAPI_B", "PAPI_C", "PAPI_F", "PAPI_G"]:
+                    if light in papi_data:
+                        angle = papi_data[light]["angles"][frame_idx]
+                        if angle is not None and angle != 0.0:
+                            middle_angles.append(angle)
+
+            if middle_angles:
+                middle_avg = sum(middle_angles) / len(middle_angles)
+                glide_path_angles_middle.append(middle_avg)
+            else:
+                glide_path_angles_middle.append(0.0)
+
+            # Calculate transition-based glide path angle
+            # Look for frames where left light is white and right light is red
+            transition_angle = None
+
+            if num_lights == 2:
+                # 2 lights: PAPI_A white and PAPI_B red
+                if "PAPI_A" in papi_data and "PAPI_B" in papi_data:
+                    status_a = papi_data["PAPI_A"]["statuses"][frame_idx]
+                    status_b = papi_data["PAPI_B"]["statuses"][frame_idx]
+                    if status_a == "white" and status_b == "red":
+                        angle_a = papi_data["PAPI_A"]["angles"][frame_idx]
+                        angle_b = papi_data["PAPI_B"]["angles"][frame_idx]
+                        if angle_a and angle_b and angle_a != 0.0 and angle_b != 0.0:
+                            transition_angle = (angle_a + angle_b) / 2
+
+            elif num_lights == 4:
+                # 4 lights: PAPI_B white and PAPI_C red
+                if "PAPI_B" in papi_data and "PAPI_C" in papi_data:
+                    status_b = papi_data["PAPI_B"]["statuses"][frame_idx]
+                    status_c = papi_data["PAPI_C"]["statuses"][frame_idx]
+                    if status_b == "white" and status_c == "red":
+                        angle_b = papi_data["PAPI_B"]["angles"][frame_idx]
+                        angle_c = papi_data["PAPI_C"]["angles"][frame_idx]
+                        if angle_b and angle_c and angle_b != 0.0 and angle_c != 0.0:
+                            transition_angle = (angle_b + angle_c) / 2
+
+            elif num_lights >= 8:
+                # 8 lights: (PAPI_B white and PAPI_C red) AND (PAPI_F white and PAPI_G red)
+                if all(light in papi_data for light in ["PAPI_B", "PAPI_C", "PAPI_F", "PAPI_G"]):
+                    status_b = papi_data["PAPI_B"]["statuses"][frame_idx]
+                    status_c = papi_data["PAPI_C"]["statuses"][frame_idx]
+                    status_f = papi_data["PAPI_F"]["statuses"][frame_idx]
+                    status_g = papi_data["PAPI_G"]["statuses"][frame_idx]
+
+                    if (status_b == "white" and status_c == "red" and
+                        status_f == "white" and status_g == "red"):
+                        angles = []
+                        for light in ["PAPI_B", "PAPI_C", "PAPI_F", "PAPI_G"]:
+                            angle = papi_data[light]["angles"][frame_idx]
+                            if angle and angle != 0.0:
+                                angles.append(angle)
+                        if angles:
+                            transition_angle = sum(angles) / len(angles)
+
+            glide_path_angles_transition.append(transition_angle if transition_angle else 0.0)
+
     # Format summary data
     summary = {
         "total_frames": len(frames),
@@ -797,6 +906,12 @@ async def get_measurements_data(
             "runway_code": session.runway_code,
             "created_at": session.created_at.isoformat(),
             "video_file": os.path.basename(session.video_file_path)
+        },
+        "glide_path_angles": {
+            "average_all_lights": glide_path_angles_avg,
+            "average_middle_lights": glide_path_angles_middle,
+            "transition_based": glide_path_angles_transition,
+            "num_lights": num_lights
         }
     }
     

@@ -29,6 +29,12 @@ interface MeasurementData {
       created_at: string;
       video_file: string;
     };
+    glide_path_angles?: {
+      average_all_lights: number[];
+      average_middle_lights: number[];
+      transition_based: number[];
+      num_lights: number;
+    };
   };
   papi_data: {
     [key: string]: {
@@ -402,6 +408,94 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
     return groupedTransitions.sort((a, b) => a - b);
   };
 
+  const findColorTransitionWidths = (lightName: string): number[] => {
+    if (!data || !data.papi_data[lightName]) return [];
+
+    const lightData = data.papi_data[lightName];
+    const transitionWidths: number[] = [];
+
+    // Compute color metrics for each frame (same as in findColorTransitionPoints)
+    const colorMetrics: number[] = [];
+    for (let i = 0; i < lightData.rgb_values.length; i++) {
+      const rgb = lightData.rgb_values[i] || [0, 0, 0];
+      const [r, g, b] = Array.isArray(rgb) ? rgb : [0, 0, 0];
+      const metric = 2 * r - g - b;
+      colorMetrics.push(metric);
+    }
+
+    // Find minimum and maximum values
+    const minMetric = Math.min(...colorMetrics);
+    const maxMetric = Math.max(...colorMetrics);
+    const range = maxMetric - minMetric;
+
+    // Define transition zone thresholds (20% to 80% of the range)
+    const lowerThreshold = minMetric + range * 0.2;
+    const upperThreshold = minMetric + range * 0.8;
+
+    // Find all transition zones
+    interface TransitionZone {
+      startIdx: number;
+      endIdx: number;
+    }
+    const transitionZones: TransitionZone[] = [];
+    let inTransition = false;
+    let transitionStart = 0;
+
+    for (let i = 0; i < colorMetrics.length; i++) {
+      const metric = colorMetrics[i];
+      const isInTransitionZone = metric > lowerThreshold && metric < upperThreshold;
+
+      if (isInTransitionZone && !inTransition) {
+        // Entering transition zone
+        transitionStart = i;
+        inTransition = true;
+      } else if (!isInTransitionZone && inTransition) {
+        // Exiting transition zone
+        transitionZones.push({
+          startIdx: transitionStart,
+          endIdx: i - 1
+        });
+        inTransition = false;
+      }
+    }
+
+    // If still in transition at the end
+    if (inTransition) {
+      transitionZones.push({
+        startIdx: transitionStart,
+        endIdx: colorMetrics.length - 1
+      });
+    }
+
+    // Group nearby transition zones (within 1.5 seconds) similar to transition points
+    const groupedZones: TransitionZone[] = [];
+    const groupWindow = 1.5; // seconds
+
+    for (const zone of transitionZones) {
+      const zoneTimestamp = lightData.timestamps[zone.startIdx];
+
+      // Check if this zone is close to any already grouped zone
+      const isNearExisting = groupedZones.some(existingZone => {
+        const existingTimestamp = lightData.timestamps[existingZone.startIdx];
+        return Math.abs(zoneTimestamp - existingTimestamp) < groupWindow;
+      });
+
+      if (!isNearExisting) {
+        groupedZones.push(zone);
+      }
+    }
+
+    // Calculate transition width for each grouped zone
+    for (const zone of groupedZones) {
+      const startAngle = lightData.angles[zone.startIdx] ?? 0;
+      const endAngle = lightData.angles[zone.endIdx] ?? 0;
+      const width = Math.abs(endAngle - startAngle);
+      transitionWidths.push(width);
+    }
+
+    return transitionWidths;
+  };
+
   const formatComparisonChartData = () => {
     if (!data) return [];
 
@@ -485,6 +579,12 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
         dataPoint['touchPoint_angle'] = touchPointAngle;
       } else {
         dataPoint['touchPoint_angle'] = 0;
+      }
+
+      // Add glide path angles if available
+      if (data.summary.glide_path_angles) {
+        dataPoint['gp_avg_all'] = data.summary.glide_path_angles.average_all_lights[index] ?? 0;
+        dataPoint['gp_avg_middle'] = data.summary.glide_path_angles.average_middle_lights[index] ?? 0;
       }
 
       return dataPoint;
@@ -681,6 +781,82 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
               </div>
             </CardContent>
           </Card>
+
+          {/* Glide Path Angles Summary */}
+          {data.summary.glide_path_angles && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Glide Path Angle (Runway)</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="text-sm">
+                    <p className="text-gray-600 mb-4">
+                      Calculated from {data.summary.glide_path_angles.num_lights} PAPI lights' vertical angles
+                    </p>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {/* Algorithm 1: Average All Lights */}
+                      <div className="border-2 rounded-lg p-6 bg-blue-50 border-blue-200">
+                        <h4 className="font-semibold text-blue-900 mb-1">GP Angle - All Lights</h4>
+                        <p className="text-xs text-gray-600 mb-4">
+                          Average of all {data.summary.glide_path_angles.num_lights} PAPI lights
+                        </p>
+                        {data.summary.glide_path_angles.average_all_lights.length > 0 && (
+                          <div className="text-center">
+                            <div className="text-3xl font-bold text-blue-900 font-mono">
+                              {(data.summary.glide_path_angles.average_all_lights.reduce((a, b) => a + b, 0) /
+                                data.summary.glide_path_angles.average_all_lights.length).toFixed(3)}°
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Algorithm 2: Average Middle Lights */}
+                      <div className="border-2 rounded-lg p-6 bg-green-50 border-green-200">
+                        <h4 className="font-semibold text-green-900 mb-1">GP Angle - Middle Lights</h4>
+                        <p className="text-xs text-gray-600 mb-4">
+                          {data.summary.glide_path_angles.num_lights === 4 && "Average of PAPI_B and PAPI_C"}
+                          {data.summary.glide_path_angles.num_lights === 2 && "Average of PAPI_A and PAPI_B"}
+                          {data.summary.glide_path_angles.num_lights >= 8 && "Average of PAPI_B, PAPI_C, PAPI_F, PAPI_G"}
+                        </p>
+                        {data.summary.glide_path_angles.average_middle_lights.length > 0 && (
+                          <div className="text-center">
+                            <div className="text-3xl font-bold text-green-900 font-mono">
+                              {(data.summary.glide_path_angles.average_middle_lights.reduce((a, b) => a + b, 0) /
+                                data.summary.glide_path_angles.average_middle_lights.length).toFixed(3)}°
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Algorithm 3: Transition-Based */}
+                      <div className="border-2 rounded-lg p-6 bg-purple-50 border-purple-200">
+                        <h4 className="font-semibold text-purple-900 mb-1">GP Angle - Transition</h4>
+                        <p className="text-xs text-gray-600 mb-4">
+                          {data.summary.glide_path_angles.num_lights === 2 && "When PAPI_A white & PAPI_B red"}
+                          {data.summary.glide_path_angles.num_lights === 4 && "When PAPI_B white & PAPI_C red"}
+                          {data.summary.glide_path_angles.num_lights >= 8 && "When B/F white & C/G red"}
+                        </p>
+                        {data.summary.glide_path_angles.transition_based && data.summary.glide_path_angles.transition_based.length > 0 && (() => {
+                          const validAngles = data.summary.glide_path_angles.transition_based.filter(a => a !== 0);
+                          return validAngles.length > 0 ? (
+                            <div className="text-center">
+                              <div className="text-3xl font-bold text-purple-900 font-mono">
+                                {(validAngles.reduce((a, b) => a + b, 0) / validAngles.length).toFixed(3)}°
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="text-center text-gray-500 text-sm">No transitions detected</div>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
@@ -1573,6 +1749,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
 
                   let lightName = '';
                   let transitionAngles: number[] = [];
+                  let transitionWidths: number[] = [];
 
                   if (isPAPILight) {
                     // Extract light name (e.g., "PAPI_A")
@@ -1592,6 +1769,9 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                       const dataPoint = rgbData.find(d => Math.abs(d.timestamp - timestamp) < 0.01);
                       return dataPoint?.angle ?? 0;
                     });
+
+                    // Calculate transition widths for this light
+                    transitionWidths = findColorTransitionWidths(lightName);
                   }
 
                   return (
@@ -1613,6 +1793,11 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                             <p className="font-medium text-purple-600 mt-2">
                               Transition Angle{transitionAngles.length > 1 ? 's' : ''}: {transitionAngles.map(a => a.toFixed(3) + '°').join(', ')}
                             </p>
+                            {transitionWidths.length > 0 && (
+                              <p className="font-medium text-indigo-600">
+                                Transition Width{transitionWidths.length > 1 ? 's' : ''}: {transitionWidths.map(w => w.toFixed(3) + '°').join(', ')}
+                              </p>
+                            )}
                             {point.nominal_angle !== undefined && point.nominal_angle !== null && transitionAngles.map((angle, idx) => {
                               const correction = point.nominal_angle! - angle;
                               const sign = correction >= 0 ? '+' : '';
