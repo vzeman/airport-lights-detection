@@ -93,28 +93,32 @@ class FrameMeasurement(Base):
     papi_a_status = Column(SQLEnum(LightStatus))
     papi_a_rgb = Column(JSON)  # {"r": 255, "g": 0, "b": 0}
     papi_a_intensity = Column(Float)
-    papi_a_angle = Column(Float)  # Angle from ground
+    papi_a_angle = Column(Float)  # Vertical angle from ground
+    papi_a_horizontal_angle = Column(Float)  # Horizontal angle from runway centerline
     papi_a_distance_ground = Column(Float)  # Distance on ground
     papi_a_distance_direct = Column(Float)  # Direct distance to drone
-    
+
     papi_b_status = Column(SQLEnum(LightStatus))
     papi_b_rgb = Column(JSON)
     papi_b_intensity = Column(Float)
-    papi_b_angle = Column(Float)
+    papi_b_angle = Column(Float)  # Vertical angle from ground
+    papi_b_horizontal_angle = Column(Float)  # Horizontal angle from runway centerline
     papi_b_distance_ground = Column(Float)
     papi_b_distance_direct = Column(Float)
-    
+
     papi_c_status = Column(SQLEnum(LightStatus))
     papi_c_rgb = Column(JSON)
     papi_c_intensity = Column(Float)
-    papi_c_angle = Column(Float)
+    papi_c_angle = Column(Float)  # Vertical angle from ground
+    papi_c_horizontal_angle = Column(Float)  # Horizontal angle from runway centerline
     papi_c_distance_ground = Column(Float)
     papi_c_distance_direct = Column(Float)
-    
+
     papi_d_status = Column(SQLEnum(LightStatus))
     papi_d_rgb = Column(JSON)
     papi_d_intensity = Column(Float)
-    papi_d_angle = Column(Float)
+    papi_d_angle = Column(Float)  # Vertical angle from ground
+    papi_d_horizontal_angle = Column(Float)  # Horizontal angle from runway centerline
     papi_d_distance_ground = Column(Float)
     papi_d_distance_direct = Column(Float)
     

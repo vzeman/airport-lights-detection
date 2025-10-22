@@ -35,6 +35,7 @@ interface MeasurementData {
       timestamps: number[];
       statuses: string[];
       angles: number[];
+      horizontal_angles: number[];
       distances: number[];
       rgb_values: Array<[number, number, number]>;
       intensities: number[];
@@ -79,7 +80,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
   const [data, setData] = useState<MeasurementData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'overview' | 'charts' | 'positions' | 'videos'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'charts' | 'horizontal' | 'positions' | 'videos'>('overview');
 
   useEffect(() => {
     fetchMeasurementData();
@@ -120,13 +121,13 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
         pos.frame ?? 0,
         (pos.timestamp ?? 0).toFixed(2),
         data.papi_data.PAPI_A?.statuses[index] || 'unknown',
-        (data.papi_data.PAPI_A?.angles[index] ?? 0).toFixed(2),
+        (data.papi_data.PAPI_A?.angles[index] ?? 0).toFixed(3),
         data.papi_data.PAPI_B?.statuses[index] || 'unknown',
-        (data.papi_data.PAPI_B?.angles[index] ?? 0).toFixed(2),
+        (data.papi_data.PAPI_B?.angles[index] ?? 0).toFixed(3),
         data.papi_data.PAPI_C?.statuses[index] || 'unknown',
-        (data.papi_data.PAPI_C?.angles[index] ?? 0).toFixed(2),
+        (data.papi_data.PAPI_C?.angles[index] ?? 0).toFixed(3),
         data.papi_data.PAPI_D?.statuses[index] || 'unknown',
-        (data.papi_data.PAPI_D?.angles[index] ?? 0).toFixed(2),
+        (data.papi_data.PAPI_D?.angles[index] ?? 0).toFixed(3),
         (Number(pos.latitude ?? 0)).toFixed(8),
         (Number(pos.longitude ?? 0)).toFixed(8),
         ((pos.elevation ?? 0) - groundElevation).toFixed(1), // Height above ground level
@@ -568,19 +569,30 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
             <button
               onClick={() => setActiveTab('charts')}
               className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                activeTab === 'charts' 
-                  ? 'bg-white text-blue-600 shadow-sm' 
+                activeTab === 'charts'
+                  ? 'bg-white text-blue-600 shadow-sm'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
               <Lightbulb className="w-4 h-4 inline mr-2" />
-              PAPI Analysis
+              PAPI Vertical Analysis
+            </button>
+            <button
+              onClick={() => setActiveTab('horizontal')}
+              className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                activeTab === 'horizontal'
+                  ? 'bg-white text-blue-600 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <BarChart3 className="w-4 h-4 inline mr-2" />
+              PAPI Horizontal Analysis
             </button>
             <button
               onClick={() => setActiveTab('positions')}
               className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                activeTab === 'positions' 
-                  ? 'bg-white text-blue-600 shadow-sm' 
+                activeTab === 'positions'
+                  ? 'bg-white text-blue-600 shadow-sm'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
@@ -709,7 +721,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                     <Tooltip
                       formatter={(value: any, name: string) => {
                         if (value == null) return ['N/A', name];
-                        if (name.includes('Angle') || name === 'Touch Pt Angle') return [`${value.toFixed(2)}°`, name];
+                        if (name.includes('Angle') || name === 'Touch Pt Angle') return [`${value.toFixed(3)}°`, name];
                         return [`${value.toFixed(1)}%`, name];
                       }}
                       labelFormatter={(value: any) => `Time: ${(value ?? 0).toFixed(2)}s`}
@@ -799,7 +811,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                     <Tooltip
                       formatter={(value: any, name: string) => {
                         if (value == null) return ['N/A', name];
-                        if (name.includes('Angle') || name === 'Touch Pt Angle') return [`${value.toFixed(2)}°`, name];
+                        if (name.includes('Angle') || name === 'Touch Pt Angle') return [`${value.toFixed(3)}°`, name];
                         return [`${Math.round(value)}`, name];
                       }}
                       labelFormatter={(value: any) => `Time: ${(value ?? 0).toFixed(2)}s`}
@@ -862,7 +874,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
             </CardContent>
           </Card>
 
-          {/* PAPI Analysis Charts - One for each light */}
+          {/* PAPI Vertical Analysis Charts - One for each light */}
           {['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D'].map((lightName) => {
             const rgbData = formatRGBChartData(lightName);
             const transitionPoints = findColorTransitionPoints(lightName);
@@ -911,7 +923,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                     {hasTransitions ? (
                       <div className="mb-2">
                         <p className="text-xs text-gray-600 inline">
-                          Color transition points: {transitionInfo.map(t => `${t.timestamp.toFixed(2)}s @ ${t.angle.toFixed(2)}°`).join(', ')}
+                          Color transition points: {transitionInfo.map(t => `${t.timestamp.toFixed(2)}s @ ${t.angle.toFixed(3)}°`).join(', ')}
                         </p>
                         {canValidate && (
                           <span className="ml-3">
@@ -951,7 +963,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                         <Tooltip
                           formatter={(value: any, name: string) => {
                             if (value == null) return ['N/A', name];
-                            if (name === 'Angle' || name === 'Touch Pt Angle') return [`${value.toFixed(2)}°`, name];
+                            if (name === 'Angle' || name === 'Touch Pt Angle') return [`${value.toFixed(3)}°`, name];
                             if (['red', 'green', 'blue'].includes(name)) return [`${Math.round(value)}`, name.toUpperCase()];
                             if (name === 'intensity') return [`${Math.round(value)}`, 'Intensity'];
                             return [`${value.toFixed(2)}`, name];
@@ -965,7 +977,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                           if (nominalAngle !== undefined && nominalAngle !== null) {
                             const deviation = transition.angle - nominalAngle;
                             const sign = deviation >= 0 ? '+' : '';
-                            label += ` (Δ ${sign}${deviation.toFixed(2)}°)`;
+                            label += ` (Δ ${sign}${deviation.toFixed(3)}°)`;
                           }
                           return (
                             <ReferenceLine
@@ -993,7 +1005,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                             strokeDasharray="2 2"
                             strokeWidth={2}
                             label={{
-                              value: `Nominal (${nominalAngle.toFixed(2)}°)`,
+                              value: `Nominal (${nominalAngle.toFixed(3)}°)`,
                               position: 'right',
                               fill: lightColor,
                               fontSize: 11
@@ -1058,7 +1070,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                         <Tooltip
                           formatter={(value: any, name: string) => {
                             if (value == null) return ['N/A', name];
-                            if (name === 'Angle' || name === 'Touch Pt Angle') return [`${value.toFixed(2)}°`, name];
+                            if (name === 'Angle' || name === 'Touch Pt Angle') return [`${value.toFixed(3)}°`, name];
                             return [`${value.toFixed(1)}%`, name];
                           }}
                           labelFormatter={(value: any) => `Time: ${(value ?? 0).toFixed(2)}s`}
@@ -1070,7 +1082,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                           if (nominalAngle !== undefined && nominalAngle !== null) {
                             const deviation = transition.angle - nominalAngle;
                             const sign = deviation >= 0 ? '+' : '';
-                            label += ` (Δ ${sign}${deviation.toFixed(2)}°)`;
+                            label += ` (Δ ${sign}${deviation.toFixed(3)}°)`;
                           }
                           return (
                             <ReferenceLine
@@ -1111,7 +1123,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                             strokeDasharray="2 2"
                             strokeWidth={2}
                             label={{
-                              value: `Nominal (${nominalAngle.toFixed(2)}°)`,
+                              value: `Nominal (${nominalAngle.toFixed(3)}°)`,
                               position: 'right',
                               fill: lightColor,
                               fontSize: 11
@@ -1132,6 +1144,231 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
               </Card>
             );
           })}
+        </div>
+      )}
+
+      {activeTab === 'horizontal' && (
+        <div className="space-y-6">
+          {/* Maximum Luminosity Analysis Summary */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Light Direction Analysis</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-gray-600 mb-4">
+                Horizontal angle where each PAPI light achieves maximum luminosity (indicates the direction each light is aimed):
+              </p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D'].map(lightName => {
+                  const lightData = data.papi_data[lightName];
+                  if (!lightData || !lightData.intensities || !lightData.horizontal_angles) {
+                    return null;
+                  }
+
+                  // Find index of maximum intensity
+                  let maxIntensity = 0;
+                  let maxIntensityIndex = 0;
+                  lightData.intensities.forEach((intensity: number, idx: number) => {
+                    if (intensity > maxIntensity) {
+                      maxIntensity = intensity;
+                      maxIntensityIndex = idx;
+                    }
+                  });
+
+                  const maxLuminosityAngle = lightData.horizontal_angles[maxIntensityIndex];
+
+                  return (
+                    <div key={lightName} className="p-3 bg-gray-50 rounded-lg">
+                      <div className="text-xs text-gray-500 mb-1">{lightName.replace('_', ' ')}</div>
+                      <div className="text-lg font-bold text-blue-600">
+                        {maxLuminosityAngle != null ? `${maxLuminosityAngle.toFixed(3)}°` : 'N/A'}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        Luminosity: {Math.round(maxIntensity)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Horizontal Analysis - All PAPI Lights */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Horizontal Angle Analysis - All PAPI Lights</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Chromaticity vs Horizontal Angle */}
+              <div>
+                <h4 className="text-sm font-medium mb-3">Red Chromaticity vs Horizontal Angle</h4>
+                <p className="text-xs text-gray-600 mb-2">
+                  Color quality across horizontal deviation from runway centerline. Red light ≈ 50-70%, White light ≈ 33%
+                </p>
+                <ResponsiveContainer width="100%" height={350}>
+                  <LineChart data={(() => {
+                    const chartData: any[] = [];
+                    const lightsArray = ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D'];
+
+                    // Get max length
+                    const maxLength = Math.max(...lightsArray.map(light => data.papi_data[light]?.timestamps.length || 0));
+
+                    for (let i = 0; i < maxLength; i++) {
+                      const point: any = { timestamp: data.papi_data['PAPI_A']?.timestamps[i] || i };
+
+                      lightsArray.forEach(light => {
+                        const lightData = data.papi_data[light];
+                        if (lightData && lightData.horizontal_angles && lightData.horizontal_angles[i] != null) {
+                          const rgb = lightData.rgb_values[i];
+                          if (rgb) {
+                            const [r, g, b] = rgb;
+                            const total = r + g + b;
+                            const redChroma = total > 0 ? (r / total) * 100 : 0;
+                            point[`${light}_chroma`] = redChroma;
+                            point[`${light}_horizontal_angle`] = lightData.horizontal_angles[i];
+                          }
+                        }
+                      });
+
+                      chartData.push(point);
+                    }
+
+                    return chartData;
+                  })()}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="timestamp"
+                      label={{ value: 'Time (s)', position: 'insideBottom', offset: -5 }}
+                    />
+                    <YAxis
+                      yAxisId="chroma"
+                      label={{ value: 'Red Chromaticity (%)', angle: -90, position: 'insideLeft' }}
+                      domain={['dataMin - 5', 'dataMax + 5']}
+                    />
+                    <YAxis
+                      yAxisId="horizontal"
+                      orientation="right"
+                      label={{ value: 'Horizontal Angle (°)', angle: 90, position: 'insideRight' }}
+                      domain={['dataMin - 5', 'dataMax + 5']}
+                    />
+                    <Tooltip
+                      formatter={(value: any, name: string) => {
+                        if (value == null) return ['N/A', name];
+                        if (name.includes('horizontal_angle')) return [`${value.toFixed(3)}°`, name];
+                        return [`${value.toFixed(1)}%`, name];
+                      }}
+                      labelFormatter={(value: any) => `Time: ${(value ?? 0).toFixed(2)}s`}
+                    />
+                    <Legend />
+                    <ReferenceLine
+                      yAxisId="chroma"
+                      y={33.33}
+                      stroke="#94a3b8"
+                      strokeDasharray="3 3"
+                      label={{ value: 'White (33%)', position: 'right', fill: '#64748b', fontSize: 12 }}
+                    />
+                    <ReferenceLine
+                      yAxisId="horizontal"
+                      x={0}
+                      stroke="#94a3b8"
+                      strokeDasharray="3 3"
+                      label={{ value: 'Centerline', position: 'top', fill: '#64748b', fontSize: 12 }}
+                    />
+
+                    <Line yAxisId="chroma" type="monotone" dataKey="PAPI_A_chroma" stroke="#fbbf24" name="PAPI A Chroma" strokeWidth={2} dot={false} />
+                    <Line yAxisId="horizontal" type="monotone" dataKey="PAPI_A_horizontal_angle" stroke="#f59e0b" name="PAPI A H-Angle" strokeWidth={1} strokeDasharray="5 5" dot={false} />
+
+                    <Line yAxisId="chroma" type="monotone" dataKey="PAPI_B_chroma" stroke="#f97316" name="PAPI B Chroma" strokeWidth={2} dot={false} />
+                    <Line yAxisId="horizontal" type="monotone" dataKey="PAPI_B_horizontal_angle" stroke="#ea580c" name="PAPI B H-Angle" strokeWidth={1} strokeDasharray="5 5" dot={false} />
+
+                    <Line yAxisId="chroma" type="monotone" dataKey="PAPI_C_chroma" stroke="#ec4899" name="PAPI C Chroma" strokeWidth={2} dot={false} />
+                    <Line yAxisId="horizontal" type="monotone" dataKey="PAPI_C_horizontal_angle" stroke="#db2777" name="PAPI C H-Angle" strokeWidth={1} strokeDasharray="5 5" dot={false} />
+
+                    <Line yAxisId="chroma" type="monotone" dataKey="PAPI_D_chroma" stroke="#22c55e" name="PAPI D Chroma" strokeWidth={2} dot={false} />
+                    <Line yAxisId="horizontal" type="monotone" dataKey="PAPI_D_horizontal_angle" stroke="#16a34a" name="PAPI D H-Angle" strokeWidth={1} strokeDasharray="5 5" dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Luminosity vs Horizontal Angle */}
+              <div>
+                <h4 className="text-sm font-medium mb-3">Luminosity (Intensity) vs Horizontal Angle</h4>
+                <p className="text-xs text-gray-600 mb-2">
+                  Light intensity across horizontal deviation from runway centerline
+                </p>
+                <ResponsiveContainer width="100%" height={350}>
+                  <LineChart data={(() => {
+                    const chartData: any[] = [];
+                    const lightsArray = ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D'];
+
+                    const maxLength = Math.max(...lightsArray.map(light => data.papi_data[light]?.timestamps.length || 0));
+
+                    for (let i = 0; i < maxLength; i++) {
+                      const point: any = { timestamp: data.papi_data['PAPI_A']?.timestamps[i] || i };
+
+                      lightsArray.forEach(light => {
+                        const lightData = data.papi_data[light];
+                        if (lightData && lightData.horizontal_angles && lightData.horizontal_angles[i] != null) {
+                          point[`${light}_intensity`] = lightData.intensities[i];
+                          point[`${light}_horizontal_angle`] = lightData.horizontal_angles[i];
+                        }
+                      });
+
+                      chartData.push(point);
+                    }
+
+                    return chartData;
+                  })()}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="timestamp"
+                      label={{ value: 'Time (s)', position: 'insideBottom', offset: -5 }}
+                    />
+                    <YAxis
+                      yAxisId="intensity"
+                      label={{ value: 'Luminosity (0-255)', angle: -90, position: 'insideLeft' }}
+                      domain={[0, 255]}
+                    />
+                    <YAxis
+                      yAxisId="horizontal"
+                      orientation="right"
+                      label={{ value: 'Horizontal Angle (°)', angle: 90, position: 'insideRight' }}
+                      domain={['dataMin - 5', 'dataMax + 5']}
+                    />
+                    <Tooltip
+                      formatter={(value: any, name: string) => {
+                        if (value == null) return ['N/A', name];
+                        if (name.includes('horizontal_angle')) return [`${value.toFixed(3)}°`, name];
+                        if (name.includes('intensity')) return [`${value.toFixed(0)}`, name];
+                        return [value, name];
+                      }}
+                      labelFormatter={(value: any) => `Time: ${(value ?? 0).toFixed(2)}s`}
+                    />
+                    <Legend />
+                    <ReferenceLine
+                      yAxisId="horizontal"
+                      x={0}
+                      stroke="#94a3b8"
+                      strokeDasharray="3 3"
+                      label={{ value: 'Centerline', position: 'top', fill: '#64748b', fontSize: 12 }}
+                    />
+
+                    <Line yAxisId="intensity" type="monotone" dataKey="PAPI_A_intensity" stroke="#fbbf24" name="PAPI A Intensity" strokeWidth={2} dot={false} />
+                    <Line yAxisId="horizontal" type="monotone" dataKey="PAPI_A_horizontal_angle" stroke="#f59e0b" name="PAPI A H-Angle" strokeWidth={1} strokeDasharray="5 5" dot={false} />
+
+                    <Line yAxisId="intensity" type="monotone" dataKey="PAPI_B_intensity" stroke="#f97316" name="PAPI B Intensity" strokeWidth={2} dot={false} />
+                    <Line yAxisId="horizontal" type="monotone" dataKey="PAPI_B_horizontal_angle" stroke="#ea580c" name="PAPI B H-Angle" strokeWidth={1} strokeDasharray="5 5" dot={false} />
+
+                    <Line yAxisId="intensity" type="monotone" dataKey="PAPI_C_intensity" stroke="#ec4899" name="PAPI C Intensity" strokeWidth={2} dot={false} />
+                    <Line yAxisId="horizontal" type="monotone" dataKey="PAPI_C_horizontal_angle" stroke="#db2777" name="PAPI C H-Angle" strokeWidth={1} strokeDasharray="5 5" dot={false} />
+
+                    <Line yAxisId="intensity" type="monotone" dataKey="PAPI_D_intensity" stroke="#22c55e" name="PAPI D Intensity" strokeWidth={2} dot={false} />
+                    <Line yAxisId="horizontal" type="monotone" dataKey="PAPI_D_horizontal_angle" stroke="#16a34a" name="PAPI D H-Angle" strokeWidth={1} strokeDasharray="5 5" dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
 
@@ -1366,15 +1603,15 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                         <p>Elev: {(point.elevation ?? 0).toFixed(1)}m</p>
                         <p className="capitalize">Type: {point.point_type?.replace('_', ' ') ?? 'unknown'}</p>
                         {point.nominal_angle !== undefined && point.nominal_angle !== null && (
-                          <p className="font-medium text-blue-600">Nominal Angle: {point.nominal_angle.toFixed(2)}°</p>
+                          <p className="font-medium text-blue-600">Nominal Angle: {point.nominal_angle.toFixed(3)}°</p>
                         )}
                         {point.tolerance !== undefined && point.tolerance !== null && (
-                          <p className="font-medium text-orange-600">Tolerance: ±{point.tolerance.toFixed(2)}°</p>
+                          <p className="font-medium text-orange-600">Tolerance: ±{point.tolerance.toFixed(3)}°</p>
                         )}
                         {isPAPILight && transitionAngles.length > 0 && (
                           <>
                             <p className="font-medium text-purple-600 mt-2">
-                              Transition Angle{transitionAngles.length > 1 ? 's' : ''}: {transitionAngles.map(a => a.toFixed(2) + '°').join(', ')}
+                              Transition Angle{transitionAngles.length > 1 ? 's' : ''}: {transitionAngles.map(a => a.toFixed(3) + '°').join(', ')}
                             </p>
                             {point.nominal_angle !== undefined && point.nominal_angle !== null && transitionAngles.map((angle, idx) => {
                               const correction = point.nominal_angle! - angle;
@@ -1382,12 +1619,36 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                               const isWithinTolerance = Math.abs(angle - point.nominal_angle!) <= (point.tolerance ?? 0.25);
                               return (
                                 <p key={idx} className={`font-bold ${isWithinTolerance ? 'text-green-600' : 'text-red-600 text-sm'}`}>
-                                  Required Correction: {sign}{correction.toFixed(2)}° {isWithinTolerance ? '✓' : '✗'}
+                                  Required Correction: {sign}{correction.toFixed(3)}° {isWithinTolerance ? '✓' : '✗'}
                                 </p>
                               );
                             })}
                           </>
                         )}
+                        {isPAPILight && (() => {
+                          // Calculate max luminosity horizontal angle for this PAPI light
+                          const lightData = data.papi_data[pointId as 'PAPI_A' | 'PAPI_B' | 'PAPI_C' | 'PAPI_D'];
+                          if (!lightData || !lightData.intensities || !lightData.horizontal_angles) {
+                            return null;
+                          }
+
+                          let maxIntensity = 0;
+                          let maxIntensityIndex = 0;
+                          lightData.intensities.forEach((intensity: number, idx: number) => {
+                            if (intensity > maxIntensity) {
+                              maxIntensity = intensity;
+                              maxIntensityIndex = idx;
+                            }
+                          });
+
+                          const maxLuminosityAngle = lightData.horizontal_angles[maxIntensityIndex];
+
+                          return (
+                            <p className="font-medium text-teal-600 mt-2">
+                              Max Luminosity at Horizontal Angle: {maxLuminosityAngle != null ? `${maxLuminosityAngle.toFixed(3)}°` : 'N/A'} (Intensity: {Math.round(maxIntensity)})
+                            </p>
+                          );
+                        })()}
                       </div>
                     </div>
                   );
@@ -1501,10 +1762,10 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                                 {pair.light1.replace('_', ' ')} → {pair.light2.replace('_', ' ')}
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
-                                {pair.angle1.toFixed(2)}°
+                                {pair.angle1.toFixed(3)}°
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
-                                {pair.angle2.toFixed(2)}°
+                                {pair.angle2.toFixed(3)}°
                               </td>
                               <td className={`px-4 py-3 whitespace-nowrap text-sm font-bold ${
                                 isWithinTolerance ? 'text-blue-600' :
@@ -1512,7 +1773,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                                 Math.abs(pair.difference) < 0.5 ? 'text-orange-600' :
                                 'text-red-600'
                               }`}>
-                                {pair.difference >= 0 ? '+' : ''}{pair.difference.toFixed(2)}°
+                                {pair.difference >= 0 ? '+' : ''}{pair.difference.toFixed(3)}°
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
                                 0.33 ± 0.1°

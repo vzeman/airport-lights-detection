@@ -741,10 +741,10 @@ async def get_measurements_data(
     
     # Format PAPI data by grouping measurements by light
     papi_data = {
-        "PAPI_A": {"timestamps": [], "statuses": [], "angles": [], "distances": [], "rgb_values": [], "intensities": []},
-        "PAPI_B": {"timestamps": [], "statuses": [], "angles": [], "distances": [], "rgb_values": [], "intensities": []},
-        "PAPI_C": {"timestamps": [], "statuses": [], "angles": [], "distances": [], "rgb_values": [], "intensities": []},
-        "PAPI_D": {"timestamps": [], "statuses": [], "angles": [], "distances": [], "rgb_values": [], "intensities": []}
+        "PAPI_A": {"timestamps": [], "statuses": [], "angles": [], "horizontal_angles": [], "distances": [], "rgb_values": [], "intensities": []},
+        "PAPI_B": {"timestamps": [], "statuses": [], "angles": [], "horizontal_angles": [], "distances": [], "rgb_values": [], "intensities": []},
+        "PAPI_C": {"timestamps": [], "statuses": [], "angles": [], "horizontal_angles": [], "distances": [], "rgb_values": [], "intensities": []},
+        "PAPI_D": {"timestamps": [], "statuses": [], "angles": [], "horizontal_angles": [], "distances": [], "rgb_values": [], "intensities": []}
     }
     
     # Format drone positions
@@ -767,16 +767,17 @@ async def get_measurements_data(
         
         # Add PAPI measurements
         papi_lights = [
-            ("PAPI_A", frame.papi_a_status, frame.papi_a_angle, frame.papi_a_distance_ground, frame.papi_a_rgb, frame.papi_a_intensity),
-            ("PAPI_B", frame.papi_b_status, frame.papi_b_angle, frame.papi_b_distance_ground, frame.papi_b_rgb, frame.papi_b_intensity),
-            ("PAPI_C", frame.papi_c_status, frame.papi_c_angle, frame.papi_c_distance_ground, frame.papi_c_rgb, frame.papi_c_intensity),
-            ("PAPI_D", frame.papi_d_status, frame.papi_d_angle, frame.papi_d_distance_ground, frame.papi_d_rgb, frame.papi_d_intensity)
+            ("PAPI_A", frame.papi_a_status, frame.papi_a_angle, frame.papi_a_horizontal_angle, frame.papi_a_distance_ground, frame.papi_a_rgb, frame.papi_a_intensity),
+            ("PAPI_B", frame.papi_b_status, frame.papi_b_angle, frame.papi_b_horizontal_angle, frame.papi_b_distance_ground, frame.papi_b_rgb, frame.papi_b_intensity),
+            ("PAPI_C", frame.papi_c_status, frame.papi_c_angle, frame.papi_c_horizontal_angle, frame.papi_c_distance_ground, frame.papi_c_rgb, frame.papi_c_intensity),
+            ("PAPI_D", frame.papi_d_status, frame.papi_d_angle, frame.papi_d_horizontal_angle, frame.papi_d_distance_ground, frame.papi_d_rgb, frame.papi_d_intensity)
         ]
 
-        for light_name, status, angle, distance, rgb, intensity in papi_lights:
+        for light_name, status, angle, horizontal_angle, distance, rgb, intensity in papi_lights:
             papi_data[light_name]["timestamps"].append(timestamp)
             papi_data[light_name]["statuses"].append(status.value if status else "not_visible")
             papi_data[light_name]["angles"].append(angle if angle is not None else 0.0)
+            papi_data[light_name]["horizontal_angles"].append(horizontal_angle if horizontal_angle is not None else 0.0)
             papi_data[light_name]["distances"].append(distance if distance is not None else 0.0)
             # Convert RGB object to array format for frontend
             if rgb is not None and isinstance(rgb, dict):
@@ -970,6 +971,28 @@ async def process_video_full(session_id: str):
 
             # Fetch reference points ONCE before processing (includes PAPI lights and TOUCH_POINT)
             from app.models import Airport, Runway
+
+            # Fetch runway information including heading
+            runway_query = select(Runway).join(
+                Airport, Runway.airport_id == Airport.id
+            ).where(
+                and_(
+                    Airport.icao_code == session.airport_icao_code,
+                    Runway.name == session.runway_code
+                )
+            )
+            runway_result = await db.execute(runway_query)
+            runway = runway_result.scalar_one_or_none()
+
+            if not runway:
+                raise ValueError(
+                    f"Runway {session.runway_code} not found for airport {session.airport_icao_code}. "
+                    "Please ensure the runway is configured in the database."
+                )
+
+            runway_heading = float(runway.heading)
+            logger.info(f"Loaded runway {session.runway_code} with heading: {runway_heading}°")
+
             ref_points_query = select(ReferencePoint).join(
                 Runway, ReferencePoint.runway_id == Runway.id
             ).join(
@@ -1022,7 +1045,8 @@ async def process_video_full(session_id: str):
                             "longitude": interpolated_gps.longitude,
                             "speed": interpolated_gps.speed or 0.0,
                             "heading": interpolated_gps.heading or 0.0,
-                            "ref_points": ref_points_dict
+                            "ref_points": ref_points_dict,
+                            "runway_heading": runway_heading
                         }
                 
                 # Raise exception if no real GPS data is available
@@ -1056,6 +1080,7 @@ async def process_video_full(session_id: str):
                         setattr(frame_measurement, f"{light_name}_rgb", data["rgb"])
                         setattr(frame_measurement, f"{light_name}_intensity", data["intensity"])
                         setattr(frame_measurement, f"{light_name}_angle", data["angle"])
+                        setattr(frame_measurement, f"{light_name}_horizontal_angle", data.get("horizontal_angle"))
                         setattr(frame_measurement, f"{light_name}_distance_ground", data["distance_ground"])
                         setattr(frame_measurement, f"{light_name}_distance_direct", data["distance_direct"])
                 
@@ -1095,6 +1120,7 @@ async def process_video_full(session_id: str):
                         'rgb': m.papi_a_rgb,
                         'intensity': m.papi_a_intensity,
                         'angle': m.papi_a_angle,
+                        'horizontal_angle': m.papi_a_horizontal_angle,
                         'distance_ground': m.papi_a_distance_ground,
                         'distance_direct': m.papi_a_distance_direct
                     },
@@ -1103,6 +1129,7 @@ async def process_video_full(session_id: str):
                         'rgb': m.papi_b_rgb,
                         'intensity': m.papi_b_intensity,
                         'angle': m.papi_b_angle,
+                        'horizontal_angle': m.papi_b_horizontal_angle,
                         'distance_ground': m.papi_b_distance_ground,
                         'distance_direct': m.papi_b_distance_direct
                     },
@@ -1111,6 +1138,7 @@ async def process_video_full(session_id: str):
                         'rgb': m.papi_c_rgb,
                         'intensity': m.papi_c_intensity,
                         'angle': m.papi_c_angle,
+                        'horizontal_angle': m.papi_c_horizontal_angle,
                         'distance_ground': m.papi_c_distance_ground,
                         'distance_direct': m.papi_c_distance_direct
                     },
@@ -1119,6 +1147,7 @@ async def process_video_full(session_id: str):
                         'rgb': m.papi_d_rgb,
                         'intensity': m.papi_d_intensity,
                         'angle': m.papi_d_angle,
+                        'horizontal_angle': m.papi_d_horizontal_angle,
                         'distance_ground': m.papi_d_distance_ground,
                         'distance_direct': m.papi_d_distance_direct
                     }

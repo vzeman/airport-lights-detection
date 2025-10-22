@@ -1261,12 +1261,32 @@ class VideoProcessor:
             angle = calculate_angle(drone_data, papi_gps)
             distance_ground = calculate_ground_distance(drone_data, papi_gps)
             distance_direct = calculate_direct_distance(drone_data, papi_gps)
-            
+
+            # Calculate horizontal angle if runway heading is available
+            horizontal_angle = None
+            runway_heading = drone_data.get('runway_heading')
+            if runway_heading is not None:
+                try:
+                    horizontal_angle = calculate_horizontal_angle(
+                        papi_gps['latitude'],
+                        papi_gps['longitude'],
+                        drone_data['latitude'],
+                        drone_data['longitude'],
+                        runway_heading
+                    )
+                    logger.debug(f"{light_name}: Runway heading={runway_heading}°, Horizontal angle={horizontal_angle:.3f}°")
+                except Exception as e:
+                    logger.warning(f"Error calculating horizontal angle for {light_name}: {e}")
+                    horizontal_angle = None
+            else:
+                logger.warning(f"Runway heading not available for horizontal angle calculation")
+
             measurements[light_name] = {
                 "status": status,
                 "rgb": {"r": r, "g": g, "b": b},
                 "intensity": intensity,
                 "angle": angle,
+                "horizontal_angle": horizontal_angle,
                 "distance_ground": distance_ground,
                 "distance_direct": distance_direct
             }
@@ -1362,8 +1382,11 @@ def calculate_angle(drone_data: Dict, light_pos: Dict) -> float:
             angle = np.degrees(np.arctan(height_diff / ground_dist))
         else:
             angle = 90.0 if height_diff > 0 else -90.0
-        
-        logger.debug(f"Angle calculation - Final angle: {angle:.6f}")
+
+        # Round to 3 decimal places for consistent precision with horizontal angles
+        angle = round(angle, 3)
+
+        logger.debug(f"Angle calculation - Final angle: {angle:.3f}")
         return angle
         
     except Exception as e:
@@ -1408,18 +1431,87 @@ def calculate_direct_distance(drone_data: Dict, light_pos: Dict) -> float:
 def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Calculate the great circle distance between two points on Earth (in meters)"""
     R = 6371000  # Earth's radius in meters
-    
+
     phi1 = math.radians(lat1)
     phi2 = math.radians(lat2)
     delta_phi = math.radians(lat2 - lat1)
     delta_lambda = math.radians(lon2 - lon1)
-    
+
     a = (math.sin(delta_phi / 2) * math.sin(delta_phi / 2) +
          math.cos(phi1) * math.cos(phi2) *
          math.sin(delta_lambda / 2) * math.sin(delta_lambda / 2))
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    
+
     return R * c
+
+
+def calculate_bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """
+    Calculate the bearing (forward azimuth) from point 1 to point 2.
+    Returns bearing in degrees (0-360), where 0 = North, 90 = East, 180 = South, 270 = West.
+    """
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_lambda = math.radians(lon2 - lon1)
+
+    y = math.sin(delta_lambda) * math.cos(phi2)
+    x = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(delta_lambda)
+
+    bearing_rad = math.atan2(y, x)
+    bearing_deg = math.degrees(bearing_rad)
+
+    # Normalize to 0-360
+    bearing_deg = (bearing_deg + 360) % 360
+
+    return bearing_deg
+
+
+def calculate_horizontal_angle(
+    target_lat: float,
+    target_lon: float,
+    drone_lat: float,
+    drone_lon: float,
+    runway_heading: float
+) -> float:
+    """
+    Calculate the horizontal angle between the runway centerline and the drone position.
+
+    The angle is measured at the light/touch point, between the runway centerline
+    (which extends in both directions) and the line to the drone position.
+    Positive angles mean drone is to the right of the centerline when looking along the runway heading.
+    Negative angles mean drone is to the left of the centerline.
+
+    Args:
+        target_lat: Latitude of the light/touch point
+        target_lon: Longitude of the light/touch point
+        drone_lat: Latitude of the drone
+        drone_lon: Longitude of the drone
+        runway_heading: Runway heading in degrees (0-360)
+
+    Returns:
+        Horizontal angle in degrees (-90 to +90), with 3 decimal places precision
+    """
+    # Calculate bearing from target to drone
+    bearing_to_drone = calculate_bearing(target_lat, target_lon, drone_lat, drone_lon)
+
+    # Calculate angle difference from runway heading
+    angle_diff = bearing_to_drone - runway_heading
+
+    # Normalize to -180 to +180 range
+    if angle_diff > 180:
+        angle_diff -= 360
+    elif angle_diff < -180:
+        angle_diff += 360
+
+    # The runway centerline extends in both directions (heading and heading + 180°)
+    # We want the angle to the nearest side of this line, so clamp to -90 to +90
+    if angle_diff > 90:
+        angle_diff = 180 - angle_diff
+    elif angle_diff < -90:
+        angle_diff = -180 - angle_diff
+
+    # Round to 3 decimal places for high precision
+    return round(angle_diff, 3)
 
 
 def classify_light_status(r: float, g: float, b: float, intensity: float) -> str:
@@ -2423,47 +2515,59 @@ class PAPIVideoGenerator:
     def _calculate_angles_to_targets(self, drone_data: Dict, reference_points: Dict = None) -> Dict:
         """Calculate angles from drone to all target points (PAPI lights and touch point)"""
         angles_data = {}
-        
+
         if not reference_points:
             raise ValueError(
                 "Reference points are required for angle calculations. "
                 "Please ensure PAPI light and touch point coordinates are configured in the database for this runway."
             )
-        
+
         drone_lat = drone_data.get('latitude')
-        drone_lon = drone_data.get('longitude') 
+        drone_lon = drone_data.get('longitude')
         drone_alt = drone_data.get('elevation')
-        
+        runway_heading = drone_data.get('runway_heading')
+
         # Validate that all required coordinates are present
         if drone_lat is None or drone_lon is None or drone_alt is None:
             raise ValueError(f"Incomplete GPS data in frame {frame_number}. Missing: " +
                            f"{'latitude ' if drone_lat is None else ''}" +
                            f"{'longitude ' if drone_lon is None else ''}" +
                            f"{'elevation' if drone_alt is None else ''}")
-        
+
         for target_id, target_pos in reference_points.items():
             target_lat = target_pos.get('latitude')
             target_lon = target_pos.get('longitude')
             target_elevation = target_pos.get('elevation', 0)
-            
+
             if target_lat is not None and target_lon is not None:
                 # Calculate ground distance using Haversine formula
                 ground_dist = haversine_distance(drone_lat, drone_lon, target_lat, target_lon)
-                
+
                 # Calculate height difference
                 height_diff = drone_alt - target_elevation
-                
-                # Calculate angle (elevation angle from horizontal)
+
+                # Calculate vertical angle (elevation angle from horizontal)
                 if ground_dist > 0:
-                    angle = np.degrees(np.arctan(height_diff / ground_dist))
+                    vertical_angle = np.degrees(np.arctan(height_diff / ground_dist))
                 else:
-                    angle = 90.0 if height_diff > 0 else -90.0
-                
+                    vertical_angle = 90.0 if height_diff > 0 else -90.0
+
+                # Round to 3 decimal places for consistent precision
+                vertical_angle = round(vertical_angle, 3)
+
+                # Calculate horizontal angle (deviation from runway centerline)
+                horizontal_angle = None
+                if runway_heading is not None:
+                    horizontal_angle = calculate_horizontal_angle(
+                        target_lat, target_lon, drone_lat, drone_lon, runway_heading
+                    )
+
                 # Calculate direct distance
                 direct_distance = math.sqrt(ground_dist**2 + height_diff**2)
-                
+
                 angles_data[target_id] = {
-                    'angle': angle,
+                    'angle': vertical_angle,
+                    'horizontal_angle': horizontal_angle,
                     'distance': direct_distance,
                     'ground_distance': ground_dist,
                     'height_diff': height_diff
@@ -2474,7 +2578,7 @@ class PAPIVideoGenerator:
                     f"Reference point coordinates for '{target_id}' are missing or incomplete. "
                     f"Required: latitude and longitude. Please ensure all reference points are properly configured."
                 )
-        
+
         return angles_data
     
     def _add_frame_info_overlay(self, frame: np.ndarray, frame_number: int, total_frames: int):
