@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Card, CardHeader, CardTitle, CardContent } from './ui/card';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { Loader2, Download, Printer } from 'lucide-react';
@@ -1823,7 +1823,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
             <CardHeader>
               <CardTitle>Enhanced Main Video</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
               <div className="aspect-video">
                 <video
                   key={data.video_urls?.enhanced_main}
@@ -1849,9 +1849,120 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                   Your browser does not support the video tag.
                 </video>
               </div>
-              <p className="text-sm text-gray-600 mt-2">
-                Enhanced video with drone position overlays, PAPI light rectangles, and angle information
-              </p>
+
+              {/* Video Information Footer Panel */}
+              <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg p-4 border border-gray-200">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* Session Info */}
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide border-b border-gray-300 pb-1">
+                      Session Info
+                    </h4>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Airport:</span>
+                        <span className="font-semibold text-gray-900">{data.summary.session_info.airport_code}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Runway:</span>
+                        <span className="font-semibold text-gray-900">{data.summary.session_info.runway_code}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Duration:</span>
+                        <span className="font-mono text-gray-900">{(data.summary.duration ?? 0).toFixed(1)}s</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Total Frames:</span>
+                        <span className="font-mono text-gray-900">{data.summary.total_frames}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* PAPI Angles */}
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide border-b border-gray-300 pb-1">
+                      PAPI Vertical Angles
+                    </h4>
+                    <div className="space-y-1 text-sm">
+                      {Object.entries(data.reference_points)
+                        .filter(([key]) => key.includes('PAPI_'))
+                        .sort(([a], [b]) => a.localeCompare(b))
+                        .map(([pointId, point]) => {
+                          const lightName = pointId.includes('PAPI_A') ? 'PAPI_A' :
+                                          pointId.includes('PAPI_B') ? 'PAPI_B' :
+                                          pointId.includes('PAPI_C') ? 'PAPI_C' :
+                                          pointId.includes('PAPI_D') ? 'PAPI_D' :
+                                          pointId.includes('PAPI_E') ? 'PAPI_E' :
+                                          pointId.includes('PAPI_F') ? 'PAPI_F' :
+                                          pointId.includes('PAPI_G') ? 'PAPI_G' :
+                                          pointId.includes('PAPI_H') ? 'PAPI_H' : '';
+
+                          const colors: { [key: string]: string } = {
+                            'PAPI_A': 'text-blue-600',
+                            'PAPI_B': 'text-green-600',
+                            'PAPI_C': 'text-orange-600',
+                            'PAPI_D': 'text-purple-600',
+                            'PAPI_E': 'text-pink-600',
+                            'PAPI_F': 'text-teal-600',
+                            'PAPI_G': 'text-indigo-600',
+                            'PAPI_H': 'text-red-600',
+                          };
+
+                          return (
+                            <div key={pointId} className="flex justify-between items-center">
+                              <span className="text-gray-600">{lightName.replace('_', ' ')}:</span>
+                              <span className={`font-bold font-mono ${colors[lightName] || 'text-gray-900'}`}>
+                                {point.nominal_angle !== undefined && point.nominal_angle !== null
+                                  ? `${point.nominal_angle.toFixed(2)}°`
+                                  : 'N/A'}
+                              </span>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+
+                  {/* Glide Path Info */}
+                  {data.summary.glide_path_angles && (
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide border-b border-gray-300 pb-1">
+                        Glide Path Angle
+                      </h4>
+                      <div className="space-y-3">
+                        {data.summary.glide_path_angles.transition_based &&
+                         data.summary.glide_path_angles.transition_based.filter(a => a !== 0).length > 0 && (
+                          <div className="bg-purple-50 rounded-md p-3 border border-purple-200">
+                            <div className="text-xs text-gray-600 mb-1">GP to PAPI Lights</div>
+                            <div className="text-2xl font-bold text-purple-900 font-mono">
+                              {(data.summary.glide_path_angles.transition_based
+                                .filter(a => a !== 0)
+                                .reduce((a, b) => a + b, 0) /
+                                data.summary.glide_path_angles.transition_based.filter(a => a !== 0).length
+                              ).toFixed(3)}°
+                            </div>
+                          </div>
+                        )}
+                        {data.summary.glide_path_angles.touch_point_at_transition !== undefined &&
+                         data.summary.glide_path_angles.touch_point_at_transition !== 0 && (
+                          <div className="bg-indigo-50 rounded-md p-3 border border-indigo-200">
+                            <div className="text-xs text-gray-600 mb-1">GP to Touch Point</div>
+                            <div className="text-xl font-bold text-indigo-700 font-mono">
+                              {data.summary.glide_path_angles.touch_point_at_transition.toFixed(3)}°
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer note */}
+                <div className="mt-4 pt-3 border-t border-gray-300">
+                  <p className="text-xs text-gray-500 text-center">
+                    Video shows drone position overlays, PAPI light rectangles, and real-time angle measurements
+                  </p>
+                </div>
+              </div>
             </CardContent>
           </Card>
 
@@ -2329,6 +2440,9 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
           <Card>
             <CardHeader>
               <CardTitle>PAPI Light Luminosity (Intensity) Comparison</CardTitle>
+              <CardDescription>
+                The difference between minimum and maximum luminosity values can be up to 50%.
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {(() => {
@@ -2396,7 +2510,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
 
                           // Calculate difference between max and min as percentage
                           const differencePercent = item.max > 0 ? ((item.max - item.min) / item.max) * 100 : 0;
-                          const differenceFailed = differencePercent > 20;
+                          const differenceFailed = differencePercent > 50;
 
                           return (
                             <tr key={item.light} className="hover:bg-gray-50">

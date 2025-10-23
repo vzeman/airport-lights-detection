@@ -1198,7 +1198,9 @@ async def process_video_full(session_id: str):
                 ref_points_dict[rp.point_type.value] = {
                     "latitude": float(rp.latitude),
                     "longitude": float(rp.longitude),
-                    "elevation": float(rp.elevation_wgs84) if rp.elevation_wgs84 else (float(rp.altitude) if rp.altitude else 0.0)
+                    "elevation": float(rp.elevation_wgs84) if rp.elevation_wgs84 else (float(rp.altitude) if rp.altitude else 0.0),
+                    "nominal_angle": float(rp.nominal_angle) if rp.nominal_angle is not None else None,
+                    "tolerance": float(rp.tolerance) if rp.tolerance is not None else None
                 }
 
             # Validate that we have the required reference points
@@ -1397,7 +1399,7 @@ async def process_video_full(session_id: str):
                 
                 # Generate individual PAPI light videos with angle information
                 papi_video_paths = video_generator.generate_papi_videos(
-                    session.video_file_path, session_id, session.light_positions, measurements_data
+                    session.video_file_path, session_id, session.light_positions, measurements_data, ref_points_dict
                 )
                 logger.info(f"Generated {len(papi_video_paths)} PAPI light videos")
 

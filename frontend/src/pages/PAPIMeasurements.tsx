@@ -551,49 +551,6 @@ const PAPIMeasurements: React.FC = () => {
 
       {step === 'results' && session && (
         <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Measurement Results</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="bg-green-50 p-4 rounded flex items-center">
-                <CheckCircle className="w-5 h-5 text-green-600 mr-2" />
-                <span>Processing completed successfully!</span>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <Button
-                  variant="outline"
-                  onClick={() => setStep('select')}
-                >
-                  New Measurement
-                </Button>
-              </div>
-
-              {session.video_urls && (
-                <div>
-                  <h3 className="font-medium mb-2">Individual PAPI Light Videos:</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    {Object.entries(session.video_urls).map(([light, url]) => (
-                      <div key={light} className="text-center">
-                        <h4 className="font-medium mb-2">{light}</h4>
-                        <video 
-                          width="100" 
-                          height="100" 
-                          controls 
-                          className="mx-auto border rounded"
-                          src={url as string}
-                        >
-                          Your browser does not support the video tag.
-                        </video>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
           {/* Direct Data Display */}
           <MeasurementDataDisplay sessionId={session.session_id} />
         </div>

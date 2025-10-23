@@ -2391,91 +2391,129 @@ class PAPIVideoGenerator:
         
         return enhanced_frame
     
-    def _add_drone_position_overlay_optimized(self, frame: np.ndarray, frame_number: int, 
+    def _add_drone_position_overlay_optimized(self, frame: np.ndarray, frame_number: int,
                                              cached_drone_data: Dict = None,
                                              reference_points: Dict = None):
-        """Optimized overlay using pre-computed GPS data"""
+        """Optimized overlay using pre-computed GPS data - Footer design"""
         height, width = frame.shape[:2]
-        
-        # Create semi-transparent overlay box
-        overlay = frame.copy()
-        box_height = 220
-        box_width = 420
-        
-        cv2.rectangle(overlay, (10, 10), (box_width, box_height), (0, 0, 0), -1)
-        cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
-        
+
         # Use cached drone data or fallback
         if cached_drone_data:
             drone_data = cached_drone_data
-            gps_source = "📡 REAL GPS"
         else:
             raise ValueError(f"No GPS data available for frame {frame_number}. Video must contain GPS coordinates for processing.")
-        
-        # GPS quality indicators
-        gps_quality = ""
-        if drone_data.get('satellites'):
-            gps_quality = f" ({drone_data['satellites']} sats)"
-        if drone_data.get('accuracy'):
-            gps_quality += f" ±{drone_data['accuracy']:.1f}m"
-        
-        # Calculate angle to touch point if reference points available
-        touch_point_angle_text = ""
+
+        # Professional header panel settings (moved to top)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        header_height = 180  # Increased for larger fonts
+        header_y = 0  # Changed from bottom to top
+
+        # Create white header background
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (0, header_y), (width, header_height),
+                     (255, 255, 255), -1)
+        cv2.addWeighted(overlay, 0.95, frame, 0.05, 0, frame)
+
+        # Add bottom border line
+        cv2.line(frame, (0, header_height), (width, header_height), (200, 200, 200), 2)
+
+        # Calculate PAPI angles
+        papi_colors = {
+            'PAPI_A': (180, 130, 70),   # Steel blue (BGR)
+            'PAPI_B': (34, 139, 34),    # Forest green
+            'PAPI_C': (32, 165, 218),   # Goldenrod
+            'PAPI_D': (34, 34, 178),    # Firebrick
+            'PAPI_E': (147, 20, 255),   # Pink
+            'PAPI_F': (128, 128, 0),    # Teal
+            'PAPI_G': (130, 0, 75),     # Indigo
+            'PAPI_H': (0, 0, 255)       # Red
+        }
+
+        papi_angles = {}
+        if reference_points:
+            for papi_name in ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D', 'PAPI_E', 'PAPI_F', 'PAPI_G', 'PAPI_H']:
+                if papi_name in reference_points:
+                    try:
+                        papi_point = reference_points[papi_name]
+                        ground_dist = haversine_distance(
+                            drone_data['latitude'], drone_data['longitude'],
+                            papi_point.get('latitude'), papi_point.get('longitude')
+                        )
+                        alt_diff = drone_data['elevation'] - papi_point.get('elevation')
+
+                        if ground_dist > 0:
+                            angle = np.degrees(np.arctan(alt_diff / ground_dist))
+                        else:
+                            angle = 90.0 if alt_diff > 0 else -90.0
+
+                        papi_angles[papi_name] = angle
+                    except Exception as e:
+                        logger.debug(f"Failed to calculate angle for {papi_name}: {e}")
+
+        # Touch point angle if available
+        touch_angle = None
         if reference_points and 'TOUCH_POINT' in reference_points:
             try:
-                drone_lat = drone_data.get('latitude')
-                drone_lon = drone_data.get('longitude')
-                drone_alt = drone_data.get('elevation', 0)
+                touch_point = reference_points['TOUCH_POINT']
+                ground_dist = haversine_distance(
+                    drone_data['latitude'], drone_data['longitude'],
+                    touch_point.get('latitude'), touch_point.get('longitude')
+                )
+                alt_diff = drone_data['elevation'] - touch_point.get('elevation')
 
-                touch_lat = reference_points['TOUCH_POINT'].get('latitude')
-                touch_lon = reference_points['TOUCH_POINT'].get('longitude')
-                touch_alt = reference_points['TOUCH_POINT'].get('elevation', 0)
-
-                if drone_lat and drone_lon and touch_lat and touch_lon:
-                    # Calculate angle to touch point
-                    touch_data = {
-                        'latitude': drone_lat,
-                        'longitude': drone_lon,
-                        'elevation': drone_alt
-                    }
-                    touch_gps = {
-                        'latitude': touch_lat,
-                        'longitude': touch_lon,
-                        'elevation': touch_alt
-                    }
-
-                    touch_angle = calculate_angle(touch_data, touch_gps)
-                    touch_point_angle_text = f"Touch Point Angle: {touch_angle:.2f}"
+                if ground_dist > 0:
+                    touch_angle = np.degrees(np.arctan(alt_diff / ground_dist))
+                else:
+                    touch_angle = 90.0 if alt_diff > 0 else -90.0
             except Exception as e:
-                # If angle calculation fails, continue without angle
                 logger.debug(f"Failed to calculate touch point angle: {e}")
 
-        # Basic drone data (removed speed, added touch point angle)
-        basic_texts = [
-            f"Frame: {frame_number + 1} | {gps_source}{gps_quality}",
-            f"Lat: {drone_data.get('latitude', 0):.6f}",
-            f"Lon: {drone_data.get('longitude', 0):.6f}",
-            f"Alt: {drone_data.get('elevation', 0):.1f}m",
-            f"Heading: {drone_data.get('heading', 0):.2f}",
-        ]
+        # Layout: 3 columns
+        col_width = width // 3
+        y_base = header_y + 35  # Adjusted for top panel
 
-        # Add touch point angle if available (replaces speed parameter)
-        if touch_point_angle_text:
-            basic_texts.append(touch_point_angle_text)
+        # Column 1: GPS Info
+        x_col1 = 25
+        cv2.putText(frame, "GPS POSITION", (x_col1, y_base),
+                   font, 0.9, (80, 80, 80), 2)  # Increased from 0.4 to 0.9, thickness 2
+        cv2.putText(frame, f"Lat: {drone_data.get('latitude', 0):.6f}", (x_col1, y_base + 35),
+                   font, 0.7, (60, 60, 60), 2)  # Increased from 0.35 to 0.7
+        cv2.putText(frame, f"Lon: {drone_data.get('longitude', 0):.6f}", (x_col1, y_base + 65),
+                   font, 0.7, (60, 60, 60), 2)
+        cv2.putText(frame, f"Alt: {drone_data.get('elevation', 0):.1f}m", (x_col1, y_base + 95),
+                   font, 0.7, (60, 60, 60), 2)
+        if drone_data.get('speed'):
+            cv2.putText(frame, f"Spd: {drone_data['speed']:.1f} m/s", (x_col1, y_base + 125),
+                       font, 0.7, (60, 60, 60), 2)
+
+        # Column 2: PAPI Vertical Angles
+        x_col2 = col_width + 25
+        cv2.putText(frame, "PAPI VERTICAL ANGLES", (x_col2, y_base),
+                   font, 0.9, (80, 80, 80), 2)  # Increased from 0.4 to 0.9
+
+        y_papi = y_base + 35
+        for papi_name, angle in papi_angles.items():
+            color = papi_colors.get(papi_name, (100, 100, 100))
+            cv2.putText(frame, f"{papi_name}: {angle:.2f}", (x_col2, y_papi),
+                       font, 0.7, color, 2)  # Increased from 0.38 to 0.7
+            y_papi += 28  # Increased spacing from 18 to 28
+            if y_papi > header_y + header_height - 15:
+                break
+
+        # Column 3: Touch Point & Frame Info
+        x_col3 = 2 * col_width + 25
+        if touch_angle is not None:
+            cv2.putText(frame, "TOUCH POINT", (x_col3, y_base),
+                       font, 0.9, (80, 80, 80), 2)  # Increased from 0.4 to 0.9
+            cv2.putText(frame, f"Angle: {touch_angle:.2f}", (x_col3, y_base + 35),
+                       font, 0.8, (0, 180, 180), 2)  # Increased from 0.42 to 0.8
         else:
-            # Placeholder to maintain consistent overlay size
-            basic_texts.append("")  # Empty line if no touch point angle
-        
-        # Draw information
-        text_color = (255, 255, 255)
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 2.25
-        line_height = 80
-        
-        y_offset = 25
-        for i, text in enumerate(basic_texts):
-            y_pos = y_offset + i * line_height
-            cv2.putText(frame, text, (20, y_pos), font, font_scale, text_color, 1)
+            cv2.putText(frame, "MEASUREMENT DATA", (x_col3, y_base),
+                       font, 0.9, (80, 80, 80), 2)  # Increased from 0.4 to 0.9
+
+        # Frame number at bottom right of header
+        cv2.putText(frame, f"Frame: {frame_number + 1}", (width - 200, header_height - 15),
+                   font, 0.7, (100, 100, 100), 2)  # Increased size and moved to header
     
     def _add_overlays_to_frame_with_tracking(self, frame: np.ndarray, tracked_positions: Dict, 
                                             frame_number: int, total_frames: int,
@@ -2818,7 +2856,7 @@ class PAPIVideoGenerator:
                    cv2.FONT_HERSHEY_SIMPLEX, 2.5, (255, 255, 255), 3)
     
     def generate_papi_videos(self, video_path: str, session_id: str, light_positions: Dict,
-                            measurements_data: List[Dict] = None) -> Dict[str, str]:
+                            measurements_data: List[Dict] = None, reference_points: Dict = None) -> Dict[str, str]:
         """Generate individual videos for each PAPI light using tracking with angle information"""
         video_paths = {}
         
@@ -2873,7 +2911,7 @@ class PAPIVideoGenerator:
                     # Will convert to H.264 after creation using ffmpeg
                     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
                     video_writers[light_name] = cv2.VideoWriter(
-                        video_output_path, fourcc, fps, (300, 350)  # Fixed 300x350 output size (50px for footer)
+                        video_output_path, fourcc, fps, (300, 400)  # Fixed 300x400 output size (100px for professional footer)
                     )
             
             frame_count = 0
@@ -2934,54 +2972,94 @@ class PAPIVideoGenerator:
                             
                             # Resize the light region to 300x300
                             light_frame_resized = cv2.resize(light_frame, (300, 300))
-                            
-                            # Create final frame with white footer strip
-                            final_frame = np.zeros((350, 300, 3), dtype=np.uint8)
-                            
+
+                            # Create final frame with professional footer (100px height)
+                            final_frame = np.zeros((400, 300, 3), dtype=np.uint8)
+
                             # Copy the resized light frame to the top part
                             final_frame[0:300, 0:300] = light_frame_resized
-                            
-                            # Create white footer strip (50px height)
-                            final_frame[300:350, 0:300] = [255, 255, 255]  # White background
-                            
-                            # Add text to white footer strip
-                            confidence = tracked_pos.get('confidence', 0.0)
-                            
-                            # Light name and frame info
-                            info_text = f"{light_name} - Frame {frame_count}"
-                            if confidence > 0:
-                                info_text += f" ({confidence:.2f})"
-                            
-                            cv2.putText(final_frame, info_text, (5, 320),
-                                      cv2.FONT_HERSHEY_SIMPLEX, 1.25, (0, 0, 0), 2)  # Black text on white
-                            
-                            # Add color-coded RGB values in footer (smaller font to prevent overlap)
-                            y_pos = 345
-                            font = cv2.FONT_HERSHEY_SIMPLEX
-                            font_scale = 0.5
-                            thickness = 1
 
-                            # Red component
-                            cv2.putText(final_frame, f"R:{rgb[0]:.0f}", (5, y_pos),
-                                      font, font_scale, (0, 0, 255), thickness)  # Red color (BGR)
+                            # Create light gray footer background (professional look)
+                            final_frame[300:400, 0:300] = [245, 245, 245]  # Light gray background
 
-                            # Green component
-                            cv2.putText(final_frame, f"G:{rgb[1]:.0f}", (60, y_pos),
-                                      font, font_scale, (0, 255, 0), thickness)  # Green color (BGR)
+                            # Get angle information from reference points
+                            nominal_angle = None
+                            transition_angle = None
+                            current_angle = None
 
-                            # Blue component
-                            cv2.putText(final_frame, f"B:{rgb[2]:.0f}", (115, y_pos),
-                                      font, font_scale, (255, 0, 0), thickness)  # Blue color (BGR)
-
-                            # Add angle information if measurements_data is available
+                            # Extract current angle from measurements
                             if measurements_data and frame_count < len(measurements_data):
                                 frame_measurements = measurements_data[frame_count]
                                 if light_name in frame_measurements:
-                                    angle = frame_measurements[light_name].get('angle')
-                                    if angle is not None:
-                                        angle_text = f"Angle: {angle:.2f}"
-                                        cv2.putText(final_frame, angle_text, (170, y_pos),
-                                                  font, font_scale, (0, 0, 0), thickness)  # Black text
+                                    current_angle = frame_measurements[light_name].get('angle')
+
+                            # Extract nominal angle and tolerance from reference points
+                            if reference_points and light_name in reference_points:
+                                ref_point = reference_points[light_name]
+                                nominal_angle = ref_point.get('nominal_angle')
+                                tolerance = ref_point.get('tolerance')
+                                if nominal_angle is not None and tolerance is not None:
+                                    transition_angle = nominal_angle + tolerance
+
+                            # Professional footer layout
+                            font = cv2.FONT_HERSHEY_SIMPLEX
+
+                            # Header: Light name and frame number (line 1)
+                            header_text = f"{light_name}  |  Frame {frame_count}"
+                            cv2.putText(final_frame, header_text, (10, 318),
+                                      font, 0.45, (50, 50, 50), 1)  # Dark gray
+
+                            # Add a subtle separator line
+                            cv2.line(final_frame, (10, 325), (290, 325), (200, 200, 200), 1)
+
+                            # Angle information grid (3 columns)
+                            y_base = 350
+                            col_width = 100
+
+                            # Column 1: Nominal Angle
+                            if nominal_angle is not None:
+                                cv2.putText(final_frame, "Nominal", (10, y_base),
+                                          font, 0.38, (100, 100, 100), 1)
+                                cv2.putText(final_frame, f"{nominal_angle:.2f}", (10, y_base + 18),
+                                          font, 0.55, (70, 130, 180), 2)  # Steel blue
+                            else:
+                                cv2.putText(final_frame, "Nominal", (10, y_base),
+                                          font, 0.38, (100, 100, 100), 1)
+                                cv2.putText(final_frame, "N/A", (10, y_base + 18),
+                                          font, 0.5, (150, 150, 150), 1)
+
+                            # Column 2: Transition Angle
+                            if transition_angle is not None:
+                                cv2.putText(final_frame, "Transition", (col_width, y_base),
+                                          font, 0.38, (100, 100, 100), 1)
+                                cv2.putText(final_frame, f"{transition_angle:.2f}", (col_width, y_base + 18),
+                                          font, 0.55, (218, 165, 32), 2)  # Goldenrod
+                            else:
+                                cv2.putText(final_frame, "Transition", (col_width, y_base),
+                                          font, 0.38, (100, 100, 100), 1)
+                                cv2.putText(final_frame, "N/A", (col_width, y_base + 18),
+                                          font, 0.5, (150, 150, 150), 1)
+
+                            # Column 3: Current Angle
+                            if current_angle is not None:
+                                cv2.putText(final_frame, "Current", (col_width * 2, y_base),
+                                          font, 0.38, (100, 100, 100), 1)
+                                cv2.putText(final_frame, f"{current_angle:.2f}", (col_width * 2, y_base + 18),
+                                          font, 0.55, (34, 139, 34), 2)  # Forest green
+                            else:
+                                cv2.putText(final_frame, "Current", (col_width * 2, y_base),
+                                          font, 0.38, (100, 100, 100), 1)
+                                cv2.putText(final_frame, "N/A", (col_width * 2, y_base + 18),
+                                          font, 0.5, (150, 150, 150), 1)
+
+                            # RGB values at the bottom (compact, color-coded)
+                            rgb_y = 390
+                            cv2.putText(final_frame, f"R:{rgb[0]:.0f}", (10, rgb_y),
+                                      font, 0.4, (0, 0, 200), 1)  # Red
+                            cv2.putText(final_frame, f"G:{rgb[1]:.0f}", (60, rgb_y),
+                                      font, 0.4, (0, 180, 0), 1)  # Green
+                            cv2.putText(final_frame, f"B:{rgb[2]:.0f}", (110, rgb_y),
+                                      font, 0.4, (200, 0, 0), 1)  # Blue
                             
                             video_writers[light_name].write(final_frame)
                 
@@ -3041,17 +3119,17 @@ class PAPIVideoGenerator:
                    cv2.FONT_HERSHEY_SIMPLEX, 2.5, (255, 255, 255), 3)
     
     
-    def _add_angle_overlay(self, frame: np.ndarray, frame_number: int, 
+    def _add_angle_overlay(self, frame: np.ndarray, frame_number: int,
                           drone_telemetry: List[Dict] = None,
                           reference_points: Dict = None,
                           real_gps_data: List[GPSData] = None,
                           fps: float = 30.0):
-        """Add angle information overlay to frame"""
+        """Add professional information panel overlay to frame"""
         height, width = frame.shape[:2]
-        
+
         # Get real drone data for this frame (same logic as main overlay)
         drone_data = None
-        
+
         # Priority 1: Use real GPS data extracted from video file
         if real_gps_data:
             gps_extractor = GPSExtractor()
@@ -3059,85 +3137,135 @@ class PAPIVideoGenerator:
             if interpolated_gps:
                 drone_data = {
                     "latitude": interpolated_gps.latitude,
-                    "longitude": interpolated_gps.longitude, 
+                    "longitude": interpolated_gps.longitude,
                     "altitude": interpolated_gps.altitude,
                     "speed": interpolated_gps.speed or 0.0,
                     "heading": interpolated_gps.heading or 0.0
                 }
-        
+
         # Priority 2: Use provided drone telemetry
         if not drone_data and drone_telemetry and frame_number < len(drone_telemetry):
             drone_data = drone_telemetry[frame_number]
-        
-        # Priority 3: Fail if no GPS data is available  
+
+        # Priority 3: Fail if no GPS data is available
         if not drone_data:
             raise ValueError(f"No GPS data available for frame {frame_number}. Video must contain GPS coordinates for processing.")
-        
+
         # Calculate angles to PAPI lights and touch point if reference points available
         if reference_points:
             try:
-                # Position angle info in the top-right corner
-                info_x = width - 250
-                info_y = 30
-                line_height = 25
-                
-                # Semi-transparent background
+                # Professional header panel settings (moved to top)
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                header_height = 180  # Increased for larger fonts
+                header_y = 0  # Changed from bottom to top
+
+                # Create white header background
                 overlay = frame.copy()
-                cv2.rectangle(overlay, (info_x - 10, info_y - 10), 
-                             (width - 10, info_y + 5 * line_height), (0, 0, 0), -1)
-                cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
-                
-                # Calculate and display angles
-                y_pos = info_y
-                for papi_name in ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D']:
+                cv2.rectangle(overlay, (0, header_y), (width, header_height),
+                             (255, 255, 255), -1)
+                cv2.addWeighted(overlay, 0.95, frame, 0.05, 0, frame)
+
+                # Add bottom border line
+                cv2.line(frame, (0, header_height), (width, header_height), (200, 200, 200), 2)
+
+                # Calculate PAPI angles
+                papi_colors = {
+                    'PAPI_A': (180, 130, 70),   # Steel blue (BGR)
+                    'PAPI_B': (34, 139, 34),    # Forest green
+                    'PAPI_C': (32, 165, 218),   # Goldenrod
+                    'PAPI_D': (34, 34, 178),    # Firebrick
+                    'PAPI_E': (147, 20, 255),   # Pink
+                    'PAPI_F': (128, 128, 0),    # Teal
+                    'PAPI_G': (130, 0, 75),     # Indigo
+                    'PAPI_H': (0, 0, 255)       # Red
+                }
+
+                papi_angles = {}
+                for papi_name in ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D', 'PAPI_E', 'PAPI_F', 'PAPI_G', 'PAPI_H']:
                     if papi_name in reference_points:
-                        # Simple angle calculation (in real implementation, would use proper geodesic calculations)
                         papi_point = reference_points[papi_name]
-                        # Use proper Haversine distance calculation for accurate angles
                         ground_dist = haversine_distance(
                             drone_data['latitude'], drone_data['longitude'],
                             papi_point.get('latitude'), papi_point.get('longitude')
                         )
                         alt_diff = drone_data['altitude'] - papi_point.get('elevation')
-                        
-                        # Correct angle calculation using proper ground distance
+
                         if ground_dist > 0:
                             angle = np.degrees(np.arctan(alt_diff / ground_dist))
                         else:
                             angle = 90.0 if alt_diff > 0 else -90.0
-                        
-                        angle_text = f"{papi_name}: {angle:.2f}"
-                        cv2.putText(frame, angle_text, (info_x, y_pos), 
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-                        y_pos += line_height
-                
+
+                        papi_angles[papi_name] = angle
+
                 # Touch point angle if available
+                touch_angle = None
                 if 'TOUCH_POINT' in reference_points:
                     touch_point = reference_points['TOUCH_POINT']
-                    # Use proper Haversine distance calculation for accurate angles
                     ground_dist = haversine_distance(
                         drone_data['latitude'], drone_data['longitude'],
                         touch_point.get('latitude'), touch_point.get('longitude')
                     )
                     alt_diff = drone_data['altitude'] - touch_point.get('elevation')
-                    
-                    # Correct angle calculation using proper ground distance
+
                     if ground_dist > 0:
-                        angle = np.degrees(np.arctan(alt_diff / ground_dist))
+                        touch_angle = np.degrees(np.arctan(alt_diff / ground_dist))
                     else:
-                        angle = 90.0 if alt_diff > 0 else -90.0
-                    
-                    angle_text = f"Touch Point: {angle:.2f}"
-                    cv2.putText(frame, angle_text, (info_x, y_pos), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-                    
+                        touch_angle = 90.0 if alt_diff > 0 else -90.0
+
+                # Layout: 3 columns
+                col_width = width // 3
+                y_base = header_y + 35  # Adjusted for top panel
+
+                # Column 1: GPS Info
+                x_col1 = 25
+                cv2.putText(frame, "GPS POSITION", (x_col1, y_base),
+                           font, 0.9, (80, 80, 80), 2)  # Increased from 0.4 to 0.9, thickness 2
+                cv2.putText(frame, f"Lat: {drone_data['latitude']:.6f}", (x_col1, y_base + 35),
+                           font, 0.7, (60, 60, 60), 2)  # Increased from 0.35 to 0.7
+                cv2.putText(frame, f"Lon: {drone_data['longitude']:.6f}", (x_col1, y_base + 65),
+                           font, 0.7, (60, 60, 60), 2)
+                cv2.putText(frame, f"Alt: {drone_data['altitude']:.1f}m", (x_col1, y_base + 95),
+                           font, 0.7, (60, 60, 60), 2)
+                if 'speed' in drone_data:
+                    cv2.putText(frame, f"Spd: {drone_data['speed']:.1f} m/s", (x_col1, y_base + 125),
+                               font, 0.7, (60, 60, 60), 2)
+
+                # Column 2: PAPI Vertical Angles
+                x_col2 = col_width + 25
+                cv2.putText(frame, "PAPI VERTICAL ANGLES", (x_col2, y_base),
+                           font, 0.9, (80, 80, 80), 2)  # Increased from 0.4 to 0.9
+
+                y_papi = y_base + 35
+                for papi_name, angle in papi_angles.items():
+                    color = papi_colors.get(papi_name, (100, 100, 100))
+                    cv2.putText(frame, f"{papi_name}: {angle:.2f}", (x_col2, y_papi),
+                               font, 0.7, color, 2)  # Increased from 0.38 to 0.7
+                    y_papi += 28  # Increased spacing from 18 to 28
+                    if y_papi > header_y + header_height - 15:
+                        break
+
+                # Column 3: Touch Point & Frame Info
+                x_col3 = 2 * col_width + 25
+                if touch_angle is not None:
+                    cv2.putText(frame, "TOUCH POINT", (x_col3, y_base),
+                               font, 0.9, (80, 80, 80), 2)  # Increased from 0.4 to 0.9
+                    cv2.putText(frame, f"Angle: {touch_angle:.2f}", (x_col3, y_base + 35),
+                               font, 0.8, (0, 180, 180), 2)  # Increased from 0.42 to 0.8
+                else:
+                    cv2.putText(frame, "MEASUREMENT DATA", (x_col3, y_base),
+                               font, 0.9, (80, 80, 80), 2)  # Increased from 0.4 to 0.9
+
+                # Frame number at bottom right of header
+                cv2.putText(frame, f"Frame: {frame_number + 1}", (width - 200, header_height - 15),
+                           font, 0.7, (100, 100, 100), 2)  # Increased size and moved to header
+
             except Exception as e:
                 logger.warning(f"Error calculating angles: {e}")
         else:
             # Display placeholder when no reference points
             info_x = width - 200
             info_y = 30
-            cv2.putText(frame, "Angles: No ref points", (info_x, info_y), 
+            cv2.putText(frame, "Angles: No ref points", (info_x, info_y),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (128, 128, 128), 2)
 
 

@@ -15,14 +15,7 @@ class Settings(BaseSettings):
         default="mysql+aiomysql://airport_user:airport_pass@localhost:3307/airport_mgmt",
         env="DATABASE_URL"
     )
-    
-    # Redis
-    REDIS_URL: str = Field(default="redis://localhost:6379/0", env="REDIS_URL")
-    
-    # Celery
-    CELERY_BROKER_URL: str = Field(default="redis://localhost:6379/0", env="CELERY_BROKER_URL")
-    CELERY_RESULT_BACKEND: str = Field(default="redis://localhost:6379/0", env="CELERY_RESULT_BACKEND")
-    
+
     # Security
     SECRET_KEY: str = Field(
         default="your-secret-key-change-in-production-use-secrets-module-to-generate",
