@@ -2494,8 +2494,26 @@ class PAPIVideoGenerator:
         y_papi = y_base + 35
         for papi_name, angle in papi_angles.items():
             color = papi_colors.get(papi_name, (100, 100, 100))
-            cv2.putText(frame, f"{papi_name}: {angle:.2f}", (x_col2, y_papi),
-                       font, 0.7, color, 2)  # Increased from 0.38 to 0.7
+
+            # Get nominal angle and transition angle from reference points
+            nominal_angle = None
+            transition_angle = None
+            if reference_points and papi_name in reference_points:
+                ref_point = reference_points[papi_name]
+                nominal_angle = ref_point.get('nominal_angle')
+                tolerance = ref_point.get('tolerance')
+                if nominal_angle is not None and tolerance is not None:
+                    transition_angle = nominal_angle + tolerance
+
+            # Format angle text with nominal and transition angles
+            angle_text = f"{papi_name}: {angle:.2f}"
+            if nominal_angle is not None and transition_angle is not None:
+                angle_text += f" (N:{nominal_angle:.2f} T:{transition_angle:.2f})"
+            elif nominal_angle is not None:
+                angle_text += f" (N:{nominal_angle:.2f})"
+
+            cv2.putText(frame, angle_text, (x_col2, y_papi),
+                       font, 0.5, color, 2)  # Reduced font size to 0.5 to fit more text
             y_papi += 28  # Increased spacing from 18 to 28
             if y_papi > header_y + header_height - 15:
                 break
