@@ -25,6 +25,64 @@ import threading
 logger = logging.getLogger(__name__)
 
 
+def extract_color_from_brightest_pixels(roi: np.ndarray, brightness_percentile: float = 0.70) -> Tuple[int, int, int]:
+    """
+    Extract RGB color from the brightest pixels in a region of interest.
+
+    Instead of averaging all pixels, this function:
+    1. Finds the top 30% brightest pixels
+    2. Creates a tight region around them
+    3. Averages only those bright pixels
+
+    This gives more accurate color representation for small light sources.
+
+    Args:
+        roi: Region of interest (BGR image)
+        brightness_percentile: Percentile threshold for bright pixels (0.7 = top 30%)
+
+    Returns:
+        Tuple of (R, G, B) values
+    """
+    if roi.size == 0 or roi.shape[0] == 0 or roi.shape[1] == 0:
+        return (255, 255, 255)  # Default white
+
+    # Convert to grayscale to find brightness
+    if len(roi.shape) == 3:
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = roi
+
+    # Find brightness threshold (top 30% brightest pixels)
+    brightness_threshold = np.percentile(gray, brightness_percentile * 100)
+
+    # Create mask of bright pixels
+    bright_mask = gray >= brightness_threshold
+
+    # If we have bright pixels, average only those
+    if np.any(bright_mask):
+        # Extract bright pixels from color image
+        if len(roi.shape) == 3:
+            bright_pixels = roi[bright_mask]
+            # Average the bright pixels (BGR)
+            mean_bgr = np.mean(bright_pixels, axis=0)
+            # Convert BGR to RGB
+            r, g, b = int(mean_bgr[2]), int(mean_bgr[1]), int(mean_bgr[0])
+        else:
+            # Grayscale image
+            mean_gray = np.mean(gray[bright_mask])
+            r = g = b = int(mean_gray)
+    else:
+        # Fallback to full ROI average if no bright pixels found
+        if len(roi.shape) == 3:
+            mean_bgr = cv2.mean(roi)[:3]
+            r, g, b = int(mean_bgr[2]), int(mean_bgr[1]), int(mean_bgr[0])
+        else:
+            mean_gray = np.mean(gray)
+            r = g = b = int(mean_gray)
+
+    return (r, g, b)
+
+
 def convert_to_h264(video_path: str) -> bool:
     """
     Convert video to H.264 using ffmpeg software encoder.
@@ -1377,11 +1435,12 @@ class VideoProcessor:
                 y1 = max(0, pixel_y - half_size)
                 x2 = min(width, pixel_x + half_size)
                 y2 = min(height, pixel_y + half_size)
-                
+
                 roi = frame[y1:y2, x1:x2]
                 if roi.size > 0:
-                    mean_rgb = cv2.mean(roi)[:3]
-                    rgb_values = [int(mean_rgb[2]), int(mean_rgb[1]), int(mean_rgb[0])]  # BGR to RGB
+                    # Extract color from brightest 30% of pixels for more accurate color detection
+                    r, g, b = extract_color_from_brightest_pixels(roi, brightness_percentile=0.70)
+                    rgb_values = [r, g, b]
                 else:
                     rgb_values = [255, 255, 255]
             
@@ -1746,15 +1805,193 @@ class TrackedPAPILight:
         return pred_x, pred_y
 
 
+@dataclass
+class MotionConsistencyResult:
+    """Result of motion consistency validation"""
+    total_lights: int
+    outliers_detected: int
+    outliers_corrected: int
+    median_motion: Tuple[float, float]
+    max_deviation_percent: float
+    corrected_light_names: List[str]
+
+
+class MotionConsistencyValidator:
+    """
+    Validates and corrects motion consistency across all detected lights.
+
+    Ensures all lights move uniformly between frames (within 1% variance),
+    as they should all be affected by the same camera/drone movement.
+    Corrects lights that move faster or in different direction than average.
+    """
+
+    def __init__(self, variance_threshold: float = 0.01, min_lights_required: int = 3):
+        """
+        Args:
+            variance_threshold: Maximum allowed deviation from median motion (default 1%)
+            min_lights_required: Minimum number of lights needed for validation
+        """
+        self.variance_threshold = variance_threshold
+        self.min_lights_required = min_lights_required
+        self.validation_stats = {
+            'total_validations': 0,
+            'total_outliers_corrected': 0,
+            'max_deviation_seen': 0.0
+        }
+
+    def validate_and_correct_motion(
+        self,
+        current_lights: List[DetectedLight],
+        prev_lights: List[DetectedLight]
+    ) -> MotionConsistencyResult:
+        """
+        Validate motion consistency across all lights and correct outliers.
+
+        All lights should move similarly between frames since they're all affected
+        by the same drone/camera movement. Lights with significantly different
+        movement are likely misdetections and should be corrected.
+
+        Args:
+            current_lights: Detected lights in current frame
+            prev_lights: Detected lights in previous frame
+
+        Returns:
+            MotionConsistencyResult with validation statistics
+        """
+        # Early return if insufficient lights
+        if len(current_lights) < self.min_lights_required or len(prev_lights) < self.min_lights_required:
+            return MotionConsistencyResult(
+                total_lights=len(current_lights),
+                outliers_detected=0,
+                outliers_corrected=0,
+                median_motion=(0.0, 0.0),
+                max_deviation_percent=0.0,
+                corrected_light_names=[]
+            )
+
+        # Step 1: Match current lights to previous lights (nearest neighbor)
+        motion_vectors = []
+        light_pairs = []  # (current_light, prev_light, motion_vector)
+
+        for curr_light in current_lights:
+            best_dist = float('inf')
+            best_prev = None
+
+            for prev_light in prev_lights:
+                # Only match lights of similar characteristics
+                if abs(curr_light.brightness - prev_light.brightness) > 50:
+                    continue
+                if curr_light.class_name != prev_light.class_name:
+                    continue
+
+                dist = math.sqrt((curr_light.x - prev_light.x)**2 + (curr_light.y - prev_light.y)**2)
+                if dist < 150 and dist < best_dist:  # Reasonable movement threshold
+                    best_dist = dist
+                    best_prev = prev_light
+
+            if best_prev:
+                dx = curr_light.x - best_prev.x
+                dy = curr_light.y - best_prev.y
+                motion_vectors.append((dx, dy))
+                light_pairs.append((curr_light, best_prev, (dx, dy)))
+
+        # Early return if insufficient matches
+        if len(motion_vectors) < self.min_lights_required:
+            return MotionConsistencyResult(
+                total_lights=len(current_lights),
+                outliers_detected=0,
+                outliers_corrected=0,
+                median_motion=(0.0, 0.0),
+                max_deviation_percent=0.0,
+                corrected_light_names=[]
+            )
+
+        # Step 2: Calculate median motion (robust against outliers)
+        motion_vectors_array = np.array(motion_vectors)
+        median_dx = np.median(motion_vectors_array[:, 0])
+        median_dy = np.median(motion_vectors_array[:, 1])
+        median_motion = (median_dx, median_dy)
+        median_magnitude = math.sqrt(median_dx**2 + median_dy**2)
+
+        # Avoid division by zero for stationary camera
+        if median_magnitude < 0.5:  # Nearly stationary
+            return MotionConsistencyResult(
+                total_lights=len(current_lights),
+                outliers_detected=0,
+                outliers_corrected=0,
+                median_motion=median_motion,
+                max_deviation_percent=0.0,
+                corrected_light_names=[]
+            )
+
+        # Step 3: Identify outliers (lights with >3% deviation from median)
+        outliers = []
+        max_deviation_percent = 0.0
+
+        for curr_light, prev_light, (dx, dy) in light_pairs:
+            # Calculate deviation from median motion
+            deviation_x = abs(dx - median_dx)
+            deviation_y = abs(dy - median_dy)
+            deviation_magnitude = math.sqrt(deviation_x**2 + deviation_y**2)
+
+            # Calculate percentage deviation
+            deviation_percent = deviation_magnitude / median_magnitude
+            max_deviation_percent = max(max_deviation_percent, deviation_percent)
+
+            # Mark as outlier if deviation exceeds threshold
+            if deviation_percent > self.variance_threshold:
+                outliers.append((curr_light, prev_light, deviation_percent))
+
+        # Step 4: Correct outlier positions
+        corrected_light_names = []
+        outliers_corrected = 0
+
+        # Don't correct if too many outliers (likely scene change or major motion)
+        if len(outliers) <= len(light_pairs) * 0.5:  # Max 50% outliers
+            for curr_light, prev_light, deviation_percent in outliers:
+                # Normalize position using median motion
+                corrected_x = prev_light.x + median_dx
+                corrected_y = prev_light.y + median_dy
+
+                # Update light position
+                curr_light.x = corrected_x
+                curr_light.y = corrected_y
+
+                corrected_light_names.append(getattr(curr_light, 'class_name', 'unknown'))
+                outliers_corrected += 1
+
+        # Update statistics
+        self.validation_stats['total_validations'] += 1
+        self.validation_stats['total_outliers_corrected'] += outliers_corrected
+        self.validation_stats['max_deviation_seen'] = max(
+            self.validation_stats['max_deviation_seen'],
+            max_deviation_percent
+        )
+
+        return MotionConsistencyResult(
+            total_lights=len(current_lights),
+            outliers_detected=len(outliers),
+            outliers_corrected=outliers_corrected,
+            median_motion=median_motion,
+            max_deviation_percent=max_deviation_percent,
+            corrected_light_names=corrected_light_names
+        )
+
+    def get_statistics(self) -> Dict:
+        """Get overall validation statistics"""
+        return self.validation_stats.copy()
+
+
 class PAPILightTracker:
     """Advanced PAPI light tracker with motion prediction based on prototype algorithm"""
-    
+
     def __init__(self, initial_positions: Dict, frame_width: int, frame_height: int):
         self.frame_width = frame_width
         self.frame_height = frame_height
         self.light_detector = RunwayLightDetector()
         self.max_distance = 50  # Maximum matching distance
         self.max_frame_gap = 20  # Maximum frames without detection
+        self.motion_validator = MotionConsistencyValidator(variance_threshold=0.01)
         
         # Initialize tracked lights from manual positions
         self.tracked_lights: Dict[str, TrackedPAPILight] = {}
@@ -1840,10 +2077,24 @@ class PAPILightTracker:
         return median_dx, median_dy
     
     def update_frame(self, frame: np.ndarray, frame_number: int) -> Dict:
-        """Update light positions for current frame using sophisticated tracking"""
+        """Update light positions for current frame using sophisticated tracking and motion consistency validation"""
         # Detect all lights in current frame
         detected_lights = self.light_detector.detect_lights(frame)
-        
+
+        # Validate and correct motion consistency between frames
+        if self.prev_detections and len(self.prev_detections) >= 3 and len(detected_lights) >= 3:
+            # Apply motion consistency validation
+            validation_result = self.motion_validator.validate_and_correct_motion(
+                detected_lights, self.prev_detections
+            )
+
+            # Log validation results if outliers were detected
+            if validation_result.outliers_detected > 0:
+                logger.info(f"Frame {frame_number}: Motion consistency validation - "
+                           f"{validation_result.outliers_detected} outliers detected, "
+                           f"{validation_result.outliers_corrected} corrected "
+                           f"(max deviation: {validation_result.max_deviation_percent:.1%})")
+
         # Estimate global motion if we have previous detections
         if self.prev_detections and len(self.prev_detections) >= 3 and len(detected_lights) >= 3:
             self.global_motion = self.estimate_global_motion(detected_lights, self.prev_detections)
