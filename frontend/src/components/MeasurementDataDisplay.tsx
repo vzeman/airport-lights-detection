@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
-import { Loader2, Download, Map, BarChart3, Lightbulb, Video } from 'lucide-react';
+import { Loader2, Download, Printer } from 'lucide-react';
 import api from '../services/api';
 import Airport3DVisualization from './Airport3DVisualization';
 
@@ -28,12 +28,18 @@ interface MeasurementData {
       runway_code: string;
       created_at: string;
       video_file: string;
+      recording_date?: string;
+      original_video_filename?: string;
     };
     glide_path_angles?: {
       average_all_lights: number[];
       average_middle_lights: number[];
       transition_based: number[];
       num_lights: number;
+      to_touch_point?: number[];
+      touch_point_at_avg_all?: number;
+      touch_point_at_avg_middle?: number;
+      touch_point_at_transition?: number;
     };
   };
   papi_data: {
@@ -86,7 +92,6 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
   const [data, setData] = useState<MeasurementData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'overview' | 'charts' | 'horizontal' | 'positions' | 'videos'>('overview');
 
   useEffect(() => {
     fetchMeasurementData();
@@ -106,9 +111,9 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
 
   const downloadCSV = () => {
     if (!data) return;
-    
+
     const csvLines = ['Frame,Timestamp,PAPI_A_Status,PAPI_A_Angle,PAPI_B_Status,PAPI_B_Angle,PAPI_C_Status,PAPI_C_Angle,PAPI_D_Status,PAPI_D_Angle,Drone_Lat,Drone_Lon,Drone_Height_AGL,Drone_Elevation_MSL'];
-    
+
     // Calculate ground elevation reference
     let groundElevation = 0;
     if (data.reference_points.TOUCH_POINT) {
@@ -121,7 +126,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
         groundElevation = papiElevations.reduce((sum, elev) => sum + elev, 0) / papiElevations.length;
       }
     }
-    
+
     data.drone_positions.forEach((pos, index) => {
       const row = [
         pos.frame ?? 0,
@@ -141,7 +146,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
       ];
       csvLines.push(row.join(','));
     });
-    
+
     const csvContent = csvLines.join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -150,6 +155,10 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
     a.download = `papi_measurement_${sessionId}.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
+  };
+
+  const handlePrint = () => {
+    window.print();
   };
 
   const formatChartData = () => {
@@ -562,6 +571,8 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
           const [r, g, b] = Array.isArray(rgb) ? rgb : [0, 0, 0];
           const sum = r + g + b;
           const redChromaticity = sum > 0 ? (r / sum) * 100 : 0;
+          const greenChromaticity = sum > 0 ? (g / sum) * 100 : 0;
+          const colorDiff = redChromaticity - greenChromaticity;
 
           // Calculate intensity from RGB if not available in API response (backward compatibility)
           let intensity = 0;
@@ -576,6 +587,8 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
           const angle = lightData.angles[index] ?? 0;
 
           dataPoint[`${lightName}_redChroma`] = redChromaticity;
+          dataPoint[`${lightName}_greenChroma`] = greenChromaticity;
+          dataPoint[`${lightName}_colorDiff`] = colorDiff;
           dataPoint[`${lightName}_intensity`] = intensity;
           dataPoint[`${lightName}_angle`] = angle;
         }
@@ -644,81 +657,227 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
   const chartData = formatChartData();
 
   return (
-    <div className="space-y-4">
-      {/* Tab Navigation */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>Measurement Analysis</CardTitle>
-            <Button onClick={downloadCSV} variant="outline" size="sm">
-              <Download className="w-4 h-4 mr-2" />
-              Export CSV
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="flex space-x-1 bg-gray-100 rounded-lg p-1">
-            <button
-              onClick={() => setActiveTab('overview')}
-              className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                activeTab === 'overview' 
-                  ? 'bg-white text-blue-600 shadow-sm' 
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <BarChart3 className="w-4 h-4 inline mr-2" />
-              Overview
-            </button>
-            <button
-              onClick={() => setActiveTab('charts')}
-              className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                activeTab === 'charts'
-                  ? 'bg-white text-blue-600 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <Lightbulb className="w-4 h-4 inline mr-2" />
-              PAPI Vertical Analysis
-            </button>
-            <button
-              onClick={() => setActiveTab('horizontal')}
-              className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                activeTab === 'horizontal'
-                  ? 'bg-white text-blue-600 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <BarChart3 className="w-4 h-4 inline mr-2" />
-              PAPI Horizontal Analysis
-            </button>
-            <button
-              onClick={() => setActiveTab('positions')}
-              className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                activeTab === 'positions'
-                  ? 'bg-white text-blue-600 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <Map className="w-4 h-4 inline mr-2" />
-              Drone Path
-            </button>
-            <button
-              onClick={() => setActiveTab('videos')}
-              className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                activeTab === 'videos' 
-                  ? 'bg-white text-blue-600 shadow-sm' 
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <Video className="w-4 h-4 inline mr-2" />
-              Videos
-            </button>
-          </div>
-        </CardContent>
-      </Card>
+    <>
+      <style>{`
+        @media print {
+          /* Hide navigation elements and buttons during print */
+          button:not(.no-print-hide),
+          .no-print,
+          video {
+            display: none !important;
+          }
 
-      {/* Tab Content */}
-      {activeTab === 'overview' && (
+          /* Hide sidebar completely */
+          [data-sidebar="sidebar"],
+          aside {
+            display: none !important;
+          }
+
+          /* Optimize page layout for printing */
+          body {
+            margin: 0;
+            padding: 0;
+            font-size: 10pt;
+          }
+
+          /* Ensure main content takes full width */
+          main,
+          [data-sidebar="inset"],
+          .flex.flex-1.flex-col {
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            padding: 0.5cm !important;
+          }
+
+          /* Page setup */
+          @page {
+            size: A4 landscape;
+            margin: 1cm;
+          }
+
+          /* Ensure cards and content display properly */
+          .space-y-4 > * {
+            page-break-inside: avoid;
+            margin-bottom: 0.5cm;
+          }
+
+          /* Critical: Force all chart containers to have fixed dimensions */
+          div[style*="position: relative"] {
+            position: relative !important;
+            width: 100% !important;
+            height: 400px !important;
+          }
+
+          /* Make charts visible and properly sized for print */
+          .recharts-wrapper {
+            page-break-inside: avoid !important;
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            width: 100% !important;
+            height: 400px !important;
+            min-height: 400px !important;
+            max-width: 100% !important;
+            position: relative !important;
+          }
+
+          .recharts-wrapper svg {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            width: 100% !important;
+            height: 400px !important;
+            min-height: 400px !important;
+          }
+
+          /* Ensure ResponsiveContainer fits on page */
+          .recharts-responsive-container {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            width: 100% !important;
+            height: 400px !important;
+            min-height: 400px !important;
+            max-width: 100% !important;
+            position: relative !important;
+          }
+
+          .recharts-responsive-container > div {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            width: 100% !important;
+            height: 400px !important;
+          }
+
+          .recharts-responsive-container svg {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            width: 100% !important;
+            height: 400px !important;
+          }
+
+          /* Make chart surface visible */
+          .recharts-surface {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+          }
+
+          /* Make chart legends visible and properly sized */
+          .recharts-legend-wrapper {
+            position: relative !important;
+            width: 100% !important;
+            height: auto !important;
+            margin-top: 0.3cm !important;
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+          }
+
+          /* Ensure all chart components are visible */
+          .recharts-cartesian-grid,
+          .recharts-cartesian-grid-horizontal,
+          .recharts-cartesian-grid-vertical,
+          .recharts-xAxis,
+          .recharts-yAxis,
+          .recharts-line,
+          .recharts-line-curve,
+          .recharts-tooltip,
+          .recharts-legend-item,
+          .recharts-layer {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+          }
+
+          /* Ensure paths and lines are visible */
+          svg path,
+          svg line,
+          svg text,
+          svg g {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+          }
+
+          /* Optimize table printing */
+          table {
+            page-break-inside: auto;
+            font-size: 9pt;
+          }
+
+          tr {
+            page-break-inside: avoid;
+            page-break-after: auto;
+          }
+
+          th, td {
+            padding: 0.1cm !important;
+          }
+
+          /* Add page breaks between major sections */
+          .print-page-break {
+            page-break-before: always;
+          }
+
+          /* Print section styling */
+          .print-section {
+            page-break-before: always;
+            margin-top: 0;
+          }
+
+          .print-section:first-child {
+            page-break-before: avoid;
+          }
+
+          .print-section-title {
+            font-size: 14pt;
+            font-weight: bold;
+            margin-bottom: 0.3cm;
+            border-bottom: 2px solid #333;
+            padding-bottom: 0.2cm;
+          }
+
+          /* Card styling for print */
+          .bg-card {
+            border: 1px solid #ddd !important;
+            margin-bottom: 0.4cm !important;
+          }
+
+          /* Ensure good contrast in print */
+          * {
+            color-adjust: exact;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+        }
+
+      `}</style>
+      <div className="space-y-4">
+        {/* Report Header */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>Measurement Analysis</CardTitle>
+              <div className="flex gap-2">
+                <Button onClick={handlePrint} variant="outline" size="sm">
+                  <Printer className="w-4 h-4 mr-2" />
+                  Print Report
+                </Button>
+                <Button onClick={downloadCSV} variant="outline" size="sm">
+                  <Download className="w-4 h-4 mr-2" />
+                  Export CSV
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+        </Card>
+
+      {/* Overview Section */}
+      <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Session Summary */}
           <Card>
@@ -728,12 +887,24 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
             <CardContent className="space-y-3">
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <span className="font-medium">Airport:</span>
-                  <p className="text-gray-600">{data.summary.session_info.airport_code}</p>
+                  <span className="font-medium text-base">Airport:</span>
+                  <p className="text-gray-900 font-bold text-2xl">{data.summary.session_info.airport_code}</p>
                 </div>
                 <div>
-                  <span className="font-medium">Runway:</span>
-                  <p className="text-gray-600">{data.summary.session_info.runway_code}</p>
+                  <span className="font-medium text-base">Runway:</span>
+                  <p className="text-gray-900 font-bold text-2xl">{data.summary.session_info.runway_code}</p>
+                </div>
+                <div>
+                  <span className="font-medium">Report Created:</span>
+                  <p className="text-gray-600">{new Date().toLocaleString()}</p>
+                </div>
+                <div>
+                  <span className="font-medium">Video Recorded:</span>
+                  <p className="text-gray-600">
+                    {data.summary.session_info.recording_date
+                      ? new Date(data.summary.session_info.recording_date).toLocaleString()
+                      : (data.summary.session_info.created_at ? new Date(data.summary.session_info.created_at).toLocaleString() : 'N/A')}
+                  </p>
                 </div>
                 <div>
                   <span className="font-medium">Duration:</span>
@@ -743,9 +914,19 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                   <span className="font-medium">Total Frames:</span>
                   <p className="text-gray-600">{data.summary.total_frames}</p>
                 </div>
+                {data.summary.session_info.original_video_filename && (
+                  <div className="col-span-2">
+                    <span className="font-medium">Original Filename:</span>
+                    <p className="text-gray-600 text-sm font-semibold">
+                      {data.summary.session_info.original_video_filename}
+                    </p>
+                  </div>
+                )}
                 <div className="col-span-2">
                   <span className="font-medium">Video File:</span>
-                  <p className="text-gray-600 text-xs">{data.summary.session_info.video_file}</p>
+                  <p className="text-gray-600 text-xs">
+                    {data.summary.session_info.video_file}
+                  </p>
                 </div>
               </div>
             </CardContent>
@@ -764,95 +945,37 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                       Calculated from {data.summary.glide_path_angles.num_lights} PAPI lights' vertical angles
                     </p>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {/* Algorithm 1: Average All Lights */}
-                      <div className="border-2 rounded-lg p-6 bg-blue-50 border-blue-200">
-                        <h4 className="font-semibold text-blue-900 mb-1">GP Angle - All Lights</h4>
-                        <p className="text-xs text-gray-600 mb-4">
-                          Average of all {data.summary.glide_path_angles.num_lights} PAPI lights
-                        </p>
-                        {data.summary.glide_path_angles.average_all_lights.length > 0 && (
+                    {/* Transition-Based GP Angle */}
+                    <div className="border-2 rounded-lg p-6 bg-purple-50 border-purple-200 max-w-md mx-auto">
+                      <h4 className="font-semibold text-purple-900 mb-1">GP Angle - Transition</h4>
+                      <p className="text-xs text-gray-600 mb-4">
+                        {data.summary.glide_path_angles.num_lights === 2 && "When PAPI_A white & PAPI_B red"}
+                        {data.summary.glide_path_angles.num_lights === 4 && "When PAPI_B white & PAPI_C red"}
+                        {data.summary.glide_path_angles.num_lights >= 8 && "When B/F white & C/G red"}
+                      </p>
+                      {data.summary.glide_path_angles.transition_based && data.summary.glide_path_angles.transition_based.length > 0 && (() => {
+                        const validAngles = data.summary.glide_path_angles.transition_based.filter(a => a !== 0);
+                        return validAngles.length > 0 ? (
                           <div className="text-center space-y-2">
                             <div>
                               <div className="text-xs text-gray-600 mb-1">GP to PAPI Lights</div>
-                              <div className="text-3xl font-bold text-blue-900 font-mono">
-                                {(data.summary.glide_path_angles.average_all_lights.reduce((a, b) => a + b, 0) /
-                                  data.summary.glide_path_angles.average_all_lights.length).toFixed(3)}°
+                              <div className="text-3xl font-bold text-purple-900 font-mono">
+                                {(validAngles.reduce((a, b) => a + b, 0) / validAngles.length).toFixed(3)}°
                               </div>
                             </div>
-                            {data.summary.glide_path_angles.touch_point_at_avg_all !== undefined && data.summary.glide_path_angles.touch_point_at_avg_all !== 0 && (
-                              <div className="pt-2 border-t border-blue-300">
+                            {data.summary.glide_path_angles.touch_point_at_transition !== undefined && data.summary.glide_path_angles.touch_point_at_transition !== 0 && (
+                              <div className="pt-2 border-t border-purple-300">
                                 <div className="text-xs text-gray-600 mb-1">GP to Touch Point</div>
                                 <div className="text-2xl font-bold text-indigo-700 font-mono">
-                                  {data.summary.glide_path_angles.touch_point_at_avg_all.toFixed(3)}°
+                                  {data.summary.glide_path_angles.touch_point_at_transition.toFixed(3)}°
                                 </div>
                               </div>
                             )}
                           </div>
-                        )}
-                      </div>
-
-                      {/* Algorithm 2: Average Middle Lights */}
-                      <div className="border-2 rounded-lg p-6 bg-green-50 border-green-200">
-                        <h4 className="font-semibold text-green-900 mb-1">GP Angle - Middle Lights</h4>
-                        <p className="text-xs text-gray-600 mb-4">
-                          {data.summary.glide_path_angles.num_lights === 4 && "Average of PAPI_B and PAPI_C"}
-                          {data.summary.glide_path_angles.num_lights === 2 && "Average of PAPI_A and PAPI_B"}
-                          {data.summary.glide_path_angles.num_lights >= 8 && "Average of PAPI_B, PAPI_C, PAPI_F, PAPI_G"}
-                        </p>
-                        {data.summary.glide_path_angles.average_middle_lights.length > 0 && (
-                          <div className="text-center space-y-2">
-                            <div>
-                              <div className="text-xs text-gray-600 mb-1">GP to PAPI Lights</div>
-                              <div className="text-3xl font-bold text-green-900 font-mono">
-                                {(data.summary.glide_path_angles.average_middle_lights.reduce((a, b) => a + b, 0) /
-                                  data.summary.glide_path_angles.average_middle_lights.length).toFixed(3)}°
-                              </div>
-                            </div>
-                            {data.summary.glide_path_angles.touch_point_at_avg_middle !== undefined && data.summary.glide_path_angles.touch_point_at_avg_middle !== 0 && (
-                              <div className="pt-2 border-t border-green-300">
-                                <div className="text-xs text-gray-600 mb-1">GP to Touch Point</div>
-                                <div className="text-2xl font-bold text-indigo-700 font-mono">
-                                  {data.summary.glide_path_angles.touch_point_at_avg_middle.toFixed(3)}°
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Algorithm 3: Transition-Based */}
-                      <div className="border-2 rounded-lg p-6 bg-purple-50 border-purple-200">
-                        <h4 className="font-semibold text-purple-900 mb-1">GP Angle - Transition</h4>
-                        <p className="text-xs text-gray-600 mb-4">
-                          {data.summary.glide_path_angles.num_lights === 2 && "When PAPI_A white & PAPI_B red"}
-                          {data.summary.glide_path_angles.num_lights === 4 && "When PAPI_B white & PAPI_C red"}
-                          {data.summary.glide_path_angles.num_lights >= 8 && "When B/F white & C/G red"}
-                        </p>
-                        {data.summary.glide_path_angles.transition_based && data.summary.glide_path_angles.transition_based.length > 0 && (() => {
-                          const validAngles = data.summary.glide_path_angles.transition_based.filter(a => a !== 0);
-                          return validAngles.length > 0 ? (
-                            <div className="text-center space-y-2">
-                              <div>
-                                <div className="text-xs text-gray-600 mb-1">GP to PAPI Lights</div>
-                                <div className="text-3xl font-bold text-purple-900 font-mono">
-                                  {(validAngles.reduce((a, b) => a + b, 0) / validAngles.length).toFixed(3)}°
-                                </div>
-                              </div>
-                              {data.summary.glide_path_angles.touch_point_at_transition !== undefined && data.summary.glide_path_angles.touch_point_at_transition !== 0 && (
-                                <div className="pt-2 border-t border-purple-300">
-                                  <div className="text-xs text-gray-600 mb-1">GP to Touch Point</div>
-                                  <div className="text-2xl font-bold text-indigo-700 font-mono">
-                                    {data.summary.glide_path_angles.touch_point_at_transition.toFixed(3)}°
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="text-center text-gray-500 text-sm">No transitions detected</div>
-                          );
-                        })()}
-                      </div>
+                        ) : (
+                          <div className="text-center text-gray-500 text-sm">No transitions detected</div>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -860,9 +983,11 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
             </Card>
           )}
         </div>
-      )}
+      </div>
 
-      {activeTab === 'charts' && (
+      {/* PAPI Vertical Analysis Section */}
+      <div className="space-y-6">
+        <h2 className="print-section-title">PAPI Vertical Analysis</h2>
         <div className="space-y-6">
           {/* Comparison Charts - All PAPI Lights */}
           <Card>
@@ -1049,6 +1174,39 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                   </LineChart>
                 </ResponsiveContainer>
               </div>
+
+              {/* Color Diff Chart */}
+              <div>
+                <h4 className="text-sm font-medium mb-3">Color Diff (Red - Green) - All Lights</h4>
+                <p className="text-xs text-gray-600 mb-2">
+                  Shows the difference between red and green chromaticity for each PAPI light over time
+                </p>
+                <ResponsiveContainer width="100%" height={350}>
+                  <LineChart data={formatComparisonChartData()}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="timestamp"
+                      label={{ value: 'Time (s)', position: 'insideBottom', offset: -5 }}
+                    />
+                    <YAxis
+                      label={{ value: 'Color Diff (Red - Green) %', angle: -90, position: 'insideLeft' }}
+                      domain={['dataMin - 5', 'dataMax + 5']}
+                    />
+                    <Tooltip
+                      formatter={(value: any, name: string) => {
+                        if (value == null) return ['N/A', name];
+                        return [`${value.toFixed(1)}%`, name];
+                      }}
+                      labelFormatter={(value: any) => `Time: ${(value ?? 0).toFixed(2)}s`}
+                    />
+                    <Legend />
+                    <Line type="monotone" dataKey="PAPI_A_colorDiff" stroke="#ef4444" strokeWidth={2} dot={false} name="PAPI A Color Diff" />
+                    <Line type="monotone" dataKey="PAPI_B_colorDiff" stroke="#f97316" strokeWidth={2} dot={false} name="PAPI B Color Diff" />
+                    <Line type="monotone" dataKey="PAPI_C_colorDiff" stroke="#eab308" strokeWidth={2} dot={false} name="PAPI C Color Diff" />
+                    <Line type="monotone" dataKey="PAPI_D_colorDiff" stroke="#22c55e" strokeWidth={2} dot={false} name="PAPI D Color Diff" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
             </CardContent>
           </Card>
 
@@ -1070,13 +1228,22 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
             const nominalAngle = lightPoint?.[1]?.nominal_angle;
 
             // Get angle at each transition point
-            const transitionInfo = transitionPoints.map(timestamp => {
+            let transitionInfo = transitionPoints.map(timestamp => {
               const dataPoint = rgbData.find(d => Math.abs(d.timestamp - timestamp) < 0.01);
               return {
                 timestamp,
                 angle: dataPoint?.angle ?? 0
               };
             });
+
+            // If there are multiple transitions and we have a nominal angle, keep only the one closest to nominal
+            if (transitionInfo.length > 1 && nominalAngle !== undefined && nominalAngle !== null) {
+              transitionInfo = [transitionInfo.reduce((closest, current) => {
+                const closestDiff = Math.abs(closest.angle - nominalAngle);
+                const currentDiff = Math.abs(current.angle - nominalAngle);
+                return currentDiff < closestDiff ? current : closest;
+              })];
+            }
 
             // Check if transitions are within tolerance
             const tolerance = lightPoint?.[1]?.tolerance ?? 0.25; // Default 0.25° if not specified
@@ -1323,9 +1490,11 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
             );
           })}
         </div>
-      )}
+      </div>
 
-      {activeTab === 'horizontal' && (
+      {/* PAPI Horizontal Analysis Section */}
+      <div className="space-y-6">
+        <h2 className="print-section-title">PAPI Horizontal Analysis</h2>
         <div className="space-y-6">
           {/* Maximum Luminosity Analysis Summary */}
           <Card>
@@ -1548,9 +1717,11 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
             </CardContent>
           </Card>
         </div>
-      )}
+      </div>
 
-      {activeTab === 'positions' && (
+      {/* Drone Path Section */}
+      <div className="space-y-6">
+        <h2 className="print-section-title">Drone Path</h2>
         <div className="space-y-6">
           {/* 3D Airport Visualization */}
           <Card>
@@ -1640,10 +1811,13 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
             </CardContent>
           </Card>
         </div>
-      )}
+      </div>
 
-      {activeTab === 'videos' && data?.video_urls && (
-        <div className="space-y-6">
+      {/* Videos Section */}
+      {data?.video_urls && (
+        <div className="space-y-6 no-print">
+          <h2 className="print-section-title">Videos</h2>
+          <div className="space-y-6">
           {/* Enhanced Main Video */}
           <Card>
             <CardHeader>
@@ -1722,7 +1896,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
               </div>
             </CardContent>
           </Card>
-
+        </div>
         </div>
       )}
 
@@ -1791,6 +1965,25 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
 
                           // Calculate transition widths for this light
                           transitionWidths = findColorTransitionWidths(lightName);
+
+                          // If there are multiple transitions and we have a nominal angle, keep only the one closest to nominal
+                          if (transitionAngles.length > 1 && point.nominal_angle !== undefined && point.nominal_angle !== null) {
+                            // Find the index of the closest angle
+                            let closestIndex = 0;
+                            let minDiff = Math.abs(transitionAngles[0] - point.nominal_angle);
+                            for (let i = 1; i < transitionAngles.length; i++) {
+                              const diff = Math.abs(transitionAngles[i] - point.nominal_angle);
+                              if (diff < minDiff) {
+                                minDiff = diff;
+                                closestIndex = i;
+                              }
+                            }
+                            // Keep only the closest angle and its corresponding width
+                            transitionAngles = [transitionAngles[closestIndex]];
+                            if (transitionWidths.length > closestIndex) {
+                              transitionWidths = [transitionWidths[closestIndex]];
+                            }
+                          }
 
                           // Calculate max luminosity horizontal angle
                           const lightData = data.papi_data[lightName as 'PAPI_A' | 'PAPI_B' | 'PAPI_C' | 'PAPI_D'];
@@ -1874,8 +2067,31 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                   const rgbData = formatRGBChartData(lightName);
 
                   if (transitionPoints.length > 0) {
-                    const dataPoint = rgbData.find(d => Math.abs(d.timestamp - transitionPoints[0]) < 0.01);
-                    papiTransitionData[lightName] = dataPoint?.angle ?? null;
+                    // Get nominal angle for this light
+                    const lightPoint = Object.entries(data.reference_points).find(([key, point]) =>
+                      key.includes(lightName)
+                    );
+                    const nominalAngle = lightPoint?.[1]?.nominal_angle;
+
+                    // Map all transition points to angles
+                    const transitionAngles = transitionPoints.map(timestamp => {
+                      const dataPoint = rgbData.find(d => Math.abs(d.timestamp - timestamp) < 0.01);
+                      return dataPoint?.angle ?? 0;
+                    });
+
+                    // If we have multiple transitions and a nominal angle, pick the closest one
+                    let selectedAngle: number;
+                    if (transitionAngles.length > 1 && nominalAngle !== undefined && nominalAngle !== null) {
+                      selectedAngle = transitionAngles.reduce((closest, current) => {
+                        const closestDiff = Math.abs(closest - nominalAngle);
+                        const currentDiff = Math.abs(current - nominalAngle);
+                        return currentDiff < closestDiff ? current : closest;
+                      });
+                    } else {
+                      selectedAngle = transitionAngles[0];
+                    }
+
+                    papiTransitionData[lightName] = selectedAngle;
                   } else {
                     papiTransitionData[lightName] = null;
                   }
@@ -1943,12 +2159,26 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             Status
                           </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Explanation
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
                         {pairs.map((pair, idx) => {
-                          const absDifference = Math.abs(pair.difference);
-                          const isWithinTolerance = absDifference >= minAcceptable && absDifference <= maxAcceptable;
+                          const isWithinTolerance = pair.difference >= minAcceptable && pair.difference <= maxAcceptable;
+
+                          // Determine explanation based on the difference
+                          let explanation: string;
+                          if (pair.difference < 0) {
+                            explanation = 'Negative difference (reverse order)';
+                          } else if (pair.difference < minAcceptable) {
+                            explanation = `Too small (< ${minAcceptable.toFixed(2)}°) - lights too close`;
+                          } else if (pair.difference > maxAcceptable) {
+                            explanation = `Too large (> ${maxAcceptable.toFixed(2)}°) - lights too far apart`;
+                          } else {
+                            explanation = 'Within acceptable range';
+                          }
 
                           return (
                             <tr key={idx} className="hover:bg-gray-50">
@@ -1978,6 +2208,9 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                                 ) : (
                                   <span className="text-red-600 text-base">✗ FAILED</span>
                                 )}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-600 italic">
+                                {explanation}
                               </td>
                             </tr>
                           );
@@ -2148,6 +2381,9 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             Max Status
                           </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Difference (%)
+                          </th>
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
@@ -2157,6 +2393,10 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                           const maxDeviationPercent = Math.abs((item.max - avgMax) / avgMax) * 100;
                           const minFailed = minDeviationPercent > 10;
                           const maxFailed = maxDeviationPercent > 10;
+
+                          // Calculate difference between max and min as percentage
+                          const differencePercent = item.max > 0 ? ((item.max - item.min) / item.max) * 100 : 0;
+                          const differenceFailed = differencePercent > 20;
 
                           return (
                             <tr key={item.light} className="hover:bg-gray-50">
@@ -2183,6 +2423,11 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                                   <span className="text-green-600">✓ CORRECT</span>
                                 )}
                               </td>
+                              <td className="px-4 py-3 whitespace-nowrap text-sm font-bold">
+                                <span className={differenceFailed ? "text-red-600" : "text-green-600"}>
+                                  {differencePercent.toFixed(1)}%
+                                </span>
+                              </td>
                             </tr>
                           );
                         })}
@@ -2195,7 +2440,8 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
           </Card>
         </>
       )}
-    </div>
+      </div>
+    </>
   );
 };
 

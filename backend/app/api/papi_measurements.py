@@ -674,6 +674,8 @@ async def get_measurements_data(
                 "runway_code": session.runway_code,
                 "created_at": session.created_at.isoformat(),
                 "video_file": os.path.basename(session.video_file_path),
+                "recording_date": session.recording_date.isoformat() if session.recording_date else None,
+                "original_video_filename": session.original_video_filename,
                 "status": session.status
             }
         }
@@ -963,7 +965,9 @@ async def get_measurements_data(
             "airport_code": session.airport_icao_code,
             "runway_code": session.runway_code,
             "created_at": session.created_at.isoformat(),
-            "video_file": os.path.basename(session.video_file_path)
+            "video_file": os.path.basename(session.video_file_path),
+            "recording_date": session.recording_date.isoformat() if session.recording_date else None,
+            "original_video_filename": session.original_video_filename
         },
         "glide_path_angles": {
             "average_all_lights": glide_path_angles_avg,

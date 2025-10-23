@@ -955,3 +955,26 @@ This is **only intended for initial setup and testing**. For production deployme
 5. Regularly audit user accounts and permissions
 6. Use environment variables to configure secure SECRET_KEY values
 7. Never commit sensitive credentials to version control
+
+
+
+
+## DJI Matrice 4T
+
+Zoom 7-8
+Vyvazenie bielej custom white balance
+ISO 100
+Shutter 1/100
+manual zoom
+Hlbka ostrosti f2.8
+
+
+### Drone operation center
+- pozriet AirHub aby som videl ako sa da kontrolovat dron
+- fh.dji.com
+
+
+
+runwayinspection.com 10usd
+Runwaycheck.com 10, aerocheck.com kupena ; aerocheck.ai 69
+calibrationflight.com 10;

@@ -17,9 +17,13 @@ const Layout: React.FC = () => {
         } as React.CSSProperties
       }
     >
-      <AppSidebar variant="inset" />
+      <div className="no-print">
+        <AppSidebar variant="inset" />
+      </div>
       <SidebarInset>
-        <SiteHeader />
+        <div className="no-print">
+          <SiteHeader />
+        </div>
         <div className="flex flex-1 flex-col">
           <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
             <Outlet />
