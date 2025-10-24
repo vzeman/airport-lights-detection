@@ -1007,7 +1007,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                   Compare color quality and elevation angles across all PAPI lights. Red light ≈ 50-70%, White light ≈ 33%
                 </p>
                 <ResponsiveContainer width="100%" height={350}>
-                  <LineChart data={formatComparisonChartData()} margin={{ left: 20, right: 20, top: 5, bottom: 5 }}>
+                  <LineChart data={formatComparisonChartData()} margin={{ left: 50, right: 20, top: 5, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis
                       dataKey="timestamp"
@@ -1016,7 +1016,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                     {/* Left Y-axis for Red Chromaticity */}
                     <YAxis
                       yAxisId="chroma"
-                      label={{ value: 'Red Chromaticity (%)', angle: -90, position: 'insideLeft', dx: 0 }}
+                      label={{ value: 'Red Chromaticity (%)', angle: -90, position: 'insideLeft', dx: 15 }}
                       domain={['dataMin - 5', 'dataMax + 5']}
                     />
                     {/* Right Y-axis for Angles */}
@@ -1097,7 +1097,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                   Compare brightness levels and elevation angles across all PAPI lights over time
                 </p>
                 <ResponsiveContainer width="100%" height={350}>
-                  <LineChart data={formatComparisonChartData()} margin={{ left: 20, right: 20, top: 5, bottom: 5 }}>
+                  <LineChart data={formatComparisonChartData()} margin={{ left: 50, right: 20, top: 5, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis
                       dataKey="timestamp"
@@ -1106,7 +1106,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                     {/* Left Y-axis for Intensity */}
                     <YAxis
                       yAxisId="intensity"
-                      label={{ value: 'Intensity', angle: -90, position: 'insideLeft', dx: 0 }}
+                      label={{ value: 'Intensity', angle: -90, position: 'insideLeft', dx: 15 }}
                       domain={['dataMin - 10', 'dataMax + 10']}
                     />
                     {/* Right Y-axis for Angles */}
@@ -1187,14 +1187,14 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                   Shows the difference between red and green chromaticity for each PAPI light over time
                 </p>
                 <ResponsiveContainer width="100%" height={350}>
-                  <LineChart data={formatComparisonChartData()} margin={{ left: 20, right: 20, top: 5, bottom: 5 }}>
+                  <LineChart data={formatComparisonChartData()} margin={{ left: 50, right: 20, top: 5, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis
                       dataKey="timestamp"
                       label={{ value: 'Time (s)', position: 'insideBottom', offset: -5 }}
                     />
                     <YAxis
-                      label={{ value: 'Color Diff (Red - Green) %', angle: -90, position: 'insideLeft', dx: 0 }}
+                      label={{ value: 'Color Diff (Red - Green) %', angle: -90, position: 'insideLeft', dx: 15 }}
                       domain={['dataMin - 5', 'dataMax + 5']}
                     />
                     <Tooltip
@@ -1291,7 +1291,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                       </p>
                     )}
                     <ResponsiveContainer width="100%" height={400}>
-                      <LineChart data={rgbData} margin={{ left: 20, right: 20, top: 5, bottom: 5 }}>
+                      <LineChart data={rgbData} margin={{ left: 50, right: 20, top: 5, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis
                           dataKey="timestamp"
@@ -1300,7 +1300,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                         {/* Left Y-axis for RGB values */}
                         <YAxis
                           yAxisId="rgb"
-                          label={{ value: 'RGB Value', angle: -90, position: 'insideLeft', dx: 0 }}
+                          label={{ value: 'RGB Value', angle: -90, position: 'insideLeft', dx: 15 }}
                           domain={['dataMin - 10', 'dataMax + 10']}
                         />
                         {/* Right Y-axis for angles */}
@@ -1398,7 +1398,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                       </p>
                     )}
                     <ResponsiveContainer width="100%" height={300}>
-                      <LineChart data={rgbData} margin={{ left: 20, right: 20, top: 5, bottom: 5 }}>
+                      <LineChart data={rgbData} margin={{ left: 50, right: 20, top: 5, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis
                           dataKey="timestamp"
@@ -1407,7 +1407,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                         {/* Left Y-axis for Chromaticity */}
                         <YAxis
                           yAxisId="chroma"
-                          label={{ value: 'Chromaticity (%)', angle: -90, position: 'insideLeft', dx: 0 }}
+                          label={{ value: 'Chromaticity (%)', angle: -90, position: 'insideLeft', dx: 15 }}
                           domain={['dataMin - 5', 'dataMax + 5']}
                         />
                         {/* Right Y-axis for Angle */}
@@ -1586,7 +1586,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                     }
 
                     return chartData;
-                  })()}>
+                  })()} margin={{ left: 50, right: 20, top: 5, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis
                       dataKey="timestamp"
@@ -1594,7 +1594,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                     />
                     <YAxis
                       yAxisId="chroma"
-                      label={{ value: 'Red Chromaticity (%)', angle: -90, position: 'insideLeft', dx: 0 }}
+                      label={{ value: 'Red Chromaticity (%)', angle: -90, position: 'insideLeft', dx: 15 }}
                       domain={['dataMin - 5', 'dataMax + 5']}
                     />
                     <YAxis
@@ -1670,7 +1670,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                     }
 
                     return chartData;
-                  })()}>
+                  })()} margin={{ left: 50, right: 20, top: 5, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis
                       dataKey="timestamp"
@@ -1678,7 +1678,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                     />
                     <YAxis
                       yAxisId="intensity"
-                      label={{ value: 'Luminosity (0-255)', angle: -90, position: 'insideLeft', dx: 0 }}
+                      label={{ value: 'Luminosity (0-255)', angle: -90, position: 'insideLeft', dx: 15 }}
                       domain={[0, 255]}
                     />
                     <YAxis
@@ -1799,11 +1799,11 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={400}>
-                <LineChart data={chartData} margin={{ left: 20, right: 20, top: 5, bottom: 5 }}>
+                <LineChart data={chartData} margin={{ left: 50, right: 20, top: 5, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="timestamp" label={{ value: 'Time (s)', position: 'insideBottom', offset: -5 }} />
                   <YAxis
-                    label={{ value: 'Exact Elevation (m)', angle: -90, position: 'insideLeft', dx: 0 }}
+                    label={{ value: 'Exact Elevation (m)', angle: -90, position: 'insideLeft', dx: 15 }}
                     domain={['dataMin - 5', 'dataMax + 5']}
                   />
                   <Tooltip
