@@ -132,6 +132,14 @@ class ApiClient {
     return this.client.delete(`/users/${id}`);
   }
 
+  async assignUserToAirport(userId: string, airportId: string) {
+    return this.client.post(`/users/${userId}/assign-airport/${airportId}`);
+  }
+
+  async unassignUserFromAirport(userId: string, airportId: string) {
+    return this.client.delete(`/users/${userId}/unassign-airport/${airportId}`);
+  }
+
   // Airport management
   async getAirports(params?: any) {
     const response = await this.client.get('/airports', { params });

@@ -1,7 +1,10 @@
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 from datetime import datetime
 from app.models.user import UserRole
+
+if TYPE_CHECKING:
+    from app.schemas.airport import AirportResponse
 
 
 class UserBase(BaseModel):
@@ -39,7 +42,8 @@ class UserResponse(UserBase):
     last_login: Optional[datetime] = None
     mfa_enabled: bool
     avatar_url: Optional[str] = None
-    
+    airports: List['AirportResponse'] = []
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -100,5 +104,10 @@ class PermissionBase(BaseModel):
 class PermissionResponse(PermissionBase):
     id: str
     created_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
+
+
+# Resolve forward references
+from app.schemas.airport import AirportResponse
+UserResponse.model_rebuild()

@@ -32,7 +32,15 @@ class Settings(BaseSettings):
     
     # API Base URL for serving content (videos, reports, etc.)
     API_BASE_URL: str = Field(default="http://localhost:8001", env="API_BASE_URL")
-    
+
+    # OAuth URLs
+    BACKEND_URL: str = Field(default="http://localhost:8001", env="BACKEND_URL")
+    FRONTEND_URL: str = Field(default="http://localhost:3001", env="FRONTEND_URL")
+
+    # Google OAuth Credentials
+    GOOGLE_CLIENT_ID: str = Field(default="", env="GOOGLE_CLIENT_ID")
+    GOOGLE_CLIENT_SECRET: str = Field(default="", env="GOOGLE_CLIENT_SECRET")
+
     # File Storage
     DATA_PATH: str = Field(default="/data", env="DATA_PATH")
     VIDEO_PATH: str = Field(default="/data/videos", env="VIDEO_PATH")

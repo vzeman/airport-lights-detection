@@ -18490,3 +18490,8 @@ yolov*.pt
 /backend/node_modules/zustand/vanilla.js
 /backend/node_modules/.package-lock.json
 /backend/data/
+
+# Environment variables
+.env
+*.env
+backend/.env

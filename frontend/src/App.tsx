@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 
 // Pages
 import Login from './pages/Login';
+import AuthCallback from './pages/AuthCallback';
 import Dashboard from './pages/Dashboard';
 import Users from './pages/Users';
 import Airports from './pages/Airports';
@@ -53,7 +54,8 @@ const AppRoutes: React.FC = () => {
   return (
     <Routes>
       <Route path="/login" element={!isAuthenticated ? <Login /> : <Navigate to="/" replace />} />
-      
+      <Route path="/auth/callback" element={<AuthCallback />} />
+
       <Route
         path="/"
         element={

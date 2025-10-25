@@ -4,6 +4,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from datetime import datetime
 
 from app.db.base import get_db
@@ -38,7 +39,9 @@ async def get_current_user(
             detail="Could not validate credentials",
         )
     
-    result = await db.execute(select(User).filter(User.id == user_id))
+    result = await db.execute(
+        select(User).filter(User.id == user_id).options(selectinload(User.airports))
+    )
     user = result.scalars().first()
     
     if not user:

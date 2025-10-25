@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 from typing import Optional, List
 import uuid
 
@@ -20,7 +21,7 @@ async def list_users(
     search: Optional[str] = None,
     role: Optional[UserRole] = None,
     is_active: Optional[bool] = None,
-    current_user: User = Depends(require_role([UserRole.SUPER_ADMIN, UserRole.AIRPORT_ADMIN])),
+    current_user: User = Depends(get_current_active_superuser),
     db: AsyncSession = Depends(get_db)
 ):
     """List all users with pagination and filtering"""
@@ -74,19 +75,21 @@ async def list_users(
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user(
     user_id: str,
-    current_user: User = Depends(require_role([UserRole.SUPER_ADMIN, UserRole.AIRPORT_ADMIN])),
+    current_user: User = Depends(get_current_active_superuser),
     db: AsyncSession = Depends(get_db)
 ):
     """Get user by ID"""
-    result = await db.execute(select(User).filter(User.id == user_id))
+    result = await db.execute(
+        select(User).filter(User.id == user_id).options(selectinload(User.airports))
+    )
     user = result.scalars().first()
-    
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
-    
+
     return user
 
 
@@ -135,7 +138,7 @@ async def create_user(
 async def update_user(
     user_id: str,
     user_data: UserUpdate,
-    current_user: User = Depends(require_role([UserRole.SUPER_ADMIN, UserRole.AIRPORT_ADMIN])),
+    current_user: User = Depends(get_current_active_superuser),
     db: AsyncSession = Depends(get_db)
 ):
     """Update user information"""
@@ -194,9 +197,89 @@ async def delete_user(
 async def assign_user_to_airport(
     user_id: str,
     airport_id: str,
-    current_user: User = Depends(require_role([UserRole.SUPER_ADMIN, UserRole.AIRPORT_ADMIN])),
+    current_user: User = Depends(get_current_active_superuser),
     db: AsyncSession = Depends(get_db)
 ):
-    """Assign user to an airport"""
-    # Implementation will be added when Airport model is ready
+    """Assign user to an airport (Super admin only)"""
+    from app.models import Airport
+
+    # Get user with airports relationship loaded
+    user_result = await db.execute(
+        select(User).filter(User.id == user_id).options(selectinload(User.airports))
+    )
+    user = user_result.scalars().first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
+    # Get airport
+    airport_result = await db.execute(select(Airport).filter(Airport.id == airport_id))
+    airport = airport_result.scalars().first()
+
+    if not airport:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Airport not found"
+        )
+
+    # Check if already assigned
+    if airport in user.airports:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User already assigned to this airport"
+        )
+
+    # Assign user to airport
+    user.airports.append(airport)
+    await db.commit()
+
     return {"message": "User assigned to airport successfully"}
+
+
+@router.delete("/{user_id}/unassign-airport/{airport_id}")
+async def unassign_user_from_airport(
+    user_id: str,
+    airport_id: str,
+    current_user: User = Depends(get_current_active_superuser),
+    db: AsyncSession = Depends(get_db)
+):
+    """Remove user from an airport (Super admin only)"""
+    from app.models import Airport
+
+    # Get user with airports
+    user_result = await db.execute(
+        select(User).filter(User.id == user_id).options(selectinload(User.airports))
+    )
+    user = user_result.scalars().first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
+    # Get airport
+    airport_result = await db.execute(select(Airport).filter(Airport.id == airport_id))
+    airport = airport_result.scalars().first()
+
+    if not airport:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Airport not found"
+        )
+
+    # Check if assigned
+    if airport not in user.airports:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User not assigned to this airport"
+        )
+
+    # Remove user from airport
+    user.airports.remove(airport)
+    await db.commit()
+
+    return {"message": "User removed from airport successfully"}

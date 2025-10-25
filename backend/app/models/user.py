@@ -47,8 +47,15 @@ class User(Base):
     username = Column(String(100), unique=True, nullable=False, index=True)
     first_name = Column(String(100), nullable=False)
     last_name = Column(String(100), nullable=False)
-    hashed_password = Column(String(255), nullable=False)
+    hashed_password = Column(String(255), nullable=True)  # Nullable for OAuth users
     is_active = Column(Boolean, default=True, nullable=False)
+
+    # OAuth fields
+    oauth_provider = Column(String(50), nullable=True)  # 'google', 'microsoft', 'facebook'
+    oauth_id = Column(String(255), nullable=True, index=True)  # Provider's user ID
+    oauth_access_token = Column(Text, nullable=True)  # Encrypted access token
+    oauth_refresh_token = Column(Text, nullable=True)  # Encrypted refresh token
+    oauth_token_expires_at = Column(DateTime, nullable=True)
     is_superuser = Column(Boolean, default=False, nullable=False)
     role = Column(Enum(UserRole), default=UserRole.VIEWER, nullable=False)
     phone = Column(String(50), nullable=True)

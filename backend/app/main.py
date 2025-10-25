@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request, Response, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from contextlib import asynccontextmanager
@@ -59,6 +60,17 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+# Add session middleware for OAuth
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.SECRET_KEY,
+    max_age=3600,  # Session expires after 1 hour
+    same_site="lax",
+    https_only=False,  # Set to True in production
+    session_cookie="session",  # Explicit cookie name
+    path="/"  # Cookie available for all paths
 )
 
 # Include routers
