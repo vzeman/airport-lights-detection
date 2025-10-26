@@ -125,3 +125,94 @@ class PermissionChecker:
 can_manage_users = PermissionChecker("user", "manage")
 can_manage_airports = PermissionChecker("airport", "manage")
 can_view_airports = PermissionChecker("airport", "view")
+
+
+async def require_airport_access(
+    airport_icao_code: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> User:
+    """
+    Check if user has access to a specific airport
+    - Super admins have access to all airports
+    - Other users must be assigned to the airport
+    """
+    if current_user.is_superuser:
+        return current_user
+
+    # Check if user is assigned to this airport
+    from app.models import Airport
+    result = await db.execute(
+        select(Airport).filter(Airport.icao_code == airport_icao_code)
+    )
+    airport = result.scalars().first()
+
+    if not airport:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Airport not found"
+        )
+
+    # Check if user is assigned to this airport
+    if airport not in current_user.airports:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this airport"
+        )
+
+    return current_user
+
+
+async def require_session_access(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> tuple[User, any]:
+    """
+    Check if user has access to a specific measurement session
+    - Super admins have access to all sessions
+    - Other users must be assigned to the session's airport
+
+    Returns:
+        Tuple of (user, session)
+    """
+    from app.models.papi_measurement import MeasurementSession
+    from app.models import Airport
+
+    # Get session with airport
+    result = await db.execute(
+        select(MeasurementSession)
+        .filter(MeasurementSession.id == session_id)
+    )
+    session = result.scalars().first()
+
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found"
+        )
+
+    # Super admins have access to everything
+    if current_user.is_superuser:
+        return current_user, session
+
+    # Get the airport for this session
+    airport_result = await db.execute(
+        select(Airport).filter(Airport.icao_code == session.airport_icao_code)
+    )
+    airport = airport_result.scalars().first()
+
+    if not airport:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Airport not found for this session"
+        )
+
+    # Check if user is assigned to this airport
+    if airport not in current_user.airports:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this session's airport"
+        )
+
+    return current_user, session

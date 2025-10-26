@@ -13,6 +13,7 @@ from datetime import datetime
 
 from app.db.session import get_db
 from app.api.auth import get_current_user
+from app.core.deps import require_airport_access, require_session_access
 from app.models import User, Airport, Runway, ReferencePoint, MeasurementSession, FrameMeasurement
 from app.models.papi_measurement import PAPIReferencePointType, LightStatus
 from app.services.video_processor import VideoProcessor, PAPIReportGenerator, calculate_angle
@@ -33,13 +34,30 @@ async def get_measurement_sessions(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get all measurement sessions for the current user"""
+    """Get measurement sessions - super admins see all, others see sessions from their assigned airports"""
     offset = (page - 1) * page_size
-    
-    query = select(MeasurementSession).where(MeasurementSession.user_id == current_user.id)
-    
+
+    # Build query based on user permissions
+    query = select(MeasurementSession)
+    count_query = select(func.count(MeasurementSession.id))
+
+    # Filter by airport access for non-super admins
+    if not current_user.is_superuser:
+        # Get list of airport ICAO codes user has access to
+        airport_icao_codes = [a.icao_code for a in current_user.airports]
+        if not airport_icao_codes:
+            # User has no airport assignments - return empty result
+            return {
+                "sessions": [],
+                "total": 0,
+                "page": page,
+                "page_size": page_size,
+                "total_pages": 0
+            }
+        query = query.where(MeasurementSession.airport_icao_code.in_(airport_icao_codes))
+        count_query = count_query.where(MeasurementSession.airport_icao_code.in_(airport_icao_codes))
+
     # Get total count
-    count_query = select(func.count(MeasurementSession.id)).where(MeasurementSession.user_id == current_user.id)
     total_result = await db.execute(count_query)
     total = total_result.scalar()
     
@@ -206,6 +224,19 @@ async def upload_measurement_video(
     if not video.filename.lower().endswith(('.mp4', '.mov', '.avi')):
         raise HTTPException(400, "Invalid video format")
 
+    # Check airport access - super admins can access all, others must be assigned
+    if not current_user.is_superuser:
+        airport_result = await db.execute(
+            select(Airport).filter(Airport.icao_code == airport_icao)
+        )
+        airport = airport_result.scalars().first()
+
+        if not airport:
+            raise HTTPException(404, "Airport not found")
+
+        if airport not in current_user.airports:
+            raise HTTPException(403, "You do not have access to this airport")
+
     # Read video content
     video_content = await video.read()
 
@@ -250,21 +281,11 @@ async def upload_measurement_video(
 @router.get("/session/{session_id}/preview")
 async def get_session_preview(
     session_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    session_access: tuple = Depends(require_session_access),
+    db: AsyncSession = Depends(get_db)
 ):
     """Get first frame preview with detected lights"""
-    result = await db.execute(
-        select(MeasurementSession).where(MeasurementSession.id == session_id)
-    )
-    session = result.scalar_one_or_none()
-    
-    if not session:
-        raise HTTPException(404, "Session not found")
-    
-    # Check authorization
-    if not current_user.is_superuser and session.user_id != current_user.id:
-        raise HTTPException(403, "Not authorized")
+    _, session = session_access
 
     # Preview images are now only in S3
     if not session.preview_image_s3_key:
@@ -283,17 +304,11 @@ async def confirm_light_positions(
     session_id: str,
     light_positions: Dict[str, Dict[str, Any]],
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    session_access: tuple = Depends(require_session_access),
+    db: AsyncSession = Depends(get_db)
 ):
     """Confirm or adjust light positions and start processing"""
-    result = await db.execute(
-        select(MeasurementSession).where(MeasurementSession.id == session_id)
-    )
-    session = result.scalar_one_or_none()
-    
-    if not session:
-        raise HTTPException(404, "Session not found")
+    _, session = session_access
     
     # Update light positions
     session.light_positions = light_positions
@@ -310,21 +325,11 @@ async def confirm_light_positions(
 async def reprocess_video(
     session_id: str,
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    session_access: tuple = Depends(require_session_access),
+    db: AsyncSession = Depends(get_db)
 ):
     """Reprocess an existing session's video"""
-    # Get session
-    result = await db.execute(
-        select(MeasurementSession).where(MeasurementSession.id == session_id)
-    )
-    session = result.scalar_one_or_none()
-
-    if not session:
-        raise HTTPException(404, "Session not found")
-
-    if session.user_id != current_user.id:
-        raise HTTPException(403, "Not authorized to reprocess this session")
+    _, session = session_access
 
     # Delete existing frame measurements
     await db.execute(
@@ -350,17 +355,11 @@ async def reprocess_video(
 @router.get("/session/{session_id}/status")
 async def get_processing_status(
     session_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    session_access: tuple = Depends(require_session_access),
+    db: AsyncSession = Depends(get_db)
 ):
     """Get processing status and results"""
-    result = await db.execute(
-        select(MeasurementSession).where(MeasurementSession.id == session_id)
-    )
-    session = result.scalar_one_or_none()
-
-    if not session:
-        raise HTTPException(404, "Session not found")
+    _, session = session_access
 
     # Get frame count if processing
     frame_count = 0
@@ -442,10 +441,12 @@ async def get_preview_image(
 @router.get("/session/{session_id}/report")
 async def get_measurement_report(
     session_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    session_access: tuple = Depends(require_session_access),
+    db: AsyncSession = Depends(get_db)
 ):
     """Get measurement report data"""
+    _, session = session_access
+
     # Get all frame measurements
     result = await db.execute(
         select(FrameMeasurement)
@@ -488,17 +489,10 @@ async def get_measurement_report(
 @router.get("/session/{session_id}/html-report")
 async def get_html_report(
     session_id: str,
-    db: AsyncSession = Depends(get_db)
+    session_access: tuple = Depends(require_session_access)
 ):
     """Serve the generated HTML report for a session for download"""
-    # Verify session exists
-    result = await db.execute(
-        select(MeasurementSession).where(MeasurementSession.id == session_id)
-    )
-    session = result.scalar_one_or_none()
-    
-    if not session:
-        raise HTTPException(404, "Session not found")
+    _, session = session_access
     
     # Check if session is completed
     if session.status != "completed":
@@ -525,17 +519,10 @@ async def get_html_report(
 @router.get("/session/{session_id}/html-report-content")
 async def get_html_report_content(
     session_id: str,
-    db: AsyncSession = Depends(get_db)
+    session_access: tuple = Depends(require_session_access)
 ):
     """Return the HTML report content directly for embedding in the application"""
-    # Verify session exists
-    result = await db.execute(
-        select(MeasurementSession).where(MeasurementSession.id == session_id)
-    )
-    session = result.scalar_one_or_none()
-    
-    if not session:
-        raise HTTPException(404, "Session not found")
+    _, session = session_access
     
     # Check if session is completed
     if session.status != "completed":
@@ -569,19 +556,12 @@ async def get_html_report_content(
 async def get_papi_light_video(
     session_id: str,
     light_name: str,
-    db: AsyncSession = Depends(get_db)
+    session_access: tuple = Depends(require_session_access)
 ):
     """Serve individual PAPI light video for a session - returns presigned URL redirect"""
     from fastapi.responses import RedirectResponse
 
-    # Verify session exists
-    result = await db.execute(
-        select(MeasurementSession).where(MeasurementSession.id == session_id)
-    )
-    session = result.scalar_one_or_none()
-
-    if not session:
-        raise HTTPException(404, "Session not found")
+    _, session = session_access
 
     # Validate light name
     if light_name.upper() not in ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D']:
@@ -601,19 +581,12 @@ async def get_papi_light_video(
 @router.get("/session/{session_id}/enhanced-video")
 async def get_enhanced_video(
     session_id: str,
-    db: AsyncSession = Depends(get_db)
+    session_access: tuple = Depends(require_session_access)
 ):
     """Serve the enhanced video file for a session - returns presigned URL redirect"""
     from fastapi.responses import RedirectResponse
 
-    # Get session
-    result = await db.execute(
-        select(MeasurementSession).where(MeasurementSession.id == session_id)
-    )
-    session = result.scalar_one_or_none()
-
-    if not session:
-        raise HTTPException(404, "Session not found")
+    _, session = session_access
 
     # Initialize S3 handler
     s3_handler = get_video_s3_handler()
@@ -629,19 +602,12 @@ async def get_enhanced_video(
 @router.get("/session/{session_id}/original-video")
 async def get_original_video(
     session_id: str,
-    db: AsyncSession = Depends(get_db)
+    session_access: tuple = Depends(require_session_access)
 ):
     """Serve the original video file for a session - returns presigned URL redirect"""
     from fastapi.responses import RedirectResponse
 
-    # Verify session exists
-    result = await db.execute(
-        select(MeasurementSession).where(MeasurementSession.id == session_id)
-    )
-    session = result.scalar_one_or_none()
-
-    if not session:
-        raise HTTPException(404, "Session not found")
+    _, session = session_access
 
     # Initialize S3 handler
     s3_handler = get_video_s3_handler()
@@ -657,27 +623,13 @@ async def get_original_video(
 @router.get("/session/{session_id}/measurements-data")
 async def get_measurements_data(
     session_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    session_access: tuple = Depends(require_session_access),
+    db: AsyncSession = Depends(get_db)
 ):
     """Get measurement data directly in JSON format for display in the app"""
-    
-    logger.info(f"Getting measurements data for session {session_id}, user {current_user.id}")
-    
-    # Verify session exists and belongs to current user
-    result = await db.execute(
-        select(MeasurementSession).where(
-            and_(
-                MeasurementSession.id == session_id,
-                MeasurementSession.user_id == current_user.id
-            )
-        )
-    )
-    session = result.scalar_one_or_none()
-    
-    if not session:
-        logger.warning(f"Session {session_id} not found for user {current_user.id}")
-        raise HTTPException(404, "Session not found")
+    _, session = session_access
+
+    logger.info(f"Getting measurements data for session {session_id}")
     
     logger.info(f"Session found with status: {session.status}")
 
