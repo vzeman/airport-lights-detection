@@ -25,7 +25,7 @@ async def list_users(
     db: AsyncSession = Depends(get_db)
 ):
     """List all users with pagination and filtering"""
-    query = select(User)
+    query = select(User).options(selectinload(User.airports))
     count_query = select(func.count()).select_from(User)
     
     # Apply filters
