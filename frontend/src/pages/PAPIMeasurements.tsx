@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
@@ -28,7 +29,13 @@ interface MeasurementSession {
 }
 
 const PAPIMeasurements: React.FC = () => {
-  const [step, setStep] = useState<'select' | 'upload' | 'preview' | 'processing' | 'results' | 'error'>('select');
+  const [searchParams] = useSearchParams();
+
+  // Check for session query parameter to determine initial step
+  const sessionIdFromUrl = searchParams.get('session');
+  const initialStep = sessionIdFromUrl ? 'processing' : 'select';
+
+  const [step, setStep] = useState<'select' | 'upload' | 'preview' | 'processing' | 'results' | 'error'>(initialStep);
   const [airports, setAirports] = useState<Airport[]>([]);
   const [selectedAirport, setSelectedAirport] = useState<string>('');
   const [selectedRunway, setSelectedRunway] = useState<string>('');
@@ -44,6 +51,12 @@ const PAPIMeasurements: React.FC = () => {
 
   useEffect(() => {
     fetchAirports();
+
+    // Check for sessionId query parameter (for reprocessing)
+    const sessionId = searchParams.get('session');
+    if (sessionId) {
+      loadExistingSession(sessionId);
+    }
   }, []);
 
   const fetchAirports = async () => {
@@ -92,6 +105,32 @@ const PAPIMeasurements: React.FC = () => {
     } catch (error) {
       // console.error('Upload failed:', error);
       setProcessing(false);
+    }
+  };
+
+  const loadExistingSession = async (sessionId: string) => {
+    try {
+      // Fetch session status
+      const response = await api.get(`/papi-measurements/session/${sessionId}/status`);
+      const sessionData: MeasurementSession = response.data;
+
+      setSession(sessionData);
+
+      // Set appropriate step based on session status
+      if (sessionData.status === 'processing') {
+        setStep('processing');
+        // Start polling for processing status
+        setTimeout(() => pollProcessingStatus(sessionData.session_id), 2000);
+      } else if (sessionData.status === 'completed') {
+        setStep('results');
+      } else if (sessionData.status === 'error') {
+        setStep('error');
+        setErrorMessage(sessionData.status || 'Processing failed');
+      }
+    } catch (error) {
+      console.error('Failed to load session:', error);
+      setStep('error');
+      setErrorMessage('Failed to load session');
     }
   };
 
@@ -164,15 +203,16 @@ const PAPIMeasurements: React.FC = () => {
     }
   };
 
-  const pollProcessingStatus = async () => {
-    if (!session) return;
+  const pollProcessingStatus = async (sessionIdOverride?: string) => {
+    const sessionIdToUse = sessionIdOverride || session?.session_id;
+    if (!sessionIdToUse) return;
 
     const interval = setInterval(async () => {
       try {
         const response = await api.get(
-          `/papi-measurements/session/${session.session_id}/status`
+          `/papi-measurements/session/${sessionIdToUse}/status`
         );
-        
+
         if (response.data.status === 'completed') {
           clearInterval(interval);
           setSession(response.data);

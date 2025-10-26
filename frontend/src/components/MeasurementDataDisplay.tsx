@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
-import { Loader2, Download, Printer } from 'lucide-react';
+import { Loader2, Download, Printer, RefreshCw } from 'lucide-react';
 import api from '../services/api';
 import Airport3DVisualization from './Airport3DVisualization';
 
@@ -92,6 +92,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
   const [data, setData] = useState<MeasurementData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
+  const [reprocessing, setReprocessing] = useState(false);
 
   useEffect(() => {
     fetchMeasurementData();
@@ -159,6 +160,22 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const reprocessVideo = async () => {
+    if (!window.confirm('Are you sure you want to reprocess this video? This will delete all existing measurements and regenerate them.')) {
+      return;
+    }
+
+    try {
+      setReprocessing(true);
+      await api.post(`/papi-measurements/session/${sessionId}/reprocess`);
+      // Navigate to main PAPI measurements page with session ID to show processing status
+      window.location.href = `/papi-measurements?session=${sessionId}`;
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Failed to start reprocessing');
+      setReprocessing(false);
+    }
   };
 
   const formatChartData = () => {
@@ -875,6 +892,14 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                 <Button onClick={downloadCSV} variant="outline" size="sm">
                   <Download className="w-4 h-4 mr-2" />
                   Export CSV
+                </Button>
+                <Button onClick={reprocessVideo} variant="outline" size="sm" disabled={reprocessing}>
+                  {reprocessing ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                  )}
+                  Reprocess Video
                 </Button>
               </div>
             </div>
@@ -1823,6 +1848,33 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
         <div className="space-y-6 no-print">
           <h2 className="print-section-title">Videos</h2>
           <div className="space-y-6">
+          {/* Original Video */}
+          {data.video_urls?.original && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Original Video</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="aspect-video">
+                  <video
+                    key={data.video_urls?.original}
+                    width="100%"
+                    height="100%"
+                    controls
+                    preload="metadata"
+                    className="rounded-lg border"
+                    src={data.video_urls?.original}
+                  >
+                    Your browser does not support the video tag.
+                  </video>
+                </div>
+                <div className="mt-4 text-center text-sm text-gray-500">
+                  Unprocessed drone footage as originally captured
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Enhanced Main Video */}
           <Card>
             <CardHeader>

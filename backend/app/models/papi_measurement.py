@@ -46,7 +46,7 @@ class PAPIReferencePoint(Base):
 
 class MeasurementSession(Base):
     __tablename__ = "measurement_sessions"
-    
+
     id = Column(CHAR(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     airport_icao_code = Column(String(4), ForeignKey("airports.icao_code"), nullable=False)
     runway_code = Column(String(10), nullable=False)
@@ -65,10 +65,22 @@ class MeasurementSession(Base):
     processed_frames = Column(Integer, default=0)  # Frames processed so far
     progress_percentage = Column(Float, default=0.0)  # Progress as percentage (0-100)
     current_phase = Column(String(100), default="initializing")  # current processing phase
-    
+
     # Store user-adjusted light positions
     light_positions = Column(JSON)  # {"PAPI_A": {"x": 100, "y": 200, "width": 50, "height": 50}, ...}
-    
+
+    # S3 Storage keys (nullable for backwards compatibility)
+    storage_type = Column(String(10), default="local")  # "local" or "s3"
+    original_video_s3_key = Column(String(500), nullable=True)  # S3 key for original video
+    enhanced_video_s3_key = Column(String(500), nullable=True)  # S3 key for enhanced video
+    enhanced_audio_video_s3_key = Column(String(500), nullable=True)  # S3 key for enhanced video with audio
+    frame_measurements_s3_key = Column(String(500), nullable=True)  # S3 key for frame measurements JSON
+    preview_image_s3_key = Column(String(500), nullable=True)  # S3 key for preview image
+    papi_a_video_s3_key = Column(String(500), nullable=True)  # S3 key for PAPI A light video
+    papi_b_video_s3_key = Column(String(500), nullable=True)  # S3 key for PAPI B light video
+    papi_c_video_s3_key = Column(String(500), nullable=True)  # S3 key for PAPI C light video
+    papi_d_video_s3_key = Column(String(500), nullable=True)  # S3 key for PAPI D light video
+
     # Relationships
     airport = relationship("Airport", back_populates="measurement_sessions")
     user = relationship("User", back_populates="measurement_sessions")

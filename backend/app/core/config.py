@@ -41,13 +41,21 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str = Field(default="", env="GOOGLE_CLIENT_ID")
     GOOGLE_CLIENT_SECRET: str = Field(default="", env="GOOGLE_CLIENT_SECRET")
 
-    # File Storage
+    # File Storage (local fallback when S3 is disabled)
     DATA_PATH: str = Field(default="/data", env="DATA_PATH")
     VIDEO_PATH: str = Field(default="/data/videos", env="VIDEO_PATH")
     IMAGE_PATH: str = Field(default="/data/images", env="IMAGE_PATH")
     REPORT_PATH: str = Field(default="/data/reports", env="REPORT_PATH")
-    TEMP_PATH: str = Field(default="/data/temp", env="TEMP_PATH")
+    TEMP_PATH: str = Field(default="/tmp", env="TEMP_PATH")
     MODEL_PATH: str = Field(default="/data/models", env="MODEL_PATH")
+
+    # S3 Storage Configuration
+    USE_S3_STORAGE: bool = Field(default=False, env="USE_S3_STORAGE")
+    AWS_ACCESS_KEY_ID: str = Field(default="", env="AWS_ACCESS_KEY_ID")
+    AWS_SECRET_ACCESS_KEY: str = Field(default="", env="AWS_SECRET_ACCESS_KEY")
+    AWS_REGION: str = Field(default="eu-central-1", env="AWS_REGION")
+    S3_BUCKET: str = Field(default="", env="S3_BUCKET")
+    S3_PRESIGNED_URL_EXPIRATION: int = Field(default=3600, env="S3_PRESIGNED_URL_EXPIRATION")  # 1 hour
     
     # Pagination
     DEFAULT_PAGE_SIZE: int = 20

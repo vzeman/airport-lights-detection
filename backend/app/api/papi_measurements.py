@@ -4,7 +4,7 @@ API endpoints for PAPI light measurement workflow
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func
+from sqlalchemy import select, and_, func, delete
 from typing import List, Optional, Dict, Any
 import json
 import os
@@ -16,6 +16,8 @@ from app.api.auth import get_current_user
 from app.models import User, Airport, Runway, ReferencePoint, MeasurementSession, FrameMeasurement
 from app.models.papi_measurement import PAPIReferencePointType, LightStatus
 from app.services.video_processor import VideoProcessor, PAPIReportGenerator, calculate_angle
+from app.services.video_s3_handler import get_video_s3_handler
+from app.schemas.frame_measurement import frame_measurement_to_dict
 from app.core.config import settings
 import logging
 
@@ -199,29 +201,19 @@ async def upload_measurement_video(
     current_user: User = Depends(get_current_user)
 ):
     """Upload video for PAPI measurement"""
-    
+
     # Validate file type
     if not video.filename.lower().endswith(('.mp4', '.mov', '.avi')):
         raise HTTPException(400, "Invalid video format")
-    
-    # Create upload directory
-    upload_dir = f"data/measurements/{airport_icao}/{runway_code}"
-    os.makedirs(upload_dir, exist_ok=True)
-    
-    # Save video file
-    file_id = str(uuid.uuid4())
-    file_ext = video.filename.split('.')[-1]
-    file_path = f"{upload_dir}/{file_id}.{file_ext}"
-    
-    with open(file_path, "wb") as f:
-        content = await video.read()
-        f.write(content)
-    
-    # Create measurement session with original filename
+
+    # Read video content
+    video_content = await video.read()
+
+    # Create session first to get session ID
     session = MeasurementSession(
         airport_icao_code=airport_icao,
         runway_code=runway_code,
-        video_file_path=file_path,
+        video_file_path="",  # Will be updated below
         user_id=current_user.id,
         status="pending",
         original_video_filename=video.filename
@@ -229,10 +221,25 @@ async def upload_measurement_video(
     db.add(session)
     await db.commit()
     await db.refresh(session)
-    
+
+    # Use S3 handler to save video (uploads to S3 if enabled, saves temp file for processing)
+    s3_handler = get_video_s3_handler()
+    local_path, s3_key = await s3_handler.save_uploaded_video(
+        session_id=session.id,
+        video_content=video_content,
+        filename=video.filename
+    )
+
+    # Update session with paths and S3 info
+    session.video_file_path = local_path
+    if s3_key:
+        session.original_video_s3_key = s3_key
+        session.storage_type = "s3"
+    await db.commit()
+
     # Start background processing
-    background_tasks.add_task(process_video_initial, session.id, file_path)
-    
+    background_tasks.add_task(process_video_initial, session.id, local_path)
+
     return {
         "session_id": session.id,
         "status": "uploaded",
@@ -258,16 +265,11 @@ async def get_session_preview(
     # Check authorization
     if not current_user.is_superuser and session.user_id != current_user.id:
         raise HTTPException(403, "Not authorized")
-    
-    # Get preview data - check both relative and absolute paths
-    preview_path = f"data/measurements/previews/{session_id}.jpg"
-    if not os.path.exists(preview_path):
-        backend_preview_path = f"backend/data/measurements/previews/{session_id}.jpg"
-        if os.path.exists(backend_preview_path):
-            preview_path = backend_preview_path
-        else:
-            raise HTTPException(404, "Preview not yet available")
-    
+
+    # Preview images are now only in S3
+    if not session.preview_image_s3_key:
+        raise HTTPException(404, "Preview not yet available")
+
     return {
         "session_id": session_id,
         "preview_url": f"/papi-measurements/preview-image/{session_id}",
@@ -300,8 +302,49 @@ async def confirm_light_positions(
     
     # Start full video processing
     background_tasks.add_task(process_video_full, session_id)
-    
+
     return {"status": "processing", "message": "Video processing started"}
+
+
+@router.post("/session/{session_id}/reprocess")
+async def reprocess_video(
+    session_id: str,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Reprocess an existing session's video"""
+    # Get session
+    result = await db.execute(
+        select(MeasurementSession).where(MeasurementSession.id == session_id)
+    )
+    session = result.scalar_one_or_none()
+
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    if session.user_id != current_user.id:
+        raise HTTPException(403, "Not authorized to reprocess this session")
+
+    # Delete existing frame measurements
+    await db.execute(
+        delete(FrameMeasurement).where(FrameMeasurement.session_id == session_id)
+    )
+    await db.commit()
+
+    # Reset session status
+    session.status = "processing"
+    session.error_message = None
+    session.processed_frames = 0
+    session.progress_percentage = 0.0
+    await db.commit()
+
+    logger.info(f"Reprocessing video for session {session_id}")
+
+    # Start full video processing in background
+    background_tasks.add_task(process_video_full, session_id)
+
+    return {"status": "processing", "message": "Video reprocessing started"}
 
 
 @router.get("/session/{session_id}/status")
@@ -315,10 +358,10 @@ async def get_processing_status(
         select(MeasurementSession).where(MeasurementSession.id == session_id)
     )
     session = result.scalar_one_or_none()
-    
+
     if not session:
         raise HTTPException(404, "Session not found")
-    
+
     # Get frame count if processing
     frame_count = 0
     if session.status in ["processing", "completed"]:
@@ -326,7 +369,7 @@ async def get_processing_status(
             select(func.count(FrameMeasurement.id)).where(FrameMeasurement.session_id == session_id)
         )
         frame_count = count_result.scalar()
-    
+
     response = {
         "session_id": session_id,
         "status": session.status,
@@ -335,36 +378,65 @@ async def get_processing_status(
         "progress_percentage": session.progress_percentage or 0.0,
         "current_phase": session.current_phase or "initializing"
     }
-    
+
     if session.status == "completed":
-        response["video_urls"] = {
-            "PAPI_A": f"/api/v1/videos/{session_id}_papi_a_light.mp4",
-            "PAPI_B": f"/api/v1/videos/{session_id}_papi_b_light.mp4",
-            "PAPI_C": f"/api/v1/videos/{session_id}_papi_c_light.mp4",
-            "PAPI_D": f"/api/v1/videos/{session_id}_papi_d_light.mp4",
+        # Initialize S3 handler and generate presigned URLs
+        s3_handler = get_video_s3_handler()
+
+        video_type_mapping = {
+            "PAPI_A": "papi_a",
+            "PAPI_B": "papi_b",
+            "PAPI_C": "papi_c",
+            "PAPI_D": "papi_d"
         }
+
+        video_urls = {}
+        for key, video_type in video_type_mapping.items():
+            video_url = s3_handler.get_video_url(session, video_type)
+            if video_url:
+                video_urls[key] = video_url
+
+        response["video_urls"] = video_urls
     elif session.status == "error" and session.error_message:
         response["error_message"] = session.error_message
-    
+
     return response
 
 
 @router.get("/preview-image/{session_id}")
 async def get_preview_image(
     session_id: str,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
-    """Serve preview image for a measurement session"""
-    preview_path = f"data/measurements/previews/{session_id}.jpg"
-    
-    if not os.path.exists(preview_path):
-        backend_preview_path = f"backend/data/measurements/previews/{session_id}.jpg"
-        if os.path.exists(backend_preview_path):
-            preview_path = backend_preview_path
-        else:
-            raise HTTPException(404, "Preview image not found")
-    
-    return FileResponse(preview_path, media_type="image/jpeg")
+    """Serve preview image for a measurement session - returns presigned URL redirect if in S3"""
+    from fastapi.responses import RedirectResponse
+
+    # Get session from database
+    result = await db.execute(
+        select(MeasurementSession).where(MeasurementSession.id == session_id)
+    )
+    session = result.scalar_one_or_none()
+
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    # Preview images are now only in S3
+    if not session.preview_image_s3_key:
+        raise HTTPException(404, "Preview image not found")
+
+    if not settings.USE_S3_STORAGE:
+        raise HTTPException(500, "S3 storage is not enabled")
+
+    from app.services.s3_storage import get_s3_storage
+    s3_storage = get_s3_storage()
+
+    try:
+        presigned_url = s3_storage.generate_presigned_url(session.preview_image_s3_key)
+        return RedirectResponse(url=presigned_url, status_code=307)
+    except Exception as e:
+        logger.error(f"Failed to generate presigned URL for preview image: {e}")
+        raise HTTPException(500, "Failed to generate preview image URL")
 
 
 @router.get("/session/{session_id}/report")
@@ -499,38 +571,31 @@ async def get_papi_light_video(
     light_name: str,
     db: AsyncSession = Depends(get_db)
 ):
-    """Serve individual PAPI light video for a session"""
+    """Serve individual PAPI light video for a session - returns presigned URL redirect"""
+    from fastapi.responses import RedirectResponse
+
     # Verify session exists
     result = await db.execute(
         select(MeasurementSession).where(MeasurementSession.id == session_id)
     )
     session = result.scalar_one_or_none()
-    
+
     if not session:
         raise HTTPException(404, "Session not found")
-    
+
     # Validate light name
     if light_name.upper() not in ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D']:
         raise HTTPException(400, "Invalid light name")
-    
-    # Look for video file - check both relative and absolute paths
-    video_filename = f"{session_id}_{light_name.lower()}_light.mp4"
-    video_path = f"data/measurements/videos/{video_filename}"
-    
-    # Try absolute path from current directory first
-    if not os.path.exists(video_path):
-        # Try relative to backend directory
-        backend_video_path = f"backend/data/measurements/videos/{video_filename}"
-        if os.path.exists(backend_video_path):
-            video_path = backend_video_path
-        else:
-            raise HTTPException(404, f"PAPI light video not found: {video_filename}")
-    
-    return FileResponse(
-        video_path,
-        media_type="video/mp4",
-        filename=video_filename
-    )
+
+    # Initialize S3 handler
+    s3_handler = get_video_s3_handler()
+
+    # Get presigned URL from S3
+    video_url = s3_handler.get_video_url(session, light_name.lower())
+    if video_url:
+        return RedirectResponse(url=video_url, status_code=307)  # Temporary redirect
+    else:
+        raise HTTPException(404, f"PAPI light video not found: {light_name}")
 
 
 @router.get("/session/{session_id}/enhanced-video")
@@ -538,45 +603,27 @@ async def get_enhanced_video(
     session_id: str,
     db: AsyncSession = Depends(get_db)
 ):
-    """Serve the enhanced video file for a session"""
-    # Look for enhanced video file - check both relative and absolute paths
-    enhanced_video_filename = f"{session_id}_enhanced_main_video.mp4"
-    enhanced_video_path = f"data/measurements/videos/{enhanced_video_filename}"
-    
-    # Try relative to backend directory if not found
-    if not os.path.exists(enhanced_video_path):
-        backend_enhanced_path = f"backend/data/measurements/videos/{enhanced_video_filename}"
-        if os.path.exists(backend_enhanced_path):
-            enhanced_video_path = backend_enhanced_path
-    
-    if os.path.exists(enhanced_video_path):
-        return FileResponse(
-            enhanced_video_path,
-            media_type="video/mp4",
-            filename=enhanced_video_filename
-        )
+    """Serve the enhanced video file for a session - returns presigned URL redirect"""
+    from fastapi.responses import RedirectResponse
+
+    # Get session
+    result = await db.execute(
+        select(MeasurementSession).where(MeasurementSession.id == session_id)
+    )
+    session = result.scalar_one_or_none()
+
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    # Initialize S3 handler
+    s3_handler = get_video_s3_handler()
+
+    # Get presigned URL from S3
+    video_url = s3_handler.get_video_url(session, "enhanced")
+    if video_url:
+        return RedirectResponse(url=video_url, status_code=307)  # Temporary redirect
     else:
-        # Fallback to original video
-        result = await db.execute(
-            select(MeasurementSession).where(MeasurementSession.id == session_id)
-        )
-        session = result.scalar_one_or_none()
-        
-        if not session:
-            raise HTTPException(404, "Session not found")
-        
-        video_path = session.video_file_path
-        
-        if not os.path.exists(video_path):
-            raise HTTPException(404, "Video file not found")
-        
-        video_filename = os.path.basename(video_path)
-        
-        return FileResponse(
-            video_path,
-            media_type="video/mp4", 
-            filename=video_filename
-        )
+        raise HTTPException(404, "Enhanced video not found in S3")
 
 
 @router.get("/session/{session_id}/original-video")
@@ -584,30 +631,27 @@ async def get_original_video(
     session_id: str,
     db: AsyncSession = Depends(get_db)
 ):
-    """Serve the original video file for a session"""
+    """Serve the original video file for a session - returns presigned URL redirect"""
+    from fastapi.responses import RedirectResponse
+
     # Verify session exists
     result = await db.execute(
         select(MeasurementSession).where(MeasurementSession.id == session_id)
     )
     session = result.scalar_one_or_none()
-    
+
     if not session:
         raise HTTPException(404, "Session not found")
-    
-    # Get the original video path from the session
-    video_path = session.video_file_path
-    
-    if not os.path.exists(video_path):
-        raise HTTPException(404, "Original video file not found")
-    
-    # Extract filename from path for the response
-    video_filename = os.path.basename(video_path)
-    
-    return FileResponse(
-        video_path,
-        media_type="video/mp4",
-        filename=video_filename
-    )
+
+    # Initialize S3 handler
+    s3_handler = get_video_s3_handler()
+
+    # Get presigned URL from S3
+    video_url = s3_handler.get_video_url(session, "original")
+    if video_url:
+        return RedirectResponse(url=video_url, status_code=307)  # Temporary redirect
+    else:
+        raise HTTPException(404, "Original video not found in S3")
 
 
 @router.get("/session/{session_id}/measurements-data")
@@ -636,34 +680,41 @@ async def get_measurements_data(
         raise HTTPException(404, "Session not found")
     
     logger.info(f"Session found with status: {session.status}")
-    
-    # Get all frame measurements for this session
-    frames_result = await db.execute(
-        select(FrameMeasurement)
-        .where(FrameMeasurement.session_id == session_id)
-        .order_by(FrameMeasurement.frame_number)
-    )
-    frames = frames_result.scalars().all()
-    
+
+    # Initialize S3 handler
+    s3_handler = get_video_s3_handler()
+
+    # Load frame measurements from S3
+    frames = []
+    logger.info(f"Loading frame measurements from S3: {session.frame_measurements_s3_key}")
+    measurements_data = await s3_handler.get_frame_measurements(session_id)
+    if measurements_data:
+        # Convert dict measurements to FrameMeasurement-like objects for compatibility
+        from app.schemas.frame_measurement import parse_frame_measurements
+        frames = parse_frame_measurements(measurements_data)
+        logger.info(f"Loaded {len(frames)} measurements from S3")
+    else:
+        logger.error(f"Failed to load measurements from S3 for session {session_id}")
+
     # If session is not completed or has no frame measurements, return basic info with video URLs
     if session.status != "completed" or not frames:
         logger.info(f"Session {session_id} not completed or no frame data - returning basic info with video URLs")
-        
-        # Check which video files actually exist
-        videos_dir = os.path.join(os.getcwd(), "data", "measurements", "videos")
-        video_files = {
-            "PAPI_A": f"{session_id}_papi_a_light.mp4",
-            "PAPI_B": f"{session_id}_papi_b_light.mp4", 
-            "PAPI_C": f"{session_id}_papi_c_light.mp4",
-            "PAPI_D": f"{session_id}_papi_d_light.mp4",
-            "enhanced_main": f"{session_id}_enhanced_main_video.mp4"
+
+        # Generate presigned URLs from S3
+        video_type_mapping = {
+            "original": "original",
+            "PAPI_A": "papi_a",
+            "PAPI_B": "papi_b",
+            "PAPI_C": "papi_c",
+            "PAPI_D": "papi_d",
+            "enhanced_main": "enhanced"
         }
-        
+
         video_urls = {}
-        for key, filename in video_files.items():
-            file_path = os.path.join(videos_dir, filename)
-            if os.path.exists(file_path):
-                video_urls[key] = f"/api/v1/videos/{filename}"
+        for key, video_type in video_type_mapping.items():
+            video_url = s3_handler.get_video_url(session, video_type)
+            if video_url:
+                video_urls[key] = video_url
 
         summary = {
             "total_frames": 0,
@@ -736,8 +787,8 @@ async def get_measurements_data(
         # Use elevation_wgs84 if available, otherwise fall back to altitude
         elevation = ref_point.elevation_wgs84 if ref_point.elevation_wgs84 is not None else ref_point.altitude
         reference_points[ref_point.point_id] = {
-            "latitude": ref_point.latitude,
-            "longitude": ref_point.longitude,
+            "latitude": float(ref_point.latitude),  # Convert Decimal to float
+            "longitude": float(ref_point.longitude),  # Convert Decimal to float
             "elevation": elevation,
             "point_type": ref_point.point_type.value,
             "nominal_angle": ref_point.nominal_angle,
@@ -770,27 +821,39 @@ async def get_measurements_data(
             "gimbal_yaw": frame.gimbal_yaw
         })
         
-        # Add PAPI measurements
+        # Add PAPI measurements (accessing nested Pydantic objects)
         papi_lights = [
-            ("PAPI_A", frame.papi_a_status, frame.papi_a_angle, frame.papi_a_horizontal_angle, frame.papi_a_distance_ground, frame.papi_a_rgb, frame.papi_a_intensity),
-            ("PAPI_B", frame.papi_b_status, frame.papi_b_angle, frame.papi_b_horizontal_angle, frame.papi_b_distance_ground, frame.papi_b_rgb, frame.papi_b_intensity),
-            ("PAPI_C", frame.papi_c_status, frame.papi_c_angle, frame.papi_c_horizontal_angle, frame.papi_c_distance_ground, frame.papi_c_rgb, frame.papi_c_intensity),
-            ("PAPI_D", frame.papi_d_status, frame.papi_d_angle, frame.papi_d_horizontal_angle, frame.papi_d_distance_ground, frame.papi_d_rgb, frame.papi_d_intensity)
+            ("PAPI_A", frame.papi_a),
+            ("PAPI_B", frame.papi_b),
+            ("PAPI_C", frame.papi_c),
+            ("PAPI_D", frame.papi_d)
         ]
 
-        for light_name, status, angle, horizontal_angle, distance, rgb, intensity in papi_lights:
+        for light_name, papi_light_data in papi_lights:
             papi_data[light_name]["timestamps"].append(timestamp)
-            papi_data[light_name]["statuses"].append(status.value if status else "not_visible")
-            papi_data[light_name]["angles"].append(angle if angle is not None else 0.0)
-            papi_data[light_name]["horizontal_angles"].append(horizontal_angle if horizontal_angle is not None else 0.0)
-            papi_data[light_name]["distances"].append(distance if distance is not None else 0.0)
-            # Convert RGB object to array format for frontend
-            if rgb is not None and isinstance(rgb, dict):
-                rgb_array = [rgb.get('r', 0), rgb.get('g', 0), rgb.get('b', 0)]
+
+            # Extract values from nested PAPILightData object
+            if papi_light_data:
+                papi_data[light_name]["statuses"].append(papi_light_data.status if papi_light_data.status else "not_visible")
+                papi_data[light_name]["angles"].append(papi_light_data.angle if papi_light_data.angle is not None else 0.0)
+                papi_data[light_name]["horizontal_angles"].append(papi_light_data.horizontal_angle if papi_light_data.horizontal_angle is not None else 0.0)
+                papi_data[light_name]["distances"].append(papi_light_data.distance_ground if papi_light_data.distance_ground is not None else 0.0)
+
+                # Convert RGB object to array format for frontend
+                if papi_light_data.rgb is not None and isinstance(papi_light_data.rgb, dict):
+                    rgb_array = [papi_light_data.rgb.get('r', 0), papi_light_data.rgb.get('g', 0), papi_light_data.rgb.get('b', 0)]
+                else:
+                    rgb_array = [0, 0, 0]
+                papi_data[light_name]["rgb_values"].append(rgb_array)
+                papi_data[light_name]["intensities"].append(papi_light_data.intensity if papi_light_data.intensity is not None else 0.0)
             else:
-                rgb_array = [0, 0, 0]
-            papi_data[light_name]["rgb_values"].append(rgb_array)
-            papi_data[light_name]["intensities"].append(intensity if intensity is not None else 0.0)
+                # No data for this light
+                papi_data[light_name]["statuses"].append("not_visible")
+                papi_data[light_name]["angles"].append(0.0)
+                papi_data[light_name]["horizontal_angles"].append(0.0)
+                papi_data[light_name]["distances"].append(0.0)
+                papi_data[light_name]["rgb_values"].append([0, 0, 0])
+                papi_data[light_name]["intensities"].append(0.0)
     
     # Calculate glide path angles
     # 1. Average glide path angle: average of all PAPI lights
@@ -864,7 +927,7 @@ async def get_measurements_data(
                 if "PAPI_A" in papi_data and "PAPI_B" in papi_data:
                     status_a = papi_data["PAPI_A"]["statuses"][frame_idx]
                     status_b = papi_data["PAPI_B"]["statuses"][frame_idx]
-                    if status_a == "white" and status_b == "red":
+                    if status_a == "WHITE" and status_b == "RED":
                         angle_a = papi_data["PAPI_A"]["angles"][frame_idx]
                         angle_b = papi_data["PAPI_B"]["angles"][frame_idx]
                         if angle_a and angle_b and angle_a != 0.0 and angle_b != 0.0:
@@ -875,7 +938,7 @@ async def get_measurements_data(
                 if "PAPI_B" in papi_data and "PAPI_C" in papi_data:
                     status_b = papi_data["PAPI_B"]["statuses"][frame_idx]
                     status_c = papi_data["PAPI_C"]["statuses"][frame_idx]
-                    if status_b == "white" and status_c == "red":
+                    if status_b == "WHITE" and status_c == "RED":
                         angle_b = papi_data["PAPI_B"]["angles"][frame_idx]
                         angle_c = papi_data["PAPI_C"]["angles"][frame_idx]
                         if angle_b and angle_c and angle_b != 0.0 and angle_c != 0.0:
@@ -889,8 +952,8 @@ async def get_measurements_data(
                     status_f = papi_data["PAPI_F"]["statuses"][frame_idx]
                     status_g = papi_data["PAPI_G"]["statuses"][frame_idx]
 
-                    if (status_b == "white" and status_c == "red" and
-                        status_f == "white" and status_g == "red"):
+                    if (status_b == "WHITE" and status_c == "RED" and
+                        status_f == "WHITE" and status_g == "RED"):
                         angles = []
                         for light in ["PAPI_B", "PAPI_C", "PAPI_F", "PAPI_G"]:
                             angle = papi_data[light]["angles"][frame_idx]
@@ -980,21 +1043,21 @@ async def get_measurements_data(
         }
     }
     
-    # Check which video files actually exist for completed sessions
-    videos_dir = os.path.join(os.getcwd(), "data", "measurements", "videos")
-    video_files = {
-        "PAPI_A": f"{session_id}_papi_a_light.mp4",
-        "PAPI_B": f"{session_id}_papi_b_light.mp4", 
-        "PAPI_C": f"{session_id}_papi_c_light.mp4",
-        "PAPI_D": f"{session_id}_papi_d_light.mp4",
-        "enhanced_main": f"{session_id}_enhanced_main_video.mp4"
+    # Generate presigned URLs from S3 for completed sessions
+    video_type_mapping = {
+        "original": "original",
+        "PAPI_A": "papi_a",
+        "PAPI_B": "papi_b",
+        "PAPI_C": "papi_c",
+        "PAPI_D": "papi_d",
+        "enhanced_main": "enhanced"
     }
-    
+
     video_urls = {}
-    for key, filename in video_files.items():
-        file_path = os.path.join(videos_dir, filename)
-        if os.path.exists(file_path):
-            video_urls[key] = f"/api/v1/videos/{filename}"
+    for key, video_type in video_type_mapping.items():
+        video_url = s3_handler.get_video_url(session, video_type)
+        if video_url:
+            video_urls[key] = video_url
 
     logger.info(f"Returning video URLs for completed session {session_id}: {video_urls}")
 
@@ -1027,10 +1090,11 @@ async def process_video_initial(session_id: str, video_path: str):
             if not session:
                 return
 
-            # Extract first frame and save preview
-            preview_dir = "data/measurements/previews"
-            os.makedirs(preview_dir, exist_ok=True)
-            preview_path = f"{preview_dir}/{session_id}.jpg"
+            # Extract first frame and save preview to tmp folder
+            from pathlib import Path
+            preview_dir = Path(settings.TEMP_PATH) / "airport-previews"
+            preview_dir.mkdir(parents=True, exist_ok=True)
+            preview_path = str(preview_dir / f"{session_id}.jpg")
 
             # Update progress: extracting first frame
             session.current_phase = "extracting_first_frame"
@@ -1038,6 +1102,25 @@ async def process_video_initial(session_id: str, video_path: str):
             await db.commit()
 
             metadata = VideoProcessor.extract_first_frame(video_path, preview_path)
+
+            # Upload preview image to S3 if enabled
+            if settings.USE_S3_STORAGE and os.path.exists(preview_path):
+                try:
+                    from app.services.s3_storage import get_s3_storage
+                    s3_storage = get_s3_storage()
+                    preview_s3_key = await s3_storage.upload_preview_image(session_id, preview_path)
+                    session.preview_image_s3_key = preview_s3_key
+                    await db.commit()
+                    logger.info(f"Uploaded preview image to S3: {preview_s3_key}")
+
+                    # Delete local preview image after successful S3 upload
+                    try:
+                        os.remove(preview_path)
+                        logger.info(f"Deleted local preview image: {preview_path}")
+                    except Exception as cleanup_error:
+                        logger.warning(f"Failed to delete local preview image: {cleanup_error}")
+                except Exception as e:
+                    logger.error(f"Failed to upload preview image to S3: {e}")
 
             if metadata:
                 # Extract and store recording date
@@ -1108,15 +1191,40 @@ async def process_video_full(session_id: str):
             
             if not session or not session.light_positions:
                 return
-            
+
             # Initialize progress tracking
             session.current_phase = "processing_frames"
             session.progress_percentage = 0.0
             session.processed_frames = 0
             await db.commit()
-            
+
+            # Determine video path - download from S3 if needed
+            video_path = session.video_file_path
+            temp_video_path = None
+
+            if session.storage_type == "s3" and session.original_video_s3_key:
+                # Video is in S3, download to temp location for processing
+                import os
+                import tempfile
+                from pathlib import Path
+                from app.services.s3_storage import get_s3_storage
+
+                s3_storage = get_s3_storage()
+                temp_dir = Path(settings.TEMP_PATH) / session_id
+                temp_dir.mkdir(parents=True, exist_ok=True)
+                temp_video_path = str(temp_dir / "original_video.mp4")
+
+                logger.info(f"Downloading video from S3: {session.original_video_s3_key}")
+                try:
+                    await s3_storage.download_video(session.original_video_s3_key, temp_video_path)
+                    video_path = temp_video_path
+                    logger.info(f"Video downloaded to temporary path: {video_path}")
+                except Exception as e:
+                    logger.error(f"Failed to download video from S3: {e}")
+                    raise ValueError(f"Failed to download video from S3 for processing: {e}")
+
             # Open video file
-            cap = cv2.VideoCapture(session.video_file_path)
+            cap = cv2.VideoCapture(video_path)
             total_frames = session.total_frames or int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -1214,6 +1322,12 @@ async def process_video_full(session_id: str):
 
             logger.info(f"Loaded {len(ref_points_dict)} reference points: {list(ref_points_dict.keys())}")
 
+            # Initialize S3 handler for storing results
+            s3_handler = get_video_s3_handler()
+
+            # Collect frame measurements in memory (not database)
+            frame_measurements_list = []
+
             frame_number = 0
 
             while True:
@@ -1248,33 +1362,33 @@ async def process_video_full(session_id: str):
                 measurements = VideoProcessor.process_frame(
                     frame, tracked_positions, drone_data, ref_points_dict
                 )
-                
-                # Save frame measurements to database
-                frame_measurement = FrameMeasurement(
-                    session_id=session_id,
-                    frame_number=frame_number,
-                    timestamp=frame_number / 30.0,  # Assuming 30fps
-                    drone_latitude=drone_data["latitude"],
-                    drone_longitude=drone_data["longitude"],
-                    drone_elevation=drone_data["elevation"]
-                )
-                
+
+                # Collect frame measurement in memory (will be saved to S3/DB later)
+                frame_data = {
+                    "session_id": session_id,
+                    "frame_number": frame_number,
+                    "timestamp": frame_number / 30.0,  # Assuming 30fps
+                    "drone_latitude": float(drone_data["latitude"]),
+                    "drone_longitude": float(drone_data["longitude"]),
+                    "drone_elevation": drone_data["elevation"]
+                }
+
                 # Add PAPI measurements
                 for light_name in ["papi_a", "papi_b", "papi_c", "papi_d"]:
                     light_key = light_name.upper().replace("_", "_")
                     if light_key in measurements:
                         data = measurements[light_key]
-                        setattr(frame_measurement, f"{light_name}_status", data["status"])
-                        setattr(frame_measurement, f"{light_name}_rgb", data["rgb"])
-                        setattr(frame_measurement, f"{light_name}_intensity", data["intensity"])
-                        setattr(frame_measurement, f"{light_name}_angle", data["angle"])
-                        setattr(frame_measurement, f"{light_name}_horizontal_angle", data.get("horizontal_angle"))
-                        setattr(frame_measurement, f"{light_name}_distance_ground", data["distance_ground"])
-                        setattr(frame_measurement, f"{light_name}_distance_direct", data["distance_direct"])
-                
-                db.add(frame_measurement)
+                        frame_data[f"{light_name}_status"] = data["status"]
+                        frame_data[f"{light_name}_rgb"] = data["rgb"]
+                        frame_data[f"{light_name}_intensity"] = data["intensity"]
+                        frame_data[f"{light_name}_angle"] = data["angle"]
+                        frame_data[f"{light_name}_horizontal_angle"] = data.get("horizontal_angle")
+                        frame_data[f"{light_name}_distance_ground"] = data["distance_ground"]
+                        frame_data[f"{light_name}_distance_direct"] = data["distance_direct"]
+
+                frame_measurements_list.append(frame_data)
                 frame_number += 1
-                
+
                 # Update progress every 10 frames
                 if frame_number % 10 == 0:
                     session.processed_frames = frame_number
@@ -1283,13 +1397,21 @@ async def process_video_full(session_id: str):
                     await db.commit()
             
             cap.release()
-            
-            # Get all frame measurements for this session (needed for both video generation and reporting)
-            measurements_query = select(FrameMeasurement).where(
-                FrameMeasurement.session_id == session_id
-            ).order_by(FrameMeasurement.frame_number)
-            measurements_result = await db.execute(measurements_query)
-            measurements = measurements_result.scalars().all()
+
+            logger.info(f"Collected {len(frame_measurements_list)} frame measurements in memory")
+
+            # Save frame measurements to S3 as compressed JSON
+            session.current_phase = "uploading_measurements_to_s3"
+            session.progress_percentage = 80.0
+            await db.commit()
+
+            s3_key = await s3_handler.save_frame_measurements(session_id, frame_measurements_list)
+            if s3_key:
+                session.frame_measurements_s3_key = s3_key
+                logger.info(f"Saved {len(frame_measurements_list)} measurements to S3: {s3_key}")
+            else:
+                raise Exception("Failed to upload frame measurements to S3")
+            await db.commit()
 
             # Update progress: preparing data
             session.current_phase = "preparing_data"
@@ -1299,61 +1421,61 @@ async def process_video_full(session_id: str):
             # Convert to format expected by video processor and report generator
             measurements_data = []
             drone_telemetry = []
-            
-            for m in measurements:
+
+            for m in frame_measurements_list:
                 frame_data = {
-                    'timestamp': m.timestamp * 1000,  # Convert to milliseconds
+                    'timestamp': m['timestamp'] * 1000,  # Convert to milliseconds
                     'PAPI_A': {
-                        'status': m.papi_a_status,
-                        'rgb': m.papi_a_rgb,
-                        'intensity': m.papi_a_intensity,
-                        'angle': m.papi_a_angle,
-                        'horizontal_angle': m.papi_a_horizontal_angle,
-                        'distance_ground': m.papi_a_distance_ground,
-                        'distance_direct': m.papi_a_distance_direct
+                        'status': m.get('papi_a_status'),
+                        'rgb': m.get('papi_a_rgb'),
+                        'intensity': m.get('papi_a_intensity'),
+                        'angle': m.get('papi_a_angle'),
+                        'horizontal_angle': m.get('papi_a_horizontal_angle'),
+                        'distance_ground': m.get('papi_a_distance_ground'),
+                        'distance_direct': m.get('papi_a_distance_direct')
                     },
                     'PAPI_B': {
-                        'status': m.papi_b_status,
-                        'rgb': m.papi_b_rgb,
-                        'intensity': m.papi_b_intensity,
-                        'angle': m.papi_b_angle,
-                        'horizontal_angle': m.papi_b_horizontal_angle,
-                        'distance_ground': m.papi_b_distance_ground,
-                        'distance_direct': m.papi_b_distance_direct
+                        'status': m.get('papi_b_status'),
+                        'rgb': m.get('papi_b_rgb'),
+                        'intensity': m.get('papi_b_intensity'),
+                        'angle': m.get('papi_b_angle'),
+                        'horizontal_angle': m.get('papi_b_horizontal_angle'),
+                        'distance_ground': m.get('papi_b_distance_ground'),
+                        'distance_direct': m.get('papi_b_distance_direct')
                     },
                     'PAPI_C': {
-                        'status': m.papi_c_status,
-                        'rgb': m.papi_c_rgb,
-                        'intensity': m.papi_c_intensity,
-                        'angle': m.papi_c_angle,
-                        'horizontal_angle': m.papi_c_horizontal_angle,
-                        'distance_ground': m.papi_c_distance_ground,
-                        'distance_direct': m.papi_c_distance_direct
+                        'status': m.get('papi_c_status'),
+                        'rgb': m.get('papi_c_rgb'),
+                        'intensity': m.get('papi_c_intensity'),
+                        'angle': m.get('papi_c_angle'),
+                        'horizontal_angle': m.get('papi_c_horizontal_angle'),
+                        'distance_ground': m.get('papi_c_distance_ground'),
+                        'distance_direct': m.get('papi_c_distance_direct')
                     },
                     'PAPI_D': {
-                        'status': m.papi_d_status,
-                        'rgb': m.papi_d_rgb,
-                        'intensity': m.papi_d_intensity,
-                        'angle': m.papi_d_angle,
-                        'horizontal_angle': m.papi_d_horizontal_angle,
-                        'distance_ground': m.papi_d_distance_ground,
-                        'distance_direct': m.papi_d_distance_direct
+                        'status': m.get('papi_d_status'),
+                        'rgb': m.get('papi_d_rgb'),
+                        'intensity': m.get('papi_d_intensity'),
+                        'angle': m.get('papi_d_angle'),
+                        'horizontal_angle': m.get('papi_d_horizontal_angle'),
+                        'distance_ground': m.get('papi_d_distance_ground'),
+                        'distance_direct': m.get('papi_d_distance_direct')
                     }
                 }
                 measurements_data.append(frame_data)
-                
+
                 # Extract real drone telemetry data for each frame
                 drone_frame_data = {
-                    'frame_number': m.frame_number,
-                    'timestamp': m.timestamp,
-                    'latitude': m.drone_latitude,
-                    'longitude': m.drone_longitude,
-                    'elevation': m.drone_elevation,
-                    'altitude': m.drone_elevation,  # Alias for compatibility
-                    'gimbal_pitch': m.gimbal_pitch,
-                    'gimbal_roll': m.gimbal_roll,
-                    'gimbal_yaw': m.gimbal_yaw,
-                    'heading': m.gimbal_yaw if m.gimbal_yaw else 0.0,  # Use gimbal yaw as heading approximation
+                    'frame_number': m['frame_number'],
+                    'timestamp': m['timestamp'],
+                    'latitude': m['drone_latitude'],
+                    'longitude': m['drone_longitude'],
+                    'elevation': m['drone_elevation'],
+                    'altitude': m['drone_elevation'],  # Alias for compatibility
+                    'gimbal_pitch': m.get('gimbal_pitch'),
+                    'gimbal_roll': m.get('gimbal_roll'),
+                    'gimbal_yaw': m.get('gimbal_yaw'),
+                    'heading': m.get('gimbal_yaw') if m.get('gimbal_yaw') else 0.0,
                     'speed': 0.0  # Speed not available in current data model
                 }
                 drone_telemetry.append(drone_frame_data)
@@ -1395,11 +1517,14 @@ async def process_video_full(session_id: str):
                         # If no event loop, just log
                         logger.info(f"Progress: {percentage:.1f}% - {message}")
 
-                video_generator = PAPIVideoGenerator("data/measurements/videos", progress_callback=update_progress)
-                
+                # Use tmp folder for video generation
+                video_output_dir = Path(settings.TEMP_PATH) / "videos" / session_id
+                video_generator = PAPIVideoGenerator(str(video_output_dir), progress_callback=update_progress)
+
                 # Generate individual PAPI light videos with angle information
+                # Use video_path which is either the original local path or the S3 downloaded temp path
                 papi_video_paths = video_generator.generate_papi_videos(
-                    session.video_file_path, session_id, session.light_positions, measurements_data, ref_points_dict
+                    video_path, session_id, session.light_positions, measurements_data, ref_points_dict
                 )
                 logger.info(f"Generated {len(papi_video_paths)} PAPI light videos")
 
@@ -1414,8 +1539,9 @@ async def process_video_full(session_id: str):
                     logger.info(f"Reference points available: {list(ref_points_dict.keys())}")
                     logger.info(f"Measurements data frames: {len(measurements_data) if measurements_data else 0}")
 
+                    # Use video_path which is either the original local path or the S3 downloaded temp path
                     enhanced_main_video_path = video_generator.generate_enhanced_main_video(
-                        session.video_file_path, session_id, session.light_positions, measurements_data,
+                        video_path, session_id, session.light_positions, measurements_data,
                         drone_telemetry, ref_points_dict  # real drone telemetry, reference_points
                     )
                     if enhanced_main_video_path:
@@ -1433,7 +1559,40 @@ async def process_video_full(session_id: str):
                     session.error_message = error_msg
                     await db.commit()
 
-                # Update progress: videos generated, storing to database
+                # Update progress: videos generated, uploading to S3
+                session.current_phase = "uploading_videos_to_s3"
+                session.progress_percentage = 93.0
+                await db.commit()
+
+                # Upload enhanced videos to S3
+                if enhanced_main_video_path:
+                    enhanced_s3_key = await s3_handler.save_processed_video(
+                        session_id=session_id,
+                        video_path=enhanced_main_video_path,
+                        video_type="enhanced"
+                    )
+                    if enhanced_s3_key:
+                        session.enhanced_video_s3_key = enhanced_s3_key
+                        logger.info(f"Uploaded enhanced video to S3: {enhanced_s3_key}")
+                    else:
+                        raise Exception("Failed to upload enhanced video to S3")
+
+                # Upload individual PAPI light videos to S3
+                for papi_name, papi_video_path in papi_video_paths.items():
+                    if papi_video_path:
+                        try:
+                            papi_s3_key = await s3_handler.save_processed_video(
+                                session_id=session_id,
+                                video_path=papi_video_path,
+                                video_type=papi_name.lower()  # "papi_a", "papi_b", etc.
+                            )
+                            if papi_s3_key:
+                                # Store S3 key in session
+                                setattr(session, f"{papi_name.lower()}_video_s3_key", papi_s3_key)
+                                logger.info(f"Uploaded {papi_name} video to S3: {papi_s3_key}")
+                        except Exception as papi_upload_error:
+                            logger.warning(f"Failed to upload {papi_name} video to S3: {papi_upload_error}")
+
                 session.current_phase = "storing_results"
                 session.progress_percentage = 95.0
                 await db.commit()
@@ -1450,7 +1609,26 @@ async def process_video_full(session_id: str):
             
             # HTML report generation removed - data is now displayed directly in the app
             logger.info(f"Video processing completed for session {session_id}. Data available via API.")
-            
+
+            # Clean up local files (all videos now in S3)
+            session.current_phase = "cleaning_up_local_files"
+            session.progress_percentage = 99.0
+            await db.commit()
+
+            # Collect all video files to clean up
+            files_to_delete = [session.video_file_path]  # Original video
+            if temp_video_path:  # Add temporary S3 download if it exists
+                files_to_delete.append(temp_video_path)
+            if enhanced_main_video_path:
+                files_to_delete.append(enhanced_main_video_path)
+            # Add PAPI light videos
+            for papi_video_path in papi_video_paths.values():
+                if papi_video_path:
+                    files_to_delete.append(papi_video_path)
+
+            s3_handler.cleanup_local_files(session_id, *files_to_delete)
+            logger.info(f"Cleaned up {len(files_to_delete)} local video files for session {session_id}")
+
             # Update session status
             session.status = "completed"
             session.completed_at = datetime.utcnow()
@@ -1464,6 +1642,17 @@ async def process_video_full(session_id: str):
             import traceback
             error_details = traceback.format_exc()
             logger.error(f"Full traceback: {error_details}")
+
+            # Clean up temp video file if it was downloaded from S3
+            if temp_video_path:
+                try:
+                    import os
+                    if os.path.exists(temp_video_path):
+                        os.remove(temp_video_path)
+                        logger.info(f"Cleaned up temporary video file: {temp_video_path}")
+                except Exception as cleanup_error:
+                    logger.error(f"Failed to clean up temporary video file: {cleanup_error}")
+
             if session:
                 try:
                     await db.rollback()
