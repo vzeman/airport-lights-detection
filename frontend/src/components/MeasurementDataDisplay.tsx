@@ -1041,8 +1041,9 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                     {/* Left Y-axis for Red Chromaticity */}
                     <YAxis
                       yAxisId="chroma"
-                      label={{ value: 'Red Chromaticity (%)', angle: -90, position: 'insideLeft', dx: 15 }}
+                      label={{ value: 'Red Chromaticity', angle: -90, position: 'insideLeft', dx: 15 }}
                       domain={['dataMin - 5', 'dataMax + 5']}
+                      tick={false}
                     />
                     {/* Right Y-axis for Angles */}
                     <YAxis
@@ -1050,6 +1051,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                       orientation="right"
                       label={{ value: 'Elevation Angle (°)', angle: 90, position: 'insideRight' }}
                       domain={['dataMin - 1', 'dataMax + 1']}
+                      tickFormatter={(value) => value.toFixed(2)}
                     />
                     <Tooltip
                       formatter={(value: any, name: string) => {
@@ -1133,6 +1135,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                       yAxisId="intensity"
                       label={{ value: 'Intensity', angle: -90, position: 'insideLeft', dx: 15 }}
                       domain={['dataMin - 10', 'dataMax + 10']}
+                      tick={false}
                     />
                     {/* Right Y-axis for Angles */}
                     <YAxis
@@ -1140,6 +1143,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                       orientation="right"
                       label={{ value: 'Elevation Angle (°)', angle: 90, position: 'insideRight' }}
                       domain={['dataMin - 1', 'dataMax + 1']}
+                      tickFormatter={(value) => value.toFixed(2)}
                     />
                     <Tooltip
                       formatter={(value: any, name: string) => {
@@ -1219,8 +1223,9 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                       label={{ value: 'Time (s)', position: 'insideBottom', offset: -5 }}
                     />
                     <YAxis
-                      label={{ value: 'Color Diff (Red - Green) %', angle: -90, position: 'insideLeft', dx: 15 }}
+                      label={{ value: 'Color Diff', angle: -90, position: 'insideLeft', dx: 15 }}
                       domain={['dataMin - 5', 'dataMax + 5']}
+                      tick={false}
                     />
                     <Tooltip
                       formatter={(value: any, name: string) => {
@@ -1298,7 +1303,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                     {hasTransitions ? (
                       <div className="mb-2">
                         <p className="text-xs text-gray-600 inline">
-                          Color transition points: {transitionInfo.map(t => `${t.timestamp.toFixed(2)}s @ ${t.angle.toFixed(3)}°`).join(', ')}
+                          Color transition angles: {transitionInfo.map(t => `${t.angle.toFixed(3)}° @ ${t.timestamp.toFixed(2)}s`).join(', ')}
                         </p>
                         {canValidate && (
                           <span className="ml-3">
@@ -1327,6 +1332,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                           yAxisId="rgb"
                           label={{ value: 'RGB Value', angle: -90, position: 'insideLeft', dx: 15 }}
                           domain={['dataMin - 10', 'dataMax + 10']}
+                          tick={false}
                         />
                         {/* Right Y-axis for angles */}
                         <YAxis
@@ -1334,6 +1340,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                           orientation="right"
                           label={{ value: 'Elevation Angle (°)', angle: 90, position: 'insideRight' }}
                           domain={['dataMin - 1', 'dataMax + 1']}
+                          tickFormatter={(value) => value.toFixed(2)}
                         />
                         <Tooltip
                           formatter={(value: any, name: string) => {
@@ -1348,7 +1355,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                         <Legend />
                         {/* Transition Point Markers - horizontal lines at the angle */}
                         {transitionInfo.map((transition, idx) => {
-                          let label = `Transition @ ${transition.timestamp.toFixed(2)}s`;
+                          let label = `Transition @ ${transition.angle.toFixed(3)}°`;
                           if (nominalAngle !== undefined && nominalAngle !== null) {
                             const deviation = transition.angle - nominalAngle;
                             const sign = deviation >= 0 ? '+' : '';
@@ -1432,8 +1439,9 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                         {/* Left Y-axis for Chromaticity */}
                         <YAxis
                           yAxisId="chroma"
-                          label={{ value: 'Chromaticity (%)', angle: -90, position: 'insideLeft', dx: 15 }}
+                          label={{ value: 'Chromaticity', angle: -90, position: 'insideLeft', dx: 15 }}
                           domain={['dataMin - 5', 'dataMax + 5']}
+                          tick={false}
                         />
                         {/* Right Y-axis for Angle */}
                         <YAxis
@@ -1441,6 +1449,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                           orientation="right"
                           label={{ value: 'Elevation Angle (°)', angle: 90, position: 'insideRight' }}
                           domain={['dataMin - 1', 'dataMax + 1']}
+                          tickFormatter={(value) => value.toFixed(2)}
                         />
                         <Tooltip
                           formatter={(value: any, name: string) => {
@@ -1453,7 +1462,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                         <Legend />
                         {/* Transition Point Markers - horizontal lines at the angle */}
                         {transitionInfo.map((transition, idx) => {
-                          let label = `Transition @ ${transition.timestamp.toFixed(2)}s`;
+                          let label = `Transition @ ${transition.angle.toFixed(3)}°`;
                           if (nominalAngle !== undefined && nominalAngle !== null) {
                             const deviation = transition.angle - nominalAngle;
                             const sign = deviation >= 0 ? '+' : '';
@@ -1619,7 +1628,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                     />
                     <YAxis
                       yAxisId="chroma"
-                      label={{ value: 'Red Chromaticity (%)', angle: -90, position: 'insideLeft', dx: 15 }}
+                      label={{ value: 'Red Chromaticity', angle: -90, position: 'insideLeft', dx: 15 }}
                       domain={['dataMin - 5', 'dataMax + 5']}
                     />
                     <YAxis
