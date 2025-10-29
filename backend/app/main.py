@@ -2,11 +2,13 @@ from fastapi import FastAPI, Request, Response, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from contextlib import asynccontextmanager
 import logging
+import sys
 import os
 import stat
+import traceback
 from pathlib import Path
 from alembic.config import Config
 from alembic import command
@@ -14,30 +16,101 @@ from alembic import command
 from app.core.config import settings
 from app.api import auth, users, airports, airport_import, airspace, item_types, missions, papi_measurements, runways, reference_points
 from app.db.base import engine, Base, AsyncSessionLocal
-from app.core.init_db import init_default_admin
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging with force=True to override any existing configuration
+import logging.config
+
+# Create logs directory if it doesn't exist
+logs_dir = Path(__file__).parent.parent / "logs"
+logs_dir.mkdir(exist_ok=True)
+
+# First, do basic config
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    force=True,
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(logs_dir / "backend.log", mode='a')
+    ]
+)
+
+# Set root logger to INFO
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+
+# Ensure app logger and all subloggers use INFO
+app_logger = logging.getLogger('app')
+app_logger.setLevel(logging.INFO)
+app_logger.propagate = True
+
+# Get the main logger for this module
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# CRITICAL FIX: Ensure uvicorn doesn't filter our logs
+# We need to add our handler to uvicorn's loggers too
+uvicorn_error_logger = logging.getLogger("uvicorn.error")
+uvicorn_error_logger.setLevel(logging.INFO)
+
+uvicorn_access_logger = logging.getLogger("uvicorn.access")
+uvicorn_access_logger.setLevel(logging.INFO)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
     # Startup
-    logger.info("Starting up...")
 
-    # Create database tables
-    logger.info("Creating database tables...")
+    # CRITICAL FIX: Re-configure logging AFTER uvicorn has started
+    # Uvicorn replaces handlers during startup, so we need to fix it here
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+
+    file_handler = logging.FileHandler(logs_dir / "backend.log", mode='a')
+    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+
+    # Add handlers to root logger
+    root_logger.handlers.clear()
+    root_logger.addHandler(stdout_handler)
+    root_logger.addHandler(file_handler)
+    root_logger.setLevel(logging.INFO)
+
+    # Add handlers to app logger
+    app_logger.handlers.clear()
+    app_logger.addHandler(stdout_handler)
+    app_logger.addHandler(file_handler)
+    app_logger.setLevel(logging.INFO)
+
+    # Add handlers to THIS module's logger
+    logger.handlers.clear()
+    logger.addHandler(stdout_handler)
+    logger.addHandler(file_handler)
+    logger.setLevel(logging.INFO)
+
+    logger.info("Starting up...")
+    logger.info("Logger handlers configured: %s", [type(h).__name__ for h in logger.handlers])
+    logger.info("File logging enabled to: backend/logs/backend.log")
+
+    # Run Alembic migrations
+    logger.info("Running database migrations...")
+    try:
+        alembic_cfg = Config("alembic.ini")
+        command.upgrade(alembic_cfg, "head")
+        logger.info("Database migrations completed successfully")
+    except Exception as e:
+        logger.error(f"Error running migrations: {e}")
+        # Continue startup even if migrations fail (tables might already exist)
+        logger.warning("Continuing startup despite migration error...")
+
+    # Create database tables (fallback for new installations without migrations)
+    logger.info("Verifying database tables...")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    logger.info("Database tables created/verified")
+    logger.info("Database tables verified")
 
-    # Initialize default admin user if no users exist
-    logger.info("Initializing default admin user...")
-    async with AsyncSessionLocal() as session:
-        await init_default_admin(session)
-    logger.info("Default admin initialization complete")
+    # Note: Default admin user is now created via Alembic migration (0294ac82fb27)
+    # This ensures it's only created once during database setup, not on every startup
 
     logger.info("Application startup complete")
     yield
@@ -52,6 +125,56 @@ app = FastAPI(
     version=settings.VERSION,
     lifespan=lifespan
 )
+
+# Middleware to ensure logging is configured in all processes (including uvicorn child processes)
+@app.middleware("http")
+async def configure_logging_middleware(request: Request, call_next):
+    """Ensure logging is configured in child processes spawned by uvicorn --reload"""
+    # Check if file handler is configured in root logger
+    root = logging.getLogger()
+    has_file_handler = any(isinstance(h, logging.FileHandler) for h in root.handlers)
+
+    if not has_file_handler:
+        # Re-configure logging in this process
+        stdout_handler = logging.StreamHandler(sys.stdout)
+        stdout_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+
+        file_handler = logging.FileHandler(logs_dir / "backend.log", mode='a')
+        file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+
+        root.handlers.clear()
+        root.addHandler(stdout_handler)
+        root.addHandler(file_handler)
+        root.setLevel(logging.INFO)
+
+        # Also configure app.main logger
+        main_logger = logging.getLogger("app.main")
+        main_logger.handlers.clear()
+        main_logger.addHandler(stdout_handler)
+        main_logger.addHandler(file_handler)
+        main_logger.setLevel(logging.INFO)
+
+    response = await call_next(request)
+    return response
+
+# Add global exception handler for better error logging
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Log full stacktrace for all unhandled exceptions"""
+    logger.error(f"Unhandled exception on {request.method} {request.url}")
+    logger.error(f"Exception type: {type(exc).__name__}")
+    logger.error(f"Exception message: {str(exc)}")
+    logger.error(f"Full traceback:\n{traceback.format_exc()}")
+
+    # Return 500 error to client
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Internal server error",
+            "error": str(exc),
+            "type": type(exc).__name__
+        }
+    )
 
 # Configure CORS
 app.add_middleware(
@@ -108,6 +231,7 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
+    logger.info("Health check endpoint called")
     return {"status": "healthy"}
 
 

@@ -18495,3 +18495,18 @@ yolov*.pt
 .env
 *.env
 backend/.env
+
+# Database files (should only exist in Docker volumes)
+*.ibd
+airport_mgmt_db/
+airport_lights_db/
+*.sql
+
+# Log files
+backend.log
+frontend.log
+*.pid
+
+# Backend logs
+backend/logs/
+*.log

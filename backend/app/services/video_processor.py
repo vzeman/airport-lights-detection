@@ -1141,7 +1141,8 @@ class VideoProcessor:
             adjusted_intensity = light.intensity + position_bonus + red_bonus
 
             # Primary filter: High intensity PAPI lights (very bright) with bonuses
-            if adjusted_intensity > 200:
+            # LOWERED from 200 to 150 to detect more lights
+            if adjusted_intensity > 150:
                 papi_candidates.append(light)
                 logger.debug(f"Candidate: pos=({light.x:.0f},{light.y:.0f}), "
                            f"intensity={light.intensity:.0f}+{position_bonus}+{red_bonus}, "
@@ -1149,28 +1150,33 @@ class VideoProcessor:
                 continue
 
             # Secondary filter: Large lights with good intensity in middle region
-            if in_middle_region and light_area > avg_area * 1.2 and light.intensity > 140:
+            # LOWERED from 140 to 100 to be more permissive
+            if in_middle_region and light_area > avg_area * 1.2 and light.intensity > 100:
                 papi_candidates.append(light)
                 continue
 
             # Tertiary filter: Red lights with good intensity (prioritize red)
-            if is_red and light.intensity > 160 and light_area > avg_area * 0.8:
+            # LOWERED from 160 to 120 for red lights
+            if is_red and light.intensity > 120 and light_area > avg_area * 0.8:
                 papi_candidates.append(light)
                 continue
 
             # Quaternary filter: High brightness with specific light types in middle region
-            if (in_middle_region and light.brightness > 170 and
+            # LOWERED from 170 to 130
+            if (in_middle_region and light.brightness > 130 and
                 light.class_name in ["white_light", "red_light", "high_intensity_light"]):
                 papi_candidates.append(light)
                 continue
 
             # Fifth filter: Large lights with high brightness
-            if light_area > avg_area * 1.5 and light.brightness > 160:
+            # LOWERED from 160 to 120
+            if light_area > avg_area * 1.5 and light.brightness > 120:
                 papi_candidates.append(light)
                 continue
 
             # Final filter: Very bright lights regardless of size
-            if light.brightness > 220:
+            # LOWERED from 220 to 180
+            if light.brightness > 180:
                 papi_candidates.append(light)
 
         logger.info(f"Found {len(papi_candidates)} potential PAPI candidates "
@@ -1759,6 +1765,144 @@ def classify_light_status(r: float, g: float, b: float, intensity: float) -> str
     return "not_visible"
 
 
+class PreciseLightDetector:
+    """Detects precise light position within a user-defined rectangle using brightness analysis"""
+
+    @staticmethod
+    def find_brightest_point_in_rect(frame: np.ndarray, rect_center: Tuple[int, int],
+                                     rect_size: int) -> Tuple[int, int, float]:
+        """
+        Find the brightest point within a rectangle
+
+        Args:
+            frame: The image frame (BGR)
+            rect_center: Center of the rectangle (x, y)
+            rect_size: Size of the rectangle in pixels
+
+        Returns:
+            Tuple of (x, y, confidence) - precise light position and confidence score
+        """
+        cx, cy = rect_center
+        half_size = rect_size // 2
+
+        # Define ROI bounds
+        x1 = max(0, cx - half_size)
+        y1 = max(0, cy - half_size)
+        x2 = min(frame.shape[1], cx + half_size)
+        y2 = min(frame.shape[0], cy + half_size)
+
+        roi = frame[y1:y2, x1:x2]
+
+        if roi.size == 0:
+            return rect_center + (0.0,)
+
+        # Convert to grayscale to find brightness
+        gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+
+        # Apply Gaussian blur to reduce noise
+        blurred = cv2.GaussianBlur(gray_roi, (5, 5), 0)
+
+        # Find the brightest point
+        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(blurred)
+
+        # Convert back to frame coordinates
+        bright_x = x1 + max_loc[0]
+        bright_y = y1 + max_loc[1]
+
+        # Calculate confidence based on brightness and contrast
+        confidence = max_val / 255.0
+        contrast = (max_val - np.mean(blurred)) / 255.0
+        confidence = min(1.0, confidence * (1.0 + contrast))
+
+        logger.debug(f"Found brightest point at ({bright_x}, {bright_y}) with confidence {confidence:.2f}")
+
+        return (bright_x, bright_y, confidence)
+
+    @staticmethod
+    def detect_sub_lights_and_areas(frame: np.ndarray, rect_center: Tuple[int, int],
+                                   rect_size: int, intensity_threshold: float = 0.8) -> List[dict]:
+        """
+        Detect 2 individual sub-lights within a PAPI light rectangle and calculate their lit areas.
+        Each PAPI light consists of 2 smaller lights that should be detected separately.
+
+        Args:
+            frame: The image frame (BGR)
+            rect_center: Center of the PAPI rectangle (x, y)
+            rect_size: Size of the rectangle in pixels
+            intensity_threshold: Threshold as fraction of max intensity (0.8 = 80% of max)
+
+        Returns:
+            List of dicts, each containing:
+            - center: (x, y) center of sub-light
+            - area_pixels: number of pixels in lit area
+            - max_intensity: maximum brightness value
+            - intensity_threshold: actual threshold value used
+        """
+        cx, cy = rect_center
+        half_size = rect_size // 2
+
+        # Define ROI bounds
+        x1 = max(0, cx - half_size)
+        y1 = max(0, cy - half_size)
+        x2 = min(frame.shape[1], cx + half_size)
+        y2 = min(frame.shape[0], cy + half_size)
+
+        roi = frame[y1:y2, x1:x2]
+
+        if roi.size == 0:
+            return []
+
+        # Convert to grayscale for brightness analysis
+        gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        blurred = cv2.GaussianBlur(gray_roi, (5, 5), 0)
+
+        # Find maximum intensity
+        max_intensity = np.max(blurred)
+        threshold_value = max_intensity * intensity_threshold
+
+        # Create binary mask of bright areas (pixels >= 80% of max)
+        bright_mask = (blurred >= threshold_value).astype(np.uint8) * 255
+
+        # Find connected components (individual lights)
+        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(bright_mask, connectivity=8)
+
+        sub_lights = []
+
+        # Process each component (skip label 0 which is background)
+        for label_idx in range(1, num_labels):
+            area = stats[label_idx, cv2.CC_STAT_AREA]
+
+            # Filter out very small noise (less than 5 pixels)
+            if area < 5:
+                continue
+
+            # Get centroid in ROI coordinates
+            centroid_x, centroid_y = centroids[label_idx]
+
+            # Convert to frame coordinates
+            center_x = int(x1 + centroid_x)
+            center_y = int(y1 + centroid_y)
+
+            # Get the actual max intensity in this component
+            component_mask = (labels == label_idx).astype(np.uint8)
+            component_intensities = blurred[component_mask == 1]
+            component_max = np.max(component_intensities) if len(component_intensities) > 0 else max_intensity
+
+            sub_lights.append({
+                'center': (center_x, center_y),
+                'area_pixels': int(area),
+                'max_intensity': float(component_max),
+                'intensity_threshold': float(threshold_value)
+            })
+
+        # Sort by area (largest first) and take top 2
+        sub_lights.sort(key=lambda x: x['area_pixels'], reverse=True)
+
+        # If we found more than 2, keep only the 2 largest
+        # If we found less than 2, that's also fine (might be partially visible)
+        return sub_lights[:2]
+
+
 @dataclass
 class TrackedPAPILight:
     """Represents a PAPI light tracked over multiple frames"""
@@ -1768,57 +1912,125 @@ class TrackedPAPILight:
     frame_numbers: List[int]  # Frame numbers where detected
     confidence_scores: List[float]  # Detection confidence scores
     sizes: List[int]  # Light sizes over time
-    
+    sub_lights: List[List[dict]]  # Sub-light data for each frame (2 lights per frame)
+
     def get_last_position(self) -> Tuple[int, int]:
         """Get most recent position"""
         return self.positions[-1] if self.positions else (0, 0)
-    
+
     def get_velocity(self, frame_gap: int = 1) -> Tuple[float, float]:
         """Calculate velocity based on recent positions"""
         if len(self.positions) < 2:
             return 0.0, 0.0
-        
+
         # Use last few positions for velocity calculation
         recent_positions = self.positions[-min(5, len(self.positions)):]
         recent_frames = self.frame_numbers[-len(recent_positions):]
-        
+
         if len(recent_positions) >= 2:
             dt = recent_frames[-1] - recent_frames[0]
             if dt > 0:
                 vx = (recent_positions[-1][0] - recent_positions[0][0]) / dt
                 vy = (recent_positions[-1][1] - recent_positions[0][1]) / dt
                 return vx, vy
-        
+
         return 0.0, 0.0
-    
+
     def predict_position(self, frame_gap: int) -> Tuple[int, int]:
         """Predict position based on motion history"""
         if not self.positions:
             return 0, 0
-        
+
         last_x, last_y = self.get_last_position()
         vx, vy = self.get_velocity()
-        
+
         pred_x = int(last_x + vx * frame_gap)
         pred_y = int(last_y + vy * frame_gap)
-        
+
         return pred_x, pred_y
+
+    def calculate_weighted_sublight_center(self, sub_lights_data: List[dict]) -> Optional[Tuple[float, float]]:
+        """
+        Calculate weighted center of sub-lights based on intensity and area.
+        This provides a more stable reference point for tracking.
+
+        Args:
+            sub_lights_data: List of sub-light dicts with 'center', 'area_pixels', 'max_intensity'
+
+        Returns:
+            (weighted_x, weighted_y) or None if no sub-lights
+        """
+        if not sub_lights_data or len(sub_lights_data) == 0:
+            return None
+
+        total_weight = 0.0
+        weighted_x = 0.0
+        weighted_y = 0.0
+
+        for sub_light in sub_lights_data:
+            # Weight by both intensity and area (intensity is more important)
+            intensity_weight = sub_light['max_intensity']
+            area_weight = math.sqrt(sub_light['area_pixels'])  # Square root to reduce area dominance
+            weight = intensity_weight * 0.7 + area_weight * 0.3
+
+            center_x, center_y = sub_light['center']
+            weighted_x += center_x * weight
+            weighted_y += center_y * weight
+            total_weight += weight
+
+        if total_weight > 0:
+            return (weighted_x / total_weight, weighted_y / total_weight)
+        return None
+
+    def get_last_weighted_sublight_center(self) -> Optional[Tuple[float, float]]:
+        """Get the weighted center of sub-lights from the most recent frame"""
+        if not self.sub_lights or len(self.sub_lights) == 0:
+            return None
+        return self.calculate_weighted_sublight_center(self.sub_lights[-1])
 
 
 class PAPILightTracker:
-    """Advanced PAPI light tracker with motion prediction based on prototype algorithm"""
+    """Advanced PAPI light tracker with optical flow and motion consistency validation"""
 
     def __init__(self, initial_positions: Dict, frame_width: int, frame_height: int):
         self.frame_width = frame_width
         self.frame_height = frame_height
         self.light_detector = RunwayLightDetector()
-        self.max_distance = 50  # Maximum matching distance
+        self.precise_detector = PreciseLightDetector()
+        self.max_distance = 150  # Increased from 50 to allow wider search for manual positions
         self.max_frame_gap = 20  # Maximum frames without detection
+        self.detection_interval = 1  # Run CV detection every frame for smooth tracking
+        self.last_detection_frame = -999  # Force detection on first frame
+
+        # Optical flow tracking - DISABLED for per-frame detection
+        self.prev_gray = None
+        self.use_optical_flow = False  # Disabled - using per-frame detection instead
+        self.lk_params = dict(
+            winSize=(15, 15),
+            maxLevel=2,
+            criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03)
+        )
+
+        # Motion consistency validation
+        self.motion_history = []  # Store recent motion vectors for all lights
+        self.motion_history_size = 5
+        self.motion_consistency_threshold = 50.0  # Max allowed deviation in pixels
+
+        # Sub-light stabilization configuration - PERFECT STABILITY MODE
+        self.enable_sublight_stabilization = True  # Enable stabilization based on sub-light centers
+        self.sublight_stabilization_strength = 0.25  # Smoothing factor: 25% new position, 75% previous (lower = more stable)
+        self.sublight_min_confidence = 0.3  # Minimum confidence to apply stabilization (lowered to stabilize more frames)
+        self.sublight_max_correction = 8.0  # Maximum pixels to move per frame (reduced for smoother motion)
 
         # Initialize tracked lights from manual positions
         self.tracked_lights: Dict[str, TrackedPAPILight] = {}
         valid_lights_count = 0
-        
+
+        logger.info(f"{'='*80}")
+        logger.info(f"TRACKER INIT: Initializing with manual positions for frame size {frame_width}x{frame_height}")
+        logger.info(f"TRACKER INIT: Received initial_positions = {initial_positions}")
+        logger.info(f"{'='*80}")
+
         for light_name, pos in initial_positions.items():
             if light_name in ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D']:
                 # Handle different position data formats
@@ -1828,6 +2040,7 @@ class PAPILightTracker:
                         pixel_x = int((pos['x'] / 100) * frame_width)
                         pixel_y = int((pos['y'] / 100) * frame_height)
                         pixel_size = int((pos.get('size', 8) / 100) * frame_width)
+                        logger.info(f"TRACKER INIT: {light_name} = ({pixel_x}, {pixel_y}) pixels from {pos['x']:.2f}%, {pos['y']:.2f}% | size={pixel_size}px")
                         valid_lights_count += 1
                     else:
                         # Use fallback default positions if coordinates are missing
@@ -1852,7 +2065,8 @@ class PAPILightTracker:
                     rgb_values=[(255, 255, 255)],  # Default white
                     frame_numbers=[0],
                     confidence_scores=[0.0],
-                    sizes=[pixel_size]
+                    sizes=[pixel_size],
+                    sub_lights=[]  # Will be populated during frame processing
                 )
         
         if valid_lights_count == 0:
@@ -1897,20 +2111,355 @@ class PAPILightTracker:
         median_dy = np.median(motions[:, 1])
         
         return median_dx, median_dy
-    
-    def update_frame(self, frame: np.ndarray, frame_number: int) -> Dict:
-        """Update light positions for current frame using sophisticated tracking"""
-        # Detect all lights in current frame
-        detected_lights = self.light_detector.detect_lights(frame)
 
-        # Estimate global motion if we have previous detections
-        if self.prev_detections and len(self.prev_detections) >= 3 and len(detected_lights) >= 3:
-            self.global_motion = self.estimate_global_motion(detected_lights, self.prev_detections)
-        
-        # Update each tracked PAPI light
+    def refine_initial_positions(self, first_frame: np.ndarray) -> None:
+        """
+        Refine initial positions by finding brightest point within user-selected rectangles.
+        This should be called once on the first frame after initialization.
+        """
+        logger.info("=" * 80)
+        logger.info("REFINING INITIAL PAPI LIGHT POSITIONS USING BRIGHTNESS ANALYSIS")
+        logger.info("=" * 80)
+
+        for light_name, tracked_light in self.tracked_lights.items():
+            initial_x, initial_y = tracked_light.positions[0]
+            initial_size = tracked_light.sizes[0]
+
+            logger.info(f"Processing {light_name}:")
+            logger.info(f"  User-selected center: ({initial_x}, {initial_y}) px")
+            logger.info(f"  User-selected size: {initial_size} px")
+            logger.info(f"  Searching for brightest point within rectangle...")
+
+            # Find precise position within the rectangle
+            refined_x, refined_y, confidence = self.precise_detector.find_brightest_point_in_rect(
+                first_frame, (initial_x, initial_y), initial_size
+            )
+
+            # Calculate how much the position moved
+            movement = math.sqrt((refined_x - initial_x)**2 + (refined_y - initial_y)**2)
+
+            # Update the tracked light with refined position
+            tracked_light.positions[0] = (refined_x, refined_y)
+            tracked_light.confidence_scores[0] = confidence
+
+            logger.info(f"  ✓ Refined position: ({refined_x}, {refined_y}) px")
+            logger.info(f"  ✓ Movement: {movement:.1f} px")
+            logger.info(f"  ✓ Confidence: {confidence:.2f}")
+
+        logger.info("=" * 80)
+        logger.info("REFINEMENT COMPLETE - REFINED POSITIONS WILL BE USED FOR TRACKING")
+        logger.info("=" * 80)
+
+    def track_with_optical_flow(self, frame: np.ndarray) -> Dict[str, Tuple[int, int, float]]:
+        """
+        Track all PAPI lights using Lucas-Kanade optical flow.
+
+        Returns:
+            Dict mapping light_name to (x, y, confidence) tuples
+        """
+        if self.prev_gray is None:
+            return {}
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        # Get previous positions for all lights
+        prev_points = []
+        light_names = []
+        for light_name, tracked_light in self.tracked_lights.items():
+            x, y = tracked_light.get_last_position()
+            prev_points.append([x, y])
+            light_names.append(light_name)
+
+        if len(prev_points) == 0:
+            return {}
+
+        prev_points = np.array(prev_points, dtype=np.float32).reshape(-1, 1, 2)
+
+        # Calculate optical flow
+        next_points, status, error = cv2.calcOpticalFlowPyrLK(
+            self.prev_gray, gray, prev_points, None, **self.lk_params
+        )
+
+        # Process results
+        tracked_positions = {}
+        for i, light_name in enumerate(light_names):
+            if status[i][0] == 1:  # Successfully tracked
+                x, y = next_points[i][0]
+                x, y = int(x), int(y)
+
+                # Calculate confidence based on error
+                conf = max(0.0, 1.0 - error[i][0] / 50.0)  # Normalize error to 0-1
+
+                tracked_positions[light_name] = (x, y, conf)
+                logger.debug(f"Optical flow: {light_name} → ({x},{y}) conf={conf:.2f}")
+
+        self.prev_gray = gray
+        return tracked_positions
+
+    def validate_motion_consistency(self, motion_vectors: List[Tuple[float, float]]) -> bool:
+        """
+        Validate that all PAPI lights move consistently (they should since they're static
+        and only the drone is moving).
+
+        Args:
+            motion_vectors: List of (dx, dy) motion vectors for each light
+
+        Returns:
+            True if motion is consistent, False otherwise
+        """
+        if len(motion_vectors) < 2:
+            return True  # Can't validate with less than 2 lights
+
+        # Calculate mean motion
+        mean_dx = np.mean([v[0] for v in motion_vectors])
+        mean_dy = np.mean([v[1] for v in motion_vectors])
+
+        # Calculate deviation from mean
+        deviations = []
+        for dx, dy in motion_vectors:
+            deviation = math.sqrt((dx - mean_dx)**2 + (dy - mean_dy)**2)
+            deviations.append(deviation)
+
+        max_deviation = max(deviations)
+
+        # Check if deviation is within threshold
+        is_consistent = max_deviation < self.motion_consistency_threshold
+
+        if not is_consistent:
+            logger.warning(f"Inconsistent motion detected! Max deviation: {max_deviation:.1f}px (threshold: {self.motion_consistency_threshold}px)")
+        else:
+            logger.debug(f"Motion consistent: max deviation {max_deviation:.1f}px")
+
+        return is_consistent
+
+    def apply_sublight_stabilization(
+        self,
+        tracked_light: TrackedPAPILight,
+        detected_x: int,
+        detected_y: int,
+        current_sub_lights: List[dict],
+        confidence: float
+    ) -> Tuple[int, int]:
+        """
+        Apply perfect stabilization by using the weighted sub-light center as the actual position.
+        This creates a 100% stable cross position because we use the same calculation every frame.
+
+        The algorithm:
+        1. Calculate weighted center of current frame's sub-lights
+        2. Use that center DIRECTLY as the position (not as a correction)
+        3. Smooth the transition using exponential moving average with previous positions
+        4. This ensures the cross never jumps, even with detection variations
+
+        Args:
+            tracked_light: The tracked light object with history
+            detected_x, detected_y: Initial detected position (used as fallback)
+            current_sub_lights: Sub-lights detected in current frame
+            confidence: Detection confidence score
+
+        Returns:
+            (stabilized_x, stabilized_y) - the weighted sub-light center position
+        """
+        # Skip stabilization if disabled or confidence too low
+        if not self.enable_sublight_stabilization or confidence < self.sublight_min_confidence:
+            return detected_x, detected_y
+
+        # If no sub-lights detected, fall back to detected position
+        if len(current_sub_lights) == 0:
+            return detected_x, detected_y
+
+        # Calculate weighted center of current sub-lights - THIS IS OUR TARGET POSITION
+        current_center = tracked_light.calculate_weighted_sublight_center(current_sub_lights)
+        if current_center is None:
+            return detected_x, detected_y
+
+        # For first frame (no history), use the sub-light center directly
+        if len(tracked_light.sub_lights) == 0 or len(tracked_light.positions) == 0:
+            stabilized_x = int(current_center[0])
+            stabilized_y = int(current_center[1])
+            logger.info(f"  {tracked_light.light_name}: First frame - using sub-light center directly: ({stabilized_x}, {stabilized_y})")
+            return stabilized_x, stabilized_y
+
+        # Get previous position for smoothing
+        prev_x, prev_y = tracked_light.get_last_position()
+
+        # Calculate distance from previous position to new sub-light center
+        distance = math.sqrt((current_center[0] - prev_x)**2 + (current_center[1] - prev_y)**2)
+
+        # If movement is too large (>30px), it's likely a detection error - smooth more heavily
+        if distance > 30.0:
+            # Use strong smoothing (95% previous, 5% new) to avoid jumps
+            smoothing_factor = 0.05
+            logger.debug(f"  {tracked_light.light_name}: Large movement detected ({distance:.1f}px), applying heavy smoothing")
+        elif distance > 15.0:
+            # Medium movement - moderate smoothing (80% previous, 20% new)
+            smoothing_factor = 0.20
+        else:
+            # Normal movement - light smoothing to follow real motion
+            smoothing_factor = self.sublight_stabilization_strength  # Default 0.85
+
+        # Apply exponential moving average: new_pos = prev_pos * (1-alpha) + target * alpha
+        stabilized_x = int(prev_x * (1 - smoothing_factor) + current_center[0] * smoothing_factor)
+        stabilized_y = int(prev_y * (1 - smoothing_factor) + current_center[1] * smoothing_factor)
+
+        # Clamp maximum movement per frame for extra safety
+        max_move = self.sublight_max_correction
+        dx = stabilized_x - prev_x
+        dy = stabilized_y - prev_y
+        actual_movement = math.sqrt(dx**2 + dy**2)
+
+        if actual_movement > max_move:
+            scale = max_move / actual_movement
+            stabilized_x = int(prev_x + dx * scale)
+            stabilized_y = int(prev_y + dy * scale)
+            logger.debug(f"  {tracked_light.light_name}: Clamped movement from {actual_movement:.1f}px to {max_move}px")
+
+        # Log stabilization for first few frames
+        if len(tracked_light.frame_numbers) <= 10:
+            logger.info(f"  {tracked_light.light_name}: Stabilization: "
+                       f"detected=({detected_x}, {detected_y}), "
+                       f"sub-light_center=({current_center[0]:.1f}, {current_center[1]:.1f}), "
+                       f"prev_pos=({prev_x}, {prev_y}), "
+                       f"stabilized=({stabilized_x}, {stabilized_y}), "
+                       f"movement={distance:.1f}px")
+
+        return stabilized_x, stabilized_y
+
+    def update_frame(self, frame: np.ndarray, frame_number: int) -> Dict:
+        """Update light positions for current frame using optical flow and sophisticated tracking"""
+
+        # SPECIAL CASE: For frame 0, refine initial positions and set up optical flow
+        if frame_number == 0:
+            logger.info(f"{'='*80}")
+            logger.info("UPDATE_FRAME: Frame 0 - Refining manually selected positions")
+
+            # Refine positions by finding brightest point in each rectangle
+            self.refine_initial_positions(frame)
+
+            # Initialize previous gray frame for optical flow
+            self.prev_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+            # Return refined positions
+            frame_positions = {}
+            for light_name, tracked_light in self.tracked_lights.items():
+                last_x, last_y = tracked_light.get_last_position()
+                last_size = tracked_light.sizes[-1] if tracked_light.sizes else 20
+
+                # Extract RGB from refined position
+                roi_size = last_size // 2
+                x1 = max(0, last_x - roi_size)
+                y1 = max(0, last_y - roi_size)
+                x2 = min(frame.shape[1], last_x + roi_size)
+                y2 = min(frame.shape[0], last_y + roi_size)
+                roi = frame[y1:y2, x1:x2]
+
+                if roi.size > 0:
+                    rgb = extract_color_from_brightest_pixels(roi)
+                else:
+                    rgb = (255, 255, 255)
+
+                tracked_light.rgb_values[0] = rgb
+
+                # Detect 2 sub-lights within this PAPI rectangle
+                sub_lights = self.precise_detector.detect_sub_lights_and_areas(
+                    frame, (last_x, last_y), last_size
+                )
+                tracked_light.sub_lights.append(sub_lights)
+
+                frame_positions[light_name] = {
+                    'x': last_x,
+                    'y': last_y,
+                    'size': last_size,
+                    'rgb': rgb,
+                    'confidence': tracked_light.confidence_scores[0],
+                    'sub_lights': sub_lights
+                }
+
+                # Log sub-light info
+                if len(sub_lights) > 0:
+                    areas_str = ", ".join([f"{sl['area_pixels']}px²" for sl in sub_lights])
+                    logger.info(f"UPDATE_FRAME: {light_name} → ({last_x}, {last_y}) size={last_size} RGB={rgb}, {len(sub_lights)} sub-lights: {areas_str}")
+                else:
+                    logger.info(f"UPDATE_FRAME: {light_name} → ({last_x}, {last_y}) size={last_size} RGB={rgb}")
+
+            logger.info(f"{'='*80}")
+            return frame_positions
+
+        # For subsequent frames, try optical flow first
         frame_positions = {}
-        unmatched_detections = list(detected_lights)
-        
+
+        # Try optical flow tracking (runs on EVERY frame for frame-to-frame tracking)
+        optical_flow_positions = self.track_with_optical_flow(frame) if self.use_optical_flow else {}
+
+        if len(optical_flow_positions) > 0:
+            logger.debug(f"Frame {frame_number}: Optical flow tracked {len(optical_flow_positions)}/4 lights")
+        else:
+            logger.debug(f"Frame {frame_number}: Optical flow failed (prev_gray={'exists' if self.prev_gray is not None else 'missing'})")
+
+        # Calculate motion vectors for consistency validation
+        motion_vectors = []
+        for light_name, (new_x, new_y, conf) in optical_flow_positions.items():
+            if light_name in self.tracked_lights:
+                old_x, old_y = self.tracked_lights[light_name].get_last_position()
+                dx, dy = new_x - old_x, new_y - old_y
+                motion_vectors.append((dx, dy))
+                logger.debug(f"  {light_name}: moved ({dx:+.1f}, {dy:+.1f}) px")
+
+        # Validate motion consistency
+        motion_is_consistent = self.validate_motion_consistency(motion_vectors) if len(motion_vectors) >= 2 else True
+
+        # Use optical flow if successful and motion is consistent
+        use_optical_flow = len(optical_flow_positions) >= 3 and motion_is_consistent
+
+        if use_optical_flow:
+            logger.info(f"Frame {frame_number}: ✓ Using optical flow (tracked {len(optical_flow_positions)} lights, motion consistent)")
+
+            for light_name, (new_x, new_y, conf) in optical_flow_positions.items():
+                tracked_light = self.tracked_lights[light_name]
+
+                # Extract RGB from new position
+                roi_size = tracked_light.sizes[-1] // 2
+                x1 = max(0, new_x - roi_size)
+                y1 = max(0, new_y - roi_size)
+                x2 = min(frame.shape[1], new_x + roi_size)
+                y2 = min(frame.shape[0], new_y + roi_size)
+                roi = frame[y1:y2, x1:x2]
+
+                if roi.size > 0:
+                    rgb = extract_color_from_brightest_pixels(roi)
+                else:
+                    rgb = tracked_light.rgb_values[-1]
+
+                # Update tracked light
+                tracked_light.positions.append((new_x, new_y))
+                tracked_light.rgb_values.append(rgb)
+                tracked_light.frame_numbers.append(frame_number)
+                tracked_light.confidence_scores.append(conf)
+                tracked_light.sizes.append(tracked_light.sizes[-1])
+
+                frame_positions[light_name] = {
+                    'x': new_x,
+                    'y': new_y,
+                    'size': tracked_light.sizes[-1],
+                    'rgb': rgb,
+                    'confidence': conf
+                }
+
+            return frame_positions
+
+        # Fallback to detection-based tracking if optical flow fails
+        if len(optical_flow_positions) < 3:
+            logger.info(f"Frame {frame_number}: ⚠ Falling back to detection (optical flow tracked only {len(optical_flow_positions)}/4 lights)")
+        else:
+            logger.info(f"Frame {frame_number}: ⚠ Falling back to detection (motion inconsistent)")
+        logger.debug(f"Frame {frame_number}: Running full light detection on frame...")
+
+        # Run light detection on current frame
+        detected_lights = self.light_detector.detect_lights(frame)
+        logger.debug(f"Frame {frame_number}: Detected {len(detected_lights)} lights in frame")
+
+        # Update each tracked PAPI light by matching to detected lights
+        unmatched_detections = list(detected_lights)  # Will match these to our tracked lights
+
         for light_name, tracked_light in self.tracked_lights.items():
             last_frame = tracked_light.frame_numbers[-1] if tracked_light.frame_numbers else 0
             frame_gap = frame_number - last_frame
@@ -1973,48 +2522,120 @@ class PAPILightTracker:
                     best_match_idx = idx
             
             if best_match:
-                # Update tracked light with detection
-                tracked_light.positions.append((int(best_match.x), int(best_match.y)))
-                tracked_light.rgb_values.append((best_match.r, best_match.g, best_match.b))
+                # REFINE POSITION: Find brightest point within detected area for accuracy
+                search_size = max(best_match.width, best_match.height)
+                refined_x, refined_y, refined_conf = self.precise_detector.find_brightest_point_in_rect(
+                    frame, (int(best_match.x), int(best_match.y)), search_size
+                )
+
+                # Detect 2 sub-lights within this PAPI rectangle (before stabilization)
+                sub_lights = self.precise_detector.detect_sub_lights_and_areas(
+                    frame, (refined_x, refined_y), search_size
+                )
+
+                # APPLY SUB-LIGHT STABILIZATION: Adjust position based on sub-light center movement
+                stabilized_x, stabilized_y = self.apply_sublight_stabilization(
+                    tracked_light, refined_x, refined_y, sub_lights, refined_conf
+                )
+
+                # Extract RGB from stabilized position
+                roi_size = search_size // 2
+                x1 = max(0, stabilized_x - roi_size)
+                y1 = max(0, stabilized_y - roi_size)
+                x2 = min(frame.shape[1], stabilized_x + roi_size)
+                y2 = min(frame.shape[0], stabilized_y + roi_size)
+                roi = frame[y1:y2, x1:x2]
+
+                if roi.size > 0:
+                    rgb = extract_color_from_brightest_pixels(roi)
+                else:
+                    rgb = (best_match.r, best_match.g, best_match.b)
+
+                # Update tracked light with stabilized position
+                tracked_light.positions.append((stabilized_x, stabilized_y))
+                tracked_light.rgb_values.append(rgb)
                 tracked_light.frame_numbers.append(frame_number)
-                tracked_light.confidence_scores.append(best_match.confidence)
-                tracked_light.sizes.append(max(best_match.width, best_match.height))
-                
+                tracked_light.confidence_scores.append(refined_conf)
+                tracked_light.sizes.append(search_size)
+                tracked_light.sub_lights.append(sub_lights)
+
+                # Log first few frames for debugging
+                if frame_number <= 10:
+                    movement = math.sqrt((refined_x - int(best_match.x))**2 + (refined_y - int(best_match.y))**2)
+                    areas_str = ", ".join([f"{sl['area_pixels']}px²" for sl in sub_lights]) if sub_lights else "none"
+                    logger.info(f"Frame {frame_number}: {light_name} detected at ({int(best_match.x)}, {int(best_match.y)}), "
+                               f"refined to ({refined_x}, {refined_y}), stabilized to ({stabilized_x}, {stabilized_y}), "
+                               f"movement={movement:.1f}px, sub-lights: {areas_str}")
+
                 # Remove from unmatched list
                 if best_match_idx >= 0:
                     unmatched_detections.pop(best_match_idx)
-                
+
                 frame_positions[light_name] = {
-                    'x': int(best_match.x),
-                    'y': int(best_match.y),
-                    'size': max(best_match.width, best_match.height),
-                    'rgb': [best_match.r, best_match.g, best_match.b],
-                    'confidence': best_match.confidence
+                    'x': stabilized_x,
+                    'y': stabilized_y,
+                    'size': search_size,
+                    'rgb': list(rgb),
+                    'confidence': refined_conf,
+                    'sub_lights': sub_lights
                 }
             else:
-                # No detection found, use prediction
-                last_rgb = tracked_light.rgb_values[-1] if tracked_light.rgb_values else [255, 255, 255]
+                # No detection found - try to refine predicted position using brightness
                 last_size = tracked_light.sizes[-1] if tracked_light.sizes else 20
-                
-                # Optionally update with interpolated position
-                if frame_gap <= 5:  # Only interpolate for short gaps
-                    tracked_light.positions.append((pred_x, pred_y))
-                    tracked_light.rgb_values.append(last_rgb)
+
+                # Try to find brightest point near predicted position
+                refined_x, refined_y, refined_conf = self.precise_detector.find_brightest_point_in_rect(
+                    frame, (pred_x, pred_y), last_size
+                )
+
+                # Detect 2 sub-lights within predicted rectangle
+                sub_lights = self.precise_detector.detect_sub_lights_and_areas(
+                    frame, (refined_x, refined_y), last_size
+                )
+
+                # APPLY SUB-LIGHT STABILIZATION: Even for predicted positions
+                stabilized_x, stabilized_y = self.apply_sublight_stabilization(
+                    tracked_light, refined_x, refined_y, sub_lights, refined_conf * 0.5
+                )
+
+                # Extract RGB from stabilized position
+                roi_size = last_size // 2
+                x1 = max(0, stabilized_x - roi_size)
+                y1 = max(0, stabilized_y - roi_size)
+                x2 = min(frame.shape[1], stabilized_x + roi_size)
+                y2 = min(frame.shape[0], stabilized_y + roi_size)
+                roi = frame[y1:y2, x1:x2]
+
+                if roi.size > 0:
+                    rgb = extract_color_from_brightest_pixels(roi)
+                else:
+                    rgb = tracked_light.rgb_values[-1] if tracked_light.rgb_values else (255, 255, 255)
+
+                # Update with stabilized predicted position
+                if frame_gap <= 5:  # Only update for short gaps
+                    tracked_light.positions.append((stabilized_x, stabilized_y))
+                    tracked_light.rgb_values.append(rgb)
                     tracked_light.frame_numbers.append(frame_number)
-                    tracked_light.confidence_scores.append(0.2)  # Low confidence
+                    tracked_light.confidence_scores.append(max(0.3, refined_conf * 0.5))  # Lower confidence for prediction
                     tracked_light.sizes.append(last_size)
-                
+                    tracked_light.sub_lights.append(sub_lights)
+
                 frame_positions[light_name] = {
-                    'x': pred_x,
-                    'y': pred_y,
+                    'x': stabilized_x,
+                    'y': stabilized_y,
                     'size': last_size,
-                    'rgb': last_rgb,
-                    'confidence': 0.2
+                    'rgb': list(rgb) if isinstance(rgb, tuple) else rgb,
+                    'confidence': max(0.3, refined_conf * 0.5),
+                    'sub_lights': sub_lights
                 }
         
         # Store current detections for next iteration
         self.prev_detections = detected_lights
-        
+
+        # IMPORTANT: Always update prev_gray for next frame's optical flow
+        # This ensures optical flow tracks between consecutive frames even after detection fallback
+        self.prev_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
         return frame_positions
 
 
@@ -2151,22 +2772,22 @@ class PAPIVideoGenerator:
                 if not ret:
                     # Process remaining frames in batch
                     if frame_batch:
-                        self._process_frame_batch(frame_batch, frame_indices, light_tracker, out, 
-                                                total_frames, measurements_data, drone_telemetry, 
-                                                reference_points, gps_cache, fps)
+                        self._process_frame_batch(frame_batch, frame_indices, light_tracker, out,
+                                                total_frames, measurements_data, drone_telemetry,
+                                                reference_points, gps_cache, fps, light_positions)
                         frames_written += len(frame_batch)
                     break
-                
+
                 frame_batch.append(frame)
                 frame_indices.append(frame_count)
                 frame_count += 1
-                
+
                 # Process batch when full or at end of video
                 if len(frame_batch) >= self.batch_size:
                     try:
-                        self._process_frame_batch(frame_batch, frame_indices, light_tracker, out, 
-                                                total_frames, measurements_data, drone_telemetry, 
-                                                reference_points, gps_cache, fps)
+                        self._process_frame_batch(frame_batch, frame_indices, light_tracker, out,
+                                                total_frames, measurements_data, drone_telemetry,
+                                                reference_points, gps_cache, fps, light_positions)
                         frames_written += len(frame_batch)
 
                         # Progress logging and callback
@@ -2249,66 +2870,128 @@ class PAPIVideoGenerator:
                 os.remove(enhanced_video_path)
             return ""
     
-    def _process_frame_batch(self, frame_batch: List[np.ndarray], frame_indices: List[int], 
+    def _process_frame_batch(self, frame_batch: List[np.ndarray], frame_indices: List[int],
                             light_tracker, out, total_frames: int, measurements_data: List[Dict],
-                            drone_telemetry: List[Dict], reference_points: Dict, 
-                            gps_cache: Dict, fps: float):
+                            drone_telemetry: List[Dict], reference_points: Dict,
+                            gps_cache: Dict, fps: float, original_light_positions: Dict = None):
         """Process a batch of frames for GPU optimization"""
         enhanced_frames = []
-        
+
         for i, (frame, frame_idx) in enumerate(zip(frame_batch, frame_indices)):
             try:
                 # Update light positions for current frame
                 tracked_positions = light_tracker.update_frame(frame, frame_idx)
-                
+
                 # Get pre-computed GPS data
                 drone_data = gps_cache.get(frame_idx)
-                
+
                 # Enhance frame with overlays using tracked positions and cached GPS data
                 enhanced_frame = self._add_overlays_to_frame_with_tracking_optimized(
-                    frame, tracked_positions, frame_idx, total_frames, 
-                    measurements_data, drone_telemetry, reference_points, drone_data
+                    frame, tracked_positions, frame_idx, total_frames,
+                    measurements_data, drone_telemetry, reference_points, drone_data,
+                    original_light_positions
                 )
-                
+
                 enhanced_frames.append(enhanced_frame)
-                
+
             except Exception as frame_error:
                 logger.warning(f"Error processing frame {frame_idx}: {frame_error}")
                 enhanced_frames.append(frame)  # Use original frame
-        
+
         # Write all enhanced frames
         for enhanced_frame in enhanced_frames:
             out.write(enhanced_frame)
     
-    def _add_overlays_to_frame_with_tracking_optimized(self, frame: np.ndarray, tracked_positions: Dict, 
+    def _add_overlays_to_frame_with_tracking_optimized(self, frame: np.ndarray, tracked_positions: Dict,
                                                       frame_number: int, total_frames: int,
                                                       measurements_data: List[Dict] = None,
                                                       drone_telemetry: List[Dict] = None,
                                                       reference_points: Dict = None,
-                                                      cached_drone_data: Dict = None) -> np.ndarray:
+                                                      cached_drone_data: Dict = None,
+                                                      original_light_positions: Dict = None) -> np.ndarray:
         """Optimized version with pre-computed GPS data"""
         enhanced_frame = frame.copy()
         height, width = frame.shape[:2]
-        
+
+        # CRITICAL DEBUG LOGGING for frame 0
+        if frame_number == 0:
+            logger.info(f"{'='*80}")
+            logger.info(f"DRAWING FRAME 0: Positions received for drawing")
+            for light_name, pos in tracked_positions.items():
+                if light_name in ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D']:
+                    logger.info(f"DRAWING: {light_name} at x={pos.get('x')}, y={pos.get('y')}, size={pos.get('size')}")
+
+        # ON FIRST FRAME ONLY: Draw the original manual selection rectangles
+        # These show where the user positioned the rectangles before processing started
+        if frame_number == 0 and original_light_positions:
+            logger.info(f"DRAWING ORIGINAL MANUAL SELECTION RECTANGLES ON FRAME 0")
+            for light_name, pos in original_light_positions.items():
+                if light_name not in ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D']:
+                    continue
+
+                if not isinstance(pos, dict):
+                    continue
+
+                # Original positions are in percentages, convert to pixels
+                center_x_pct = pos.get('x', 50)
+                center_y_pct = pos.get('y', 50)
+                size_pct = pos.get('size', 8)
+
+                pixel_x = int((center_x_pct / 100.0) * width)
+                pixel_y = int((center_y_pct / 100.0) * height)
+                pixel_size = int((size_pct / 100.0) * width)
+
+                # Calculate rectangle bounds
+                half_size = pixel_size // 2
+                x1 = max(0, pixel_x - half_size)
+                y1 = max(0, pixel_y - half_size)
+                x2 = min(width, pixel_x + half_size)
+                y2 = min(height, pixel_y + half_size)
+
+                # Draw manual selection rectangle in CYAN with thick border
+                manual_color = (255, 255, 0)  # Cyan (BGR format)
+                manual_thickness = 4
+                cv2.rectangle(enhanced_frame, (x1, y1), (x2, y2), manual_color, manual_thickness)
+
+                # Add label showing this is the manual selection
+                label_text = f"{light_name.replace('PAPI_', '')} (Manual Selection)"
+                label_size = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
+                label_x = max(5, x1)
+                label_y = max(20, y1 - 5)
+
+                # Draw label background
+                cv2.rectangle(enhanced_frame,
+                            (label_x - 2, label_y - label_size[1] - 2),
+                            (label_x + label_size[0] + 2, label_y + 2),
+                            (0, 0, 0), -1)
+                # Draw label text
+                cv2.putText(enhanced_frame, label_text, (label_x, label_y),
+                          cv2.FONT_HERSHEY_SIMPLEX, 0.5, manual_color, 1, cv2.LINE_AA)
+
+                logger.info(f"Drew manual selection for {light_name} at ({pixel_x}, {pixel_y}) with size={pixel_size}")
+
         # Draw tracked PAPI light rectangles with current RGB values
         for light_name, pos in tracked_positions.items():
             if light_name not in ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D']:
                 continue
-            
+
             if not isinstance(pos, dict) or 'x' not in pos or 'y' not in pos:
                 continue
-                
+
             pixel_x = pos['x']
             pixel_y = pos['y']
             pixel_size = pos.get('size', 20)
             confidence = pos.get('confidence', 0.0)
-            
+
             # Calculate rectangle bounds
             half_size = pixel_size // 2
             x1 = max(0, pixel_x - half_size)
             y1 = max(0, pixel_y - half_size)
             x2 = min(width, pixel_x + half_size)
             y2 = min(height, pixel_y + half_size)
+
+            if frame_number == 0:
+                logger.info(f"DRAWING: {light_name} rectangle at ({pixel_x}, {pixel_y}) with size={pixel_size}, bounds=[{x1},{y1},{x2},{y2}]")
             
             # Get RGB values from tracking if available
             rgb_values = pos.get('rgb', [255, 255, 255])
@@ -2929,7 +3612,7 @@ class PAPIVideoGenerator:
                     # Will convert to H.264 after creation using ffmpeg
                     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
                     video_writers[light_name] = cv2.VideoWriter(
-                        video_output_path, fourcc, fps, (300, 400)  # Fixed 300x400 output size (100px for professional footer)
+                        video_output_path, fourcc, fps, (300, 420)  # Fixed 300x420 output size (120px for professional footer with sub-lights)
                     )
             
             frame_count = 0
@@ -2987,18 +3670,56 @@ class PAPIVideoGenerator:
                         if light_frame.size > 0:
                             # Get RGB values for color-coded text
                             rgb = tracked_pos.get('rgb', [255, 255, 255])
-                            
+
+                            # Get sub-light data (with backward compatibility)
+                            sub_lights = tracked_pos.get('sub_lights', [])
+
                             # Resize the light region to 300x300
                             light_frame_resized = cv2.resize(light_frame, (300, 300))
 
-                            # Create final frame with professional footer (100px height)
-                            final_frame = np.zeros((400, 300, 3), dtype=np.uint8)
+                            # Draw sub-light centers and areas on resized frame
+                            # Calculate scaling factor for sub-light positions
+                            original_region_width = x2 - x1
+                            original_region_height = y2 - y1
+                            scale_x = 300.0 / original_region_width if original_region_width > 0 else 1.0
+                            scale_y = 300.0 / original_region_height if original_region_height > 0 else 1.0
+
+                            for idx, sub_light in enumerate(sub_lights):
+                                # Get sub-light center in frame coordinates
+                                sub_center_x, sub_center_y = sub_light['center']
+
+                                # Convert to region-relative coordinates
+                                rel_x = sub_center_x - x1
+                                rel_y = sub_center_y - y1
+
+                                # Scale to resized frame coordinates
+                                scaled_x = int(rel_x * scale_x)
+                                scaled_y = int(rel_y * scale_y)
+
+                                # Draw cross marker (red for first light, green for second)
+                                cross_color = (0, 0, 255) if idx == 0 else (0, 255, 0)  # BGR: Red or Green
+                                cross_size = 8
+                                thickness = 2
+
+                                # Draw horizontal line of cross
+                                cv2.line(light_frame_resized,
+                                        (scaled_x - cross_size, scaled_y),
+                                        (scaled_x + cross_size, scaled_y),
+                                        cross_color, thickness)
+                                # Draw vertical line of cross
+                                cv2.line(light_frame_resized,
+                                        (scaled_x, scaled_y - cross_size),
+                                        (scaled_x, scaled_y + cross_size),
+                                        cross_color, thickness)
+
+                            # Create final frame with professional footer (120px height for sub-light info)
+                            final_frame = np.zeros((420, 300, 3), dtype=np.uint8)
 
                             # Copy the resized light frame to the top part
                             final_frame[0:300, 0:300] = light_frame_resized
 
                             # Create light gray footer background (professional look)
-                            final_frame[300:400, 0:300] = [245, 245, 245]  # Light gray background
+                            final_frame[300:420, 0:300] = [245, 245, 245]  # Light gray background
 
                             # Get angle information from reference points
                             nominal_angle = None
@@ -3070,8 +3791,29 @@ class PAPIVideoGenerator:
                                 cv2.putText(final_frame, "N/A", (col_width * 2, y_base + 18),
                                           font, 0.5, (150, 150, 150), 1)
 
+                            # Sub-light areas (with color-coded markers)
+                            sub_y = 390
+                            if len(sub_lights) >= 2:
+                                # Display areas for both sub-lights with colored labels
+                                cv2.putText(final_frame, f"Sub1:", (10, sub_y),
+                                          font, 0.4, (0, 0, 255), 1)  # Red (matches cross color)
+                                cv2.putText(final_frame, f"{sub_lights[0]['area_pixels']}px", (50, sub_y),
+                                          font, 0.4, (50, 50, 50), 1)
+                                cv2.putText(final_frame, f"Sub2:", (110, sub_y),
+                                          font, 0.4, (0, 255, 0), 1)  # Green (matches cross color)
+                                cv2.putText(final_frame, f"{sub_lights[1]['area_pixels']}px", (150, sub_y),
+                                          font, 0.4, (50, 50, 50), 1)
+                            elif len(sub_lights) == 1:
+                                cv2.putText(final_frame, f"Sub1:", (10, sub_y),
+                                          font, 0.4, (0, 0, 255), 1)
+                                cv2.putText(final_frame, f"{sub_lights[0]['area_pixels']}px", (50, sub_y),
+                                          font, 0.4, (50, 50, 50), 1)
+                            else:
+                                cv2.putText(final_frame, "No sub-lights detected", (10, sub_y),
+                                          font, 0.4, (150, 150, 150), 1)
+
                             # RGB values at the bottom (compact, color-coded)
-                            rgb_y = 390
+                            rgb_y = 410
                             cv2.putText(final_frame, f"R:{rgb[0]:.0f}", (10, rgb_y),
                                       font, 0.4, (0, 0, 200), 1)  # Red
                             cv2.putText(final_frame, f"G:{rgb[1]:.0f}", (60, rgb_y),

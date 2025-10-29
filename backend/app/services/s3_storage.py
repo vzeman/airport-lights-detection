@@ -25,14 +25,21 @@ class S3StorageService:
             logger.warning("S3 storage is disabled in configuration")
             return
 
+        # Force S3v4 signature and use addressing_style='virtual' for presigned URLs
+        from botocore.client import Config
+
         self.s3_client = boto3.client(
             's3',
             aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
             aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-            region_name=settings.AWS_REGION
+            region_name=settings.AWS_REGION,
+            config=Config(
+                signature_version='s3v4',
+                s3={'addressing_style': 'virtual'}
+            )
         )
         self.bucket = settings.S3_BUCKET
-        logger.info(f"S3 storage initialized for bucket: {self.bucket}")
+        logger.info(f"S3 storage initialized for bucket: {self.bucket} with S3v4 signatures")
 
     def _get_video_key(self, session_id: str, video_type: str = "original", filename: str = None) -> str:
         """Generate S3 key for video files"""

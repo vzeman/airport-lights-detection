@@ -1,7 +1,7 @@
 """
 API endpoints for PAPI light measurement workflow
 """
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks, Body
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, delete
@@ -16,7 +16,7 @@ from app.api.auth import get_current_user
 from app.core.deps import require_airport_access, require_session_access
 from app.models import User, Airport, Runway, ReferencePoint, MeasurementSession, FrameMeasurement
 from app.models.papi_measurement import PAPIReferencePointType, LightStatus
-from app.services.video_processor import VideoProcessor, PAPIReportGenerator, calculate_angle
+from app.services.video_processor import VideoProcessor, PAPIReportGenerator, calculate_angle, GPSExtractor
 from app.services.video_s3_handler import get_video_s3_handler
 from app.schemas.frame_measurement import frame_measurement_to_dict
 from app.core.config import settings
@@ -84,6 +84,13 @@ async def get_measurement_sessions(
             # Fallback to processing duration if no video metadata
             duration = (session.completed_at - session.created_at).total_seconds()
         
+        # Prepare notes preview (first 100 chars)
+        notes_preview = None
+        if session.notes:
+            notes_preview = session.notes[:100]
+            if len(session.notes) > 100:
+                notes_preview += "..."
+
         sessions_data.append({
             "id": session.id,
             "airport_icao_code": session.airport_icao_code,
@@ -95,7 +102,8 @@ async def get_measurement_sessions(
             "original_video_filename": session.original_video_filename,
             "duration_seconds": duration,
             "error_message": session.error_message,
-            "has_results": session.status == "completed"
+            "has_results": session.status == "completed",
+            "notes_preview": notes_preview
         })
     
     return {
@@ -253,23 +261,24 @@ async def upload_measurement_video(
     await db.commit()
     await db.refresh(session)
 
-    # Use S3 handler to save video (uploads to S3 if enabled, saves temp file for processing)
-    s3_handler = get_video_s3_handler()
-    local_path, s3_key = await s3_handler.save_uploaded_video(
-        session_id=session.id,
-        video_content=video_content,
-        filename=video.filename
-    )
+    # Save video locally ONLY (fast - returns immediately)
+    from pathlib import Path
+    temp_dir = Path(settings.TEMP_PATH) / session.id
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    local_path = str(temp_dir / video.filename)
 
-    # Update session with paths and S3 info
+    with open(local_path, 'wb') as f:
+        f.write(video_content)
+
+    logger.info(f"Saved video locally to {local_path} (size: {len(video_content) / 1024 / 1024:.2f} MB)")
+
+    # Update session with local path
     session.video_file_path = local_path
-    if s3_key:
-        session.original_video_s3_key = s3_key
-        session.storage_type = "s3"
+    session.storage_type = "s3"  # Will be uploaded in background
     await db.commit()
 
-    # Start background processing
-    background_tasks.add_task(process_video_initial, session.id, local_path)
+    # Start background processing (includes S3 upload + first frame extraction)
+    background_tasks.add_task(process_video_initial_with_s3_upload, session.id, local_path)
 
     return {
         "session_id": session.id,
@@ -291,30 +300,105 @@ async def get_session_preview(
     if not session.preview_image_s3_key:
         raise HTTPException(404, "Preview not yet available")
 
+    # TEMPORARY WORKAROUND: Return backend URL instead of S3 presigned URL
+    # This works around the S3 403 Forbidden issue until AWS permissions are fixed
+    backend_url = f"{settings.API_BASE_URL}/api/v1/papi-measurements/preview-image/{session_id}"
+
     return {
         "session_id": session_id,
-        "preview_url": f"/papi-measurements/preview-image/{session_id}",
+        "preview_url": backend_url,  # Backend proxy URL instead of S3 presigned URL
         "detected_lights": session.light_positions or {},
         "status": session.status
     }
 
 
+@router.get("/preview-image/{session_id}")
+async def get_preview_image(
+    session_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Serve preview image directly from backend (downloads from S3 and streams)
+
+    NOTE: This endpoint does NOT require authentication because it needs to be accessible
+    from <img> tags which don't send Authorization headers. The session_id itself acts
+    as an authorization token (it's a UUID that's hard to guess).
+    """
+
+    # Get session from database
+    result = await db.execute(
+        select(MeasurementSession).where(MeasurementSession.id == session_id)
+    )
+    session = result.scalar_one_or_none()
+
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    if not session.preview_image_s3_key:
+        raise HTTPException(404, "Preview image not available")
+
+    try:
+        from app.services.s3_storage import get_s3_storage
+        from fastapi.responses import StreamingResponse
+        import io
+
+        s3_storage = get_s3_storage()
+
+        # Download image from S3
+        response = s3_storage.s3_client.get_object(
+            Bucket=s3_storage.bucket,
+            Key=session.preview_image_s3_key
+        )
+
+        # Stream the image data
+        image_data = response['Body'].read()
+
+        return StreamingResponse(
+            io.BytesIO(image_data),
+            media_type="image/jpeg",
+            headers={
+                "Cache-Control": "public, max-age=3600",
+                "Content-Disposition": f"inline; filename=preview-{session_id}.jpg"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Failed to serve preview image: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(500, f"Failed to load preview image: {str(e)}")
+
+
 @router.post("/session/{session_id}/confirm-lights")
 async def confirm_light_positions(
     session_id: str,
-    light_positions: Dict[str, Dict[str, Any]],
     background_tasks: BackgroundTasks,
     session_access: tuple = Depends(require_session_access),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    light_positions: Dict[str, Dict[str, Any]] = Body(...)
 ):
     """Confirm or adjust light positions and start processing"""
     _, session = session_access
-    
+
     # Update light positions
+    logger.info(f"=== CONFIRM LIGHTS REQUEST RECEIVED ===")
+    logger.info(f"Session ID: {session_id}")
+    logger.info(f"Light positions received: {light_positions}")
+    logger.info(f"Current session status: {session.status}")
+    logger.info(f"Current light_positions in session: {session.light_positions}")
+
+    # Update the session
+    logger.info(f"Updating session {session_id} with new light positions")
     session.light_positions = light_positions
     session.status = "processing"
+
+    # Commit changes
+    await db.flush()
     await db.commit()
-    
+
+    logger.info(f"After commit - status: {session.status}")
+    logger.info(f"After commit - light_positions (first 100 chars): {str(session.light_positions)[:100]}")
+    logger.info(f"Session {session_id} updated successfully, starting background processing")
+
     # Start full video processing
     background_tasks.add_task(process_video_full, session_id)
 
@@ -352,6 +436,157 @@ async def reprocess_video(
     return {"status": "processing", "message": "Video reprocessing started"}
 
 
+@router.post("/session/{session_id}/regenerate-preview")
+async def regenerate_preview(
+    session_id: str,
+    session_access: tuple = Depends(require_session_access),
+    db: AsyncSession = Depends(get_db)
+):
+    """Regenerate preview image with geometric visualization"""
+    _, session = session_access
+
+    logger.warning(f"=== REGENERATE PREVIEW REQUEST RECEIVED ===")
+    logger.warning(f"Session ID: {session_id}")
+    logger.warning(f"Session status: {session.status}")
+    logger.warning(f"Storage type: {session.storage_type}")
+    logger.warning(f"Current light_positions BEFORE regeneration: {session.light_positions}")
+
+    try:
+        from pathlib import Path
+
+        # Determine video path (local or download from S3)
+        video_path = None
+        cleanup_video = False
+
+        if settings.USE_S3_STORAGE and session.original_video_s3_key:
+            # Download video from S3 to temp location
+            from app.services.s3_storage import get_s3_storage
+            s3_storage = get_s3_storage()
+
+            temp_video_dir = Path(settings.TEMP_PATH) / "temp-videos"
+            temp_video_dir.mkdir(parents=True, exist_ok=True)
+            video_path = str(temp_video_dir / f"{session_id}.mp4")
+
+            logger.info(f"Downloading video from S3: {session.original_video_s3_key}")
+            await s3_storage.download_video(session.original_video_s3_key, video_path)
+            cleanup_video = True
+        else:
+            # Use local video path
+            video_path = os.path.join(settings.DATA_PATH, "measurements", "videos", f"{session_id}.mp4")
+            if not os.path.exists(video_path):
+                raise HTTPException(status_code=404, detail="Video file not found")
+
+        # Extract first frame to temp location
+        preview_dir = Path(settings.TEMP_PATH) / "airport-previews"
+        preview_dir.mkdir(parents=True, exist_ok=True)
+        preview_path = str(preview_dir / f"{session_id}.jpg")
+
+        # Extract first frame
+        metadata = VideoProcessor.extract_first_frame(video_path, preview_path)
+
+        if not metadata:
+            raise HTTPException(status_code=500, detail="Failed to extract first frame")
+
+        # ALWAYS re-extract GPS data from video to ensure we have gimbal angles
+        # (session.video_metadata may have old GPS data without gimbal angles)
+        gps_extractor = GPSExtractor()
+        gps_data_objs = gps_extractor.extract_gps_data(video_path)
+        if gps_data_objs:
+            gps_data = [gp.to_dict() for gp in gps_data_objs]
+            logger.info(f"Re-extracted GPS data with {len(gps_data)} points from video")
+        else:
+            # Fallback to session metadata if extraction fails
+            gps_data = session.video_metadata.get('gps_data', []) if session.video_metadata else []
+            logger.warning(f"Using GPS data from session metadata ({len(gps_data)} points)")
+
+        # Clean up temp video if we downloaded it
+        if cleanup_video and os.path.exists(video_path):
+            try:
+                os.remove(video_path)
+            except Exception as cleanup_error:
+                logger.warning(f"Failed to delete temp video: {cleanup_error}")
+
+        # Fetch reference points for geometric matching
+        ref_points_query = select(ReferencePoint).where(
+            and_(
+                ReferencePoint.airport_icao_code == session.airport_icao_code,
+                ReferencePoint.runway_code == session.runway_code
+            )
+        )
+        ref_points_result = await db.execute(ref_points_query)
+        ref_points = ref_points_result.scalars().all()
+
+        # Convert reference points to dict format
+        ref_points_list = [
+            {
+                "point_id": rp.point_id,
+                "latitude": float(rp.latitude),
+                "longitude": float(rp.longitude),
+                "elevation": float(rp.elevation_wgs84) if rp.elevation_wgs84 is not None else float(rp.altitude),
+                "point_type": rp.point_type.value
+            }
+            for rp in ref_points
+        ]
+
+        # DEBUG: Log the reference points being passed
+        logger.warning(f">>> DEBUG papi_measurements.py:440 - Passing ref_points_list to VideoProcessor.detect_lights:")
+        for rp in ref_points_list:
+            logger.warning(f"  {rp['point_type']}: lat={rp['latitude']}, lon={rp['longitude']}, elevation={rp['elevation']}")
+
+        # Detect lights with geometric matching (this will add visualization)
+        detected_lights = VideoProcessor.detect_lights(
+            preview_path,
+            ref_points_list
+        )
+
+        # Upload new preview to S3 if enabled
+        if settings.USE_S3_STORAGE and os.path.exists(preview_path):
+            try:
+                from app.services.s3_storage import get_s3_storage
+                s3_storage = get_s3_storage()
+                preview_s3_key = await s3_storage.upload_preview_image(session_id, preview_path)
+                session.preview_image_s3_key = preview_s3_key
+                logger.info(f"Uploaded new preview image to S3: {preview_s3_key}")
+
+                # Delete local preview after upload
+                try:
+                    os.remove(preview_path)
+                except Exception as cleanup_error:
+                    logger.warning(f"Failed to delete local preview: {cleanup_error}")
+            except Exception as e:
+                logger.error(f"Failed to upload preview to S3: {e}")
+                raise HTTPException(status_code=500, detail=f"Failed to upload preview: {str(e)}")
+
+        # DO NOT update light_positions here!
+        # The regenerate_preview endpoint should only update the preview IMAGE, not the stored positions.
+        # Manual user adjustments to light positions should be preserved for reprocessing.
+        # If no positions exist yet, use the detected ones; otherwise keep existing manual positions.
+        if not session.light_positions or len(session.light_positions) == 0:
+            session.light_positions = detected_lights
+            logger.info(f"No existing light positions - using detected positions: {detected_lights}")
+        else:
+            logger.info(f"Preserving existing manual light positions (not overwriting with auto-detected)")
+
+        await db.commit()
+
+        logger.info(f"✓ Regenerated preview for session {session_id}")
+        logger.info(f"Stored light_positions preserved: {session.light_positions}")
+
+        return {
+            "status": "success",
+            "message": "Preview regenerated with visualization",
+            "light_positions": session.light_positions  # Return stored positions, not detected ones
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error regenerating preview: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Failed to regenerate preview: {str(e)}")
+
+
 @router.get("/session/{session_id}/status")
 async def get_processing_status(
     session_id: str,
@@ -361,13 +596,36 @@ async def get_processing_status(
     """Get processing status and results"""
     _, session = session_access
 
-    # Get frame count if processing
+    # Refresh session fields to get latest progress without losing loaded attributes
+    result = await db.execute(
+        select(MeasurementSession).where(MeasurementSession.id == session_id)
+    )
+    fresh_session = result.scalar_one()
+
+    # Use fresh_session for latest progress data
+    # Determine frame count based on status and storage type
     frame_count = 0
-    if session.status in ["processing", "completed"]:
-        count_result = await db.execute(
-            select(func.count(FrameMeasurement.id)).where(FrameMeasurement.session_id == session_id)
-        )
-        frame_count = count_result.scalar()
+    if fresh_session.status == "processing":
+        # During processing, use the session.processed_frames field which is updated every 10 frames
+        frame_count = fresh_session.processed_frames or 0
+    elif fresh_session.status in ["completed", "preview_ready"]:
+        # When completed or preview ready, check storage type
+        if fresh_session.storage_type == "s3" and fresh_session.frame_measurements_s3_key:
+            # Frames are in S3, use processed_frames field
+            frame_count = fresh_session.processed_frames or 0
+        else:
+            # Frames are in DB, count actual records
+            count_result = await db.execute(
+                select(func.count(FrameMeasurement.id)).where(FrameMeasurement.session_id == session_id)
+            )
+            frame_count = count_result.scalar()
+
+    # Update session object with fresh data for use below
+    session.status = fresh_session.status
+    session.processed_frames = fresh_session.processed_frames
+    session.progress_percentage = fresh_session.progress_percentage
+    session.current_phase = fresh_session.current_phase
+    session.error_message = fresh_session.error_message
 
     response = {
         "session_id": session_id,
@@ -618,6 +876,56 @@ async def get_original_video(
         return RedirectResponse(url=video_url, status_code=307)  # Temporary redirect
     else:
         raise HTTPException(404, "Original video not found in S3")
+
+
+@router.put("/session/{session_id}/notes")
+async def update_session_notes(
+    session_id: str,
+    request_body: Dict[str, str],
+    session_access: tuple = Depends(require_session_access),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update measurement session notes (markdown supported)"""
+    logger.info(f"=== PUT /session/{session_id}/notes endpoint called ===")
+    logger.info(f"Request body: {request_body}")
+    try:
+        logger.info("Extracting session_access...")
+        current_user, session_from_access = session_access
+        logger.info(f"User: {current_user.email}")
+
+        # Get notes from request body
+        notes = request_body.get("notes", "")
+        logger.info(f"Updating notes for session {session_id}, length: {len(notes)}")
+
+        # Re-query the session in the current db context to avoid session persistence issues
+        from app.models.papi_measurement import MeasurementSession
+        from sqlalchemy import select
+        result = await db.execute(
+            select(MeasurementSession).filter(MeasurementSession.id == session_id)
+        )
+        session = result.scalars().first()
+
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        # Update notes
+        session.notes = notes
+        await db.commit()
+        await db.refresh(session)
+
+        logger.info(f"Notes updated successfully for session {session_id}")
+
+        # Return simple response
+        return {
+            "status": "success",
+            "message": "Notes updated successfully"
+        }
+    except Exception as e:
+        logger.error(f"Error updating notes for session {session_id}: {str(e)}")
+        logger.error(f"Exception type: {type(e).__name__}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to update notes: {str(e)}")
 
 
 @router.get("/session/{session_id}/measurements-data")
@@ -982,7 +1290,8 @@ async def get_measurements_data(
             "created_at": session.created_at.isoformat(),
             "video_file": os.path.basename(session.video_file_path),
             "recording_date": session.recording_date.isoformat() if session.recording_date else None,
-            "original_video_filename": session.original_video_filename
+            "original_video_filename": session.original_video_filename,
+            "notes": session.notes  # Full notes for detail view
         },
         "glide_path_angles": {
             "average_all_lights": glide_path_angles_avg,
@@ -1024,8 +1333,56 @@ async def get_measurements_data(
 
 
 # Background processing functions (these would be in a separate service file)
+async def process_video_initial_with_s3_upload(session_id: str, video_path: str):
+    """Upload video to S3, then extract first frame and detect lights"""
+    import asyncio
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from app.db.session import async_session
+
+    async with async_session() as db:
+        try:
+            # Get session from database
+            result = await db.execute(
+                select(MeasurementSession).where(MeasurementSession.id == session_id)
+            )
+            session = result.scalar_one_or_none()
+
+            if not session:
+                return
+
+            # Update progress: uploading to S3
+            session.current_phase = "uploading_to_s3"
+            session.progress_percentage = 5.0
+            await db.commit()
+
+            # Upload to S3 in background (non-blocking for user)
+            logger.info(f"Starting S3 upload for session {session_id}")
+            s3_handler = get_video_s3_handler()
+            s3_key = await s3_handler.s3.upload_video(
+                session_id=session_id,
+                file_path=video_path,
+                video_type="original"
+            )
+
+            # Update session with S3 key
+            if s3_key:
+                session.original_video_s3_key = s3_key
+                session.storage_type = "s3"
+                await db.commit()
+                logger.info(f"Uploaded video to S3: {s3_key}")
+
+        except Exception as e:
+            logger.error(f"Error uploading to S3: {e}")
+            # Continue processing even if S3 upload fails
+            import traceback
+            logger.error(traceback.format_exc())
+
+    # Continue with first frame extraction
+    await process_video_initial(session_id, video_path)
+
+
 async def process_video_initial(session_id: str, video_path: str):
-    """Extract first frame and detect lights"""
+    """Extract first frame and detect lights (called after S3 upload)"""
     import asyncio
     from sqlalchemy.ext.asyncio import AsyncSession
     from app.db.session import async_session
@@ -1054,25 +1411,6 @@ async def process_video_initial(session_id: str, video_path: str):
             await db.commit()
 
             metadata = VideoProcessor.extract_first_frame(video_path, preview_path)
-
-            # Upload preview image to S3 if enabled
-            if settings.USE_S3_STORAGE and os.path.exists(preview_path):
-                try:
-                    from app.services.s3_storage import get_s3_storage
-                    s3_storage = get_s3_storage()
-                    preview_s3_key = await s3_storage.upload_preview_image(session_id, preview_path)
-                    session.preview_image_s3_key = preview_s3_key
-                    await db.commit()
-                    logger.info(f"Uploaded preview image to S3: {preview_s3_key}")
-
-                    # Delete local preview image after successful S3 upload
-                    try:
-                        os.remove(preview_path)
-                        logger.info(f"Deleted local preview image: {preview_path}")
-                    except Exception as cleanup_error:
-                        logger.warning(f"Failed to delete local preview image: {cleanup_error}")
-                except Exception as e:
-                    logger.error(f"Failed to upload preview image to S3: {e}")
 
             if metadata:
                 # Extract and store recording date
@@ -1104,8 +1442,51 @@ async def process_video_initial(session_id: str, video_path: str):
                 session.total_frames = metadata.get('total_frames', 0)
                 await db.commit()
 
+                # Fetch reference points for this runway to enable geometric matching
+                ref_points_query = select(ReferencePoint).where(
+                    and_(
+                        ReferencePoint.airport_icao_code == session.airport_icao_code,
+                        ReferencePoint.runway_code == session.runway_code
+                    )
+                )
+                ref_points_result = await db.execute(ref_points_query)
+                ref_points = ref_points_result.scalars().all()
+
+                # Convert reference points to dict format
+                ref_points_list = [
+                    {
+                        "point_id": rp.point_id,
+                        "latitude": float(rp.latitude),
+                        "longitude": float(rp.longitude),
+                        "elevation": float(rp.elevation_wgs84) if rp.elevation_wgs84 is not None else float(rp.altitude),
+                        "point_type": rp.point_type.value
+                    }
+                    for rp in ref_points
+                ]
+
                 # Detect lights in the first frame
-                detected_lights = VideoProcessor.detect_lights(preview_path, [])
+                detected_lights = VideoProcessor.detect_lights(
+                    preview_path,
+                    ref_points_list
+                )
+
+                # Upload preview image to S3 if enabled (after light detection is complete)
+                if settings.USE_S3_STORAGE and os.path.exists(preview_path):
+                    try:
+                        from app.services.s3_storage import get_s3_storage
+                        s3_storage = get_s3_storage()
+                        preview_s3_key = await s3_storage.upload_preview_image(session_id, preview_path)
+                        session.preview_image_s3_key = preview_s3_key
+                        logger.info(f"Uploaded preview image to S3: {preview_s3_key}")
+
+                        # Delete local preview image after successful S3 upload
+                        try:
+                            os.remove(preview_path)
+                            logger.info(f"Deleted local preview image: {preview_path}")
+                        except Exception as cleanup_error:
+                            logger.warning(f"Failed to delete local preview image: {cleanup_error}")
+                    except Exception as e:
+                        logger.error(f"Failed to upload preview image to S3: {e}")
 
                 # Update session with metadata (including GPS) and detected lights
                 session.video_metadata = metadata
@@ -1135,14 +1516,24 @@ async def process_video_full(session_id: str):
     
     async with async_session() as db:
         try:
-            # Get session from database
+            # Get session from database with manually confirmed light positions
             result = await db.execute(
                 select(MeasurementSession).where(MeasurementSession.id == session_id)
             )
             session = result.scalar_one_or_none()
-            
+
             if not session or not session.light_positions:
+                logger.error(f"Session {session_id} not found or has no light positions")
                 return
+
+            # Log the manually confirmed light positions that will be used
+            logger.info(f"========== STARTING VIDEO PROCESSING ==========")
+            logger.info(f"Session ID: {session_id}")
+            logger.info(f"Using MANUALLY CONFIRMED light positions from database:")
+            for light_name, pos in session.light_positions.items():
+                if light_name in ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D']:
+                    logger.info(f"  {light_name}: x={pos.get('x', 'N/A')}%, y={pos.get('y', 'N/A')}%, width={pos.get('width', 'N/A')}%, height={pos.get('height', 'N/A')}%")
+            logger.info(f"================================================")
 
             # Initialize progress tracking
             session.current_phase = "processing_frames"
@@ -1181,9 +1572,14 @@ async def process_video_full(session_id: str):
             frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             
-            # Initialize PAPI light tracker for dynamic position tracking
+            # Initialize PAPI light tracker with manually selected positions
+            # The tracker will START from manual positions and TRACK them as they move through frames
             from app.services.video_processor import PAPILightTracker
+            logger.info(f"Initializing PAPI light tracker with manually selected positions")
+            logger.info(f"Manual light positions (percentage): {session.light_positions}")
+
             light_tracker = PAPILightTracker(session.light_positions, frame_width, frame_height)
+            logger.info(f"Light tracker initialized - will track manually selected lights across frames")
 
             # Get GPS data from session metadata (extracted during initial processing)
             real_gps_data = []
@@ -1306,11 +1702,32 @@ async def process_video_full(session_id: str):
                 # Raise exception if no real GPS data is available
                 if not drone_data:
                     raise ValueError(f"No GPS data available for frame {frame_number}. Video must contain GPS telemetry data for processing.")
-                
-                # Update light positions using dynamic tracking (same as PAPI videos)
+
+                # Update light positions using tracking
+                # Tracker starts from manually selected positions and follows lights across frames
                 tracked_positions = light_tracker.update_frame(frame, frame_number)
-                
-                # Process frame with dynamically tracked positions
+
+                # Save refined positions back to database after first frame (frame 0)
+                if frame_number == 0:
+                    # Extract refined positions from tracker
+                    refined_positions = {}
+                    for light_name in ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D']:
+                        if light_name in tracked_positions:
+                            pos = tracked_positions[light_name]
+                            # Convert pixel coordinates back to percentages
+                            refined_positions[light_name] = {
+                                'x': (pos['x'] / frame.shape[1]) * 100,
+                                'y': (pos['y'] / frame.shape[0]) * 100,
+                                'size': (pos['size'] / frame.shape[1]) * 100,
+                                'confidence': pos.get('confidence', 1.0)
+                            }
+
+                    # Update session with refined positions
+                    session.light_positions = refined_positions
+                    await db.commit()
+                    logger.info(f"Saved refined PAPI light positions to database for session {session_id}")
+
+                # Process frame with tracked positions (which started from manual positions)
                 measurements = VideoProcessor.process_frame(
                     frame, tracked_positions, drone_data, ref_points_dict
                 )
@@ -1472,6 +1889,14 @@ async def process_video_full(session_id: str):
                 # Use tmp folder for video generation
                 video_output_dir = Path(settings.TEMP_PATH) / "videos" / session_id
                 video_generator = PAPIVideoGenerator(str(video_output_dir), progress_callback=update_progress)
+
+                # Log light positions being passed to video generators
+                logger.info(f"========== GENERATING PAPI VIDEOS ==========")
+                logger.info(f"Passing manually confirmed light positions to video generator:")
+                for light_name, pos in session.light_positions.items():
+                    if light_name in ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D']:
+                        logger.info(f"  {light_name}: {pos}")
+                logger.info(f"============================================")
 
                 # Generate individual PAPI light videos with angle information
                 # Use video_path which is either the original local path or the S3 downloaded temp path

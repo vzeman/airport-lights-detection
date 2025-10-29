@@ -30,6 +30,7 @@ interface MeasurementSession {
   duration_seconds: number | null;
   error_message: string | null;
   has_results: boolean;
+  notes_preview: string | null;
 }
 
 interface SessionsResponse {
@@ -159,13 +160,14 @@ const PAPIMeasurementsHistory: React.FC = () => {
                   <TableHead>Recording Date</TableHead>
                   <TableHead>Video Filename</TableHead>
                   <TableHead>Duration</TableHead>
+                  <TableHead>Notes</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {sessions.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                       No measurement sessions found. Start a new measurement to see results here.
                     </TableCell>
                   </TableRow>
@@ -185,14 +187,17 @@ const PAPIMeasurementsHistory: React.FC = () => {
                       </TableCell>
                       <TableCell>{session.original_video_filename || '-'}</TableCell>
                       <TableCell>{formatDuration(session.duration_seconds)}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground max-w-xs truncate">
+                        {session.notes_preview || '-'}
+                      </TableCell>
                       <TableCell>
                         <div className="flex space-x-2">
-                          {session.has_results && (
+                          {(session.has_results || session.status === 'preview_ready' || session.status === 'processing') && (
                             <Button
                               size="sm"
                               variant="outline"
                               onClick={() => viewResults(session.id)}
-                              title="View Results"
+                              title={session.has_results ? "View Results" : session.status === 'preview_ready' ? "View Preview & Adjust Lights" : "View Processing Status"}
                             >
                               <Eye className="w-4 h-4" />
                             </Button>

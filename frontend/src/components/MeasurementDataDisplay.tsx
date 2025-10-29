@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
-import { Loader2, Download, Printer, RefreshCw } from 'lucide-react';
+import { Loader2, Download, Printer, RefreshCw, Edit2 } from 'lucide-react';
 import api from '../services/api';
 import Airport3DVisualization from './Airport3DVisualization';
+import NotesEditorDialog from './NotesEditorDialog';
+import RichTextEditor from './RichTextEditor';
 
 interface RunwayData {
   name: string;
@@ -30,6 +32,7 @@ interface MeasurementData {
       video_file: string;
       recording_date?: string;
       original_video_filename?: string;
+      notes?: string;
     };
     glide_path_angles?: {
       average_all_lights: number[];
@@ -93,6 +96,8 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
   const [reprocessing, setReprocessing] = useState(false);
+  const [notes, setNotes] = useState<string>('');
+  const [notesDialogOpen, setNotesDialogOpen] = useState(false);
 
   useEffect(() => {
     fetchMeasurementData();
@@ -103,6 +108,10 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
       setLoading(true);
       const response = await api.get(`/papi-measurements/session/${sessionId}/measurements-data`);
       setData(response.data);
+      // Load notes from session_info (default to empty string if not present)
+      const loadedNotes = response.data?.summary?.session_info?.notes || '';
+      setNotes(loadedNotes);
+      console.log('Loaded notes:', loadedNotes); // Debug log
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to load measurement data');
     } finally {
@@ -175,6 +184,23 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
     } catch (err: any) {
       alert(err.response?.data?.detail || 'Failed to start reprocessing');
       setReprocessing(false);
+    }
+  };
+
+  const handleNotesSaved = (savedNotes: string) => {
+    setNotes(savedNotes);
+    // Update the data to reflect the new notes
+    if (data) {
+      setData({
+        ...data,
+        summary: {
+          ...data.summary,
+          session_info: {
+            ...data.summary.session_info,
+            notes: savedNotes
+          }
+        }
+      });
     }
   };
 
@@ -1014,6 +1040,37 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
           )}
         </div>
       </div>
+
+      {/* Measurement Notes Section */}
+      <Card className="mt-6">
+        <CardHeader>
+          <div className="flex justify-between items-center">
+            <div>
+              <CardTitle>Measurement Notes</CardTitle>
+              <CardDescription>
+                Detailed notes about this measurement session
+              </CardDescription>
+            </div>
+            <Button onClick={() => setNotesDialogOpen(true)} variant="outline" size="sm">
+              <Edit2 className="w-4 h-4 mr-2" />
+              Edit Notes
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {notes ? (
+            <RichTextEditor
+              content={notes}
+              onChange={() => {}}
+              editable={false}
+            />
+          ) : (
+            <div className="p-4 bg-gray-50 rounded-md text-gray-500 italic">
+              No notes added yet. Click "Edit Notes" to add notes about this measurement.
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* PAPI Vertical Analysis Section */}
       <div className="space-y-6">
@@ -2621,6 +2678,15 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
         </>
       )}
       </div>
+
+      {/* Notes Editor Dialog */}
+      <NotesEditorDialog
+        open={notesDialogOpen}
+        onOpenChange={setNotesDialogOpen}
+        sessionId={sessionId}
+        initialNotes={notes}
+        onNotesSaved={handleNotesSaved}
+      />
     </>
   );
 };

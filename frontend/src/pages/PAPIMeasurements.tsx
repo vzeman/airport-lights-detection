@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Upload, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { Upload, CheckCircle, AlertCircle, Loader2, RefreshCw } from 'lucide-react';
 import api from '../services/api';
 import MeasurementDataDisplay from '../components/MeasurementDataDisplay';
 
@@ -42,9 +42,12 @@ const PAPIMeasurements: React.FC = () => {
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [session, setSession] = useState<MeasurementSession | null>(null);
   const [processing, setProcessing] = useState(false);
+  const [regeneratingPreview, setRegeneratingPreview] = useState(false);
   const [lightPositions, setLightPositions] = useState<any>({});
   const [previewImageUrl, setPreviewImageUrl] = useState<string>('');
   const [dragging, setDragging] = useState<string | null>(null);
+  const [resizing, setResizing] = useState<string | null>(null);
+  const [resizeStartPos, setResizeStartPos] = useState<{ x: number; y: number; size: number } | null>(null);
   const [imageElement, setImageElement] = useState<HTMLImageElement | null>(null);
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
@@ -57,6 +60,7 @@ const PAPIMeasurements: React.FC = () => {
     if (sessionId) {
       loadExistingSession(sessionId);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchAirports = async () => {
@@ -190,16 +194,73 @@ const PAPIMeasurements: React.FC = () => {
 
     setProcessing(true);
     try {
-      await api.post(
+      const response = await api.post(
         `/papi-measurements/session/${session.session_id}/confirm-lights`,
         lightPositions
       );
-      
+
       setStep('processing');
       pollProcessingStatus();
-    } catch (error) {
-      // console.error('Failed to confirm lights:', error);
+    } catch (error: any) {
+      console.error('Failed to confirm lights - ERROR:', error);
       setProcessing(false);
+    }
+  };
+
+  const regeneratePreview = async () => {
+    if (!session) {
+      console.error('No session available');
+      return;
+    }
+
+    console.log('Starting preview regeneration for session:', session.session_id);
+    setRegeneratingPreview(true);
+    try {
+      console.log('Making POST request to regenerate-preview endpoint');
+      const response = await api.post(
+        `/papi-measurements/session/${session.session_id}/regenerate-preview`
+      );
+      console.log('Regenerate preview response:', response.data);
+
+      // DO NOT overwrite light positions - preserve user's manual adjustments
+      // The backend returns auto-detected positions, but we want to keep the user's manual changes
+      // The preview image will be updated with geometric visualization, but positions stay as manually adjusted
+      // if (response.data.light_positions) {
+      //   setLightPositions(response.data.light_positions);
+      // }
+
+      // Fetch the new preview URL (which triggers a new presigned URL from S3)
+      console.log('Fetching new preview URL from server');
+      const previewResponse = await api.get(`/papi-measurements/session/${session.session_id}/preview`);
+      console.log('Preview response:', previewResponse.data);
+
+      // Fetch the new preview image with the new presigned URL
+      if (previewResponse.data.preview_url) {
+        console.log('Fetching new preview image from:', previewResponse.data.preview_url);
+        try {
+          const imageResponse = await api.get(previewResponse.data.preview_url, {
+            responseType: 'blob'
+          });
+          // Revoke old URL to free memory
+          if (previewImageUrl) {
+            URL.revokeObjectURL(previewImageUrl);
+          }
+          const imageUrl = URL.createObjectURL(imageResponse.data);
+          setPreviewImageUrl(imageUrl);
+          console.log('Preview image URL updated');
+        } catch (imageError) {
+          console.error('Failed to fetch new preview image:', imageError);
+        }
+      }
+
+      console.log('Preview regenerated successfully');
+    } catch (error: any) {
+      console.error('Failed to regenerate preview - Full error:', error);
+      console.error('Error response:', error.response);
+      console.error('Error message:', error.message);
+      alert(`Failed to regenerate preview: ${error.response?.data?.detail || error.message}`);
+    } finally {
+      setRegeneratingPreview(false);
     }
   };
 
@@ -339,7 +400,7 @@ const PAPIMeasurements: React.FC = () => {
           currentPosition.y,
           currentPosition.size || 8
         );
-        
+
         setLightPositions((prev: any) => ({
           ...prev,
           [dragging]: {
@@ -351,6 +412,55 @@ const PAPIMeasurements: React.FC = () => {
       }
     }
     setDragging(null);
+    setResizing(null);
+    setResizeStartPos(null);
+  };
+
+  const handleResizeMouseDown = (lightId: string, event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation(); // Prevent triggering the drag handler
+    setResizing(lightId);
+
+    const rect = (event.currentTarget.parentElement?.parentElement as HTMLElement)?.getBoundingClientRect();
+    if (rect) {
+      const x = ((event.clientX - rect.left) / rect.width) * 100;
+      const y = ((event.clientY - rect.top) / rect.height) * 100;
+      const currentPosition = lightPositions[lightId];
+      setResizeStartPos({
+        x,
+        y,
+        size: currentPosition?.size || 8
+      });
+    }
+  };
+
+  const handleResizeMouseMove = (event: React.MouseEvent) => {
+    if (!resizing || !resizeStartPos) return;
+
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const currentX = ((event.clientX - rect.left) / rect.width) * 100;
+    const currentY = ((event.clientY - rect.top) / rect.height) * 100;
+
+    const currentPosition = lightPositions[resizing];
+    if (!currentPosition) return;
+
+    // Calculate the distance from center to mouse position
+    const deltaX = currentX - currentPosition.x;
+    const deltaY = currentY - currentPosition.y;
+
+    // Calculate new size based on the larger delta (to maintain square shape)
+    const newSize = Math.max(Math.abs(deltaX), Math.abs(deltaY)) * 2;
+
+    // Constrain size between 3% and 30% of image width
+    const constrainedSize = Math.max(3, Math.min(30, newSize));
+
+    setLightPositions((prev: any) => ({
+      ...prev,
+      [resizing]: {
+        ...prev[resizing],
+        size: constrainedSize
+      }
+    }));
   };
 
 
@@ -462,27 +572,48 @@ const PAPIMeasurements: React.FC = () => {
           <CardContent>
             {previewImageUrl ? (
               <div className="space-y-4">
-                <div 
+                <div className="bg-blue-50 p-4 rounded">
+                  <p className="text-sm mb-2">
+                    <strong>Instructions:</strong>
+                  </p>
+                  <ul className="text-sm space-y-1">
+                    <li>• Red squares show detected PAPI light positions (A, B, C, D)</li>
+                    <li>• <strong>Drag squares</strong> to adjust positions if they're not accurate</li>
+                    <li>• <strong>Drag the blue dot</strong> in the bottom right corner to resize the square</li>
+                    <li>• Each light should be clearly visible within its square</li>
+                    <li>• Click "Confirm and Start Processing" when positions are correct</li>
+                  </ul>
+                </div>
+
+                <div
                   className="relative cursor-pointer select-none"
-                  onMouseMove={handleMouseMove}
+                  onMouseMove={(e) => {
+                    if (resizing) {
+                      handleResizeMouseMove(e);
+                    } else {
+                      handleMouseMove(e);
+                    }
+                  }}
                   onMouseUp={handleMouseUp}
                   onMouseLeave={handleMouseUp}
                 >
-                  <img 
-                    src={previewImageUrl} 
-                    alt="First frame" 
-                    className="w-full" 
+                  <img
+                    src={previewImageUrl}
+                    alt="First frame"
+                    className="w-full"
                     onLoad={handleImageLoad}
                     draggable={false}
                   />
-                  
+
                   {/* PAPI Light Position Overlays */}
                   {Object.entries(lightPositions).map(([lightId, position]: [string, any]) => (
                     <div
                       key={lightId}
                       className={`absolute border-2 rounded cursor-move transition-colors ${
-                        dragging === lightId 
-                          ? 'border-blue-500 bg-blue-200 bg-opacity-30' 
+                        dragging === lightId
+                          ? 'border-blue-500 bg-blue-200 bg-opacity-30'
+                          : resizing === lightId
+                          ? 'border-green-500 bg-green-200 bg-opacity-30'
                           : 'border-red-500 bg-red-200 bg-opacity-20 hover:bg-red-300 hover:bg-opacity-30'
                       }`}
                       style={{
@@ -497,24 +628,24 @@ const PAPIMeasurements: React.FC = () => {
                       <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 bg-black bg-opacity-70 text-white text-xs px-1 py-0.5 rounded">
                         {lightId.replace('PAPI_', '')}
                       </div>
+
+                      {/* Resize handle in bottom right corner */}
+                      <div
+                        className="absolute bottom-0 right-0 w-3 h-3 bg-blue-500 rounded-full cursor-nwse-resize hover:bg-blue-600 hover:w-4 hover:h-4 transition-all"
+                        style={{
+                          transform: 'translate(50%, 50%)',
+                          border: '2px solid white',
+                          boxShadow: '0 0 4px rgba(0,0,0,0.3)'
+                        }}
+                        onMouseDown={(e) => handleResizeMouseDown(lightId, e)}
+                      />
                     </div>
                   ))}
                 </div>
-                <div className="bg-blue-50 p-4 rounded">
-                  <p className="text-sm mb-2">
-                    <strong>Instructions:</strong>
-                  </p>
-                  <ul className="text-sm space-y-1">
-                    <li>• Red squares show detected PAPI light positions (A, B, C, D)</li>
-                    <li>• <strong>Drag squares</strong> to adjust positions if they're not accurate</li>
-                    <li>• Each light should be clearly visible within its square</li>
-                    <li>• Click "Confirm and Start Processing" when positions are correct</li>
-                  </ul>
-                </div>
                 
                 <div className="flex gap-2">
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     onClick={() => setLightPositions({
                       PAPI_A: { x: 20, y: 50, size: 8 },
                       PAPI_B: { x: 40, y: 50, size: 8 },
@@ -524,6 +655,24 @@ const PAPIMeasurements: React.FC = () => {
                     className="flex-1"
                   >
                     Reset Positions
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={regeneratePreview}
+                    disabled={regeneratingPreview || processing}
+                    className="flex-1"
+                  >
+                    {regeneratingPreview ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Regenerating...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Regenerate Preview
+                      </>
+                    )}
                   </Button>
                   <Button onClick={confirmLights} disabled={processing} className="flex-2">
                     {processing ? (
@@ -572,10 +721,10 @@ const PAPIMeasurements: React.FC = () => {
                   <div className="text-sm text-gray-600 space-y-1">
                     <p>{session.progress_percentage?.toFixed(1)}% complete</p>
                     {session.current_phase && (
-                      <p className="capitalize">Phase: {session.current_phase.replace('_', ' ')}</p>
+                      <p className="capitalize">Phase: <b>{session.current_phase.replace('_', ' ')}</b></p>
                     )}
-                    {session.frames_processed !== undefined && session.total_frames !== undefined && (
-                      <p>Frame {session.frames_processed} of {session.total_frames}</p>
+                    {session.total_frames !== undefined && (
+                      <p>Frames to process {session.total_frames}</p>
                     )}
                   </div>
                 </div>

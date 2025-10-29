@@ -221,6 +221,11 @@ class ApiClient {
     return response;
   }
 
+  async put(url: string, data?: any, config?: any) {
+    const response = await this.client.put(url, data, config);
+    return response;
+  }
+
   // Reference Points API
   async getReferencePoints(runwayId: string) {
     const response = await this.client.get(`/runways/${runwayId}/reference-points`);

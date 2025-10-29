@@ -66,8 +66,13 @@ class MeasurementSession(Base):
     progress_percentage = Column(Float, default=0.0)  # Progress as percentage (0-100)
     current_phase = Column(String(100), default="initializing")  # current processing phase
 
-    # Store user-adjusted light positions
-    light_positions = Column(JSON)  # {"PAPI_A": {"x": 100, "y": 200, "width": 50, "height": 50}, ...}
+    # Store user-adjusted light positions (x, y in %, size in % of image width for square boxes)
+    # Format: {"PAPI_A": {"x": 20, "y": 50, "size": 8}, "PAPI_B": {...}, ...}
+    # These positions are preserved across reprocessing operations
+    light_positions = Column(JSON)
+
+    # Markdown formatted notes about the measurement
+    notes = Column(Text, nullable=True)
 
     # S3 Storage keys (nullable for backwards compatibility)
     storage_type = Column(String(10), default="local")  # "local" or "s3"

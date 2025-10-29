@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Tuple, Any
 from fastapi import Depends, HTTPException, status, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
@@ -46,8 +46,8 @@ async def get_current_user(
     
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found in database",
         )
     
     if not user.is_active:
@@ -167,7 +167,7 @@ async def require_session_access(
     session_id: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
-) -> tuple[User, any]:
+) -> Tuple[User, Any]:
     """
     Check if user has access to a specific measurement session
     - Super admins have access to all sessions
@@ -209,7 +209,17 @@ async def require_session_access(
         )
 
     # Check if user is assigned to this airport
-    if airport not in current_user.airports:
+    # Use a proper query instead of lazy-loading the relationship
+    from app.models.user import user_airports
+    user_airport_check = await db.execute(
+        select(user_airports).filter(
+            user_airports.c.user_id == current_user.id,
+            user_airports.c.airport_id == airport.id
+        )
+    )
+    has_access = user_airport_check.first() is not None
+
+    if not has_access:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have access to this session's airport"
