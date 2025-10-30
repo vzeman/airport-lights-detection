@@ -3016,24 +3016,14 @@ class PAPIVideoGenerator:
 
         # Column 1: GPS Info
         x_col1 = 25
-        cv2.putText(frame, "GPS POSITION", (x_col1, y_base),
-                   font, 1.8, (80, 80, 80), 2)  # Doubled from 0.9 to 1.8
-        cv2.putText(frame, f"Lat: {drone_data.get('latitude', 0):.6f}", (x_col1, y_base + 35),
-                   font, 1.4, (60, 60, 60), 2)  # Doubled from 0.7 to 1.4
-        cv2.putText(frame, f"Lon: {drone_data.get('longitude', 0):.6f}", (x_col1, y_base + 65),
+        cv2.putText(frame, f"Lat x Long: {drone_data.get('latitude', 0):.6f}, {drone_data.get('longitude', 0):.6f}", (x_col1, y_base + 30),
                    font, 1.4, (60, 60, 60), 2)  # Doubled from 0.7 to 1.4
         cv2.putText(frame, f"Alt: {drone_data.get('elevation', 0):.1f}m", (x_col1, y_base + 95),
                    font, 1.4, (60, 60, 60), 2)  # Doubled from 0.7 to 1.4
-        if drone_data.get('speed'):
-            cv2.putText(frame, f"Spd: {drone_data['speed']:.1f} m/s", (x_col1, y_base + 125),
-                       font, 1.4, (60, 60, 60), 2)  # Doubled from 0.7 to 1.4
 
         # Column 2: PAPI Vertical Angles
         x_col2 = col_width + 25
-        cv2.putText(frame, "PAPI VERTICAL ANGLES", (x_col2, y_base),
-                   font, 1.8, (80, 80, 80), 2)  # Doubled from 0.9 to 1.8
-
-        y_papi = y_base + 35
+        y_papi = y_base + 25
         for papi_name, angle in papi_angles.items():
             color = papi_colors.get(papi_name, (100, 100, 100))
 
@@ -3056,7 +3046,7 @@ class PAPIVideoGenerator:
 
             cv2.putText(frame, angle_text, (x_col2, y_papi),
                        font, 1.0, color, 2)  # Doubled from 0.5 to 1.0
-            y_papi += 28  # Increased spacing from 18 to 28
+            y_papi += 30  # Increased spacing from 18 to 28
             if y_papi > header_y + header_height - 15:
                 break
 
@@ -3065,7 +3055,7 @@ class PAPIVideoGenerator:
         if touch_angle is not None:
             cv2.putText(frame, "TOUCH POINT", (x_col3, y_base),
                        font, 1.8, (80, 80, 80), 2)  # Doubled from 0.9 to 1.8
-            cv2.putText(frame, f"Angle: {touch_angle:.2f}", (x_col3, y_base + 35),
+            cv2.putText(frame, f"Angle: {touch_angle:.2f}", (x_col3, y_base + 38),
                        font, 1.6, (0, 180, 180), 2)  # Doubled from 0.8 to 1.6
         else:
             cv2.putText(frame, "MEASUREMENT DATA", (x_col3, y_base),
