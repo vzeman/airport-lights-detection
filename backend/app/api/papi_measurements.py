@@ -657,19 +657,6 @@ async def get_processing_status(
     fresh_session = result.scalar_one()
 
     # Use fresh_session for latest progress data
-    # Determine frame count based on status and storage type
-    frame_count = 0
-    if fresh_session.status == "processing":
-        # During processing, use the session.processed_frames field which is updated every 10 frames
-        frame_count = fresh_session.processed_frames or 0
-    elif fresh_session.status in ["completed", "preview_ready"]:
-        # When completed or preview ready, check storage type
-        if fresh_session.storage_type == "s3" and fresh_session.frame_measurements_s3_key:
-            # Frames are in S3, use processed_frames field
-            frame_count = fresh_session.processed_frames or 0
-        else:
-            frame_count = fresh_session.processed_frames or 0
-
     # Update session object with fresh data for use below
     session.status = fresh_session.status
     session.processed_frames = fresh_session.processed_frames
@@ -680,7 +667,6 @@ async def get_processing_status(
     response = {
         "session_id": session_id,
         "status": session.status,
-        "frames_processed": frame_count,
         "total_frames": session.total_frames or 0,
         "progress_percentage": session.progress_percentage or 0.0,
         "current_phase": session.current_phase or "initializing"

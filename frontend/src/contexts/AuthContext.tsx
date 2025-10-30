@@ -53,7 +53,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         setUser(userData);
       }
     } catch (error) {
-      // console.error('Auth check failed:', error);
       api.logout();
     } finally {
       setLoading(false);

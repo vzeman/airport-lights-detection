@@ -33,13 +33,11 @@ const NotesEditorDialog: React.FC<NotesEditorDialogProps> = ({
   const handleSave = async () => {
     try {
       setSaving(true);
-      console.log('Saving notes:', notes); // Debug log
       await api.put(`/papi-measurements/session/${sessionId}/notes`, { notes });
-      console.log('Notes saved successfully'); // Debug log
       onNotesSaved(notes);
       onOpenChange(false);
     } catch (err: any) {
-      console.error('Error saving notes:', err); // Debug log
+      console.error('Error saving notes:', err);
       alert(err.response?.data?.detail || 'Failed to save notes');
     } finally {
       setSaving(false);

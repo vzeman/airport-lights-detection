@@ -88,7 +88,6 @@ const AirportImport: React.FC<AirportImportProps> = ({ open, onClose, onImport }
       
       // Show import details
       const data = response.data;
-      // console.log(`Imported ${data.runways_imported} runways and ${data.items_created} items`);
       
       onImport(airport);
       setSearchResults([]);

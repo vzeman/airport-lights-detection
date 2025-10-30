@@ -87,12 +87,6 @@ function FitBounds({ bounds }: { bounds: L.LatLngBoundsExpression | null }) {
 }
 
 export default function Airport3DVisualization({ dronePositions, referencePoints, runway }: Airport3DVisualizationProps) {
-  // Debug: Log reference points to see what we're receiving
-  useEffect(() => {
-    console.log('Reference Points:', referencePoints);
-    console.log('Reference Point Keys:', Object.keys(referencePoints));
-  }, [referencePoints]);
-
   // Calculate bounds to fit all markers
   const bounds = useMemo(() => {
     const allPoints: [number, number][] = [];
@@ -268,7 +262,6 @@ export default function Airport3DVisualization({ dronePositions, referencePoints
           const isTouchPoint = upperPointId.includes('TOUCH');
 
           if (!point.latitude || !point.longitude) {
-            console.log(`Skipping point ${pointId}: missing coordinates`, point);
             return null;
           }
 
@@ -279,13 +272,10 @@ export default function Airport3DVisualization({ dronePositions, referencePoints
             const lightName = `PAPI_${isPAPI[1].toUpperCase()}`;
             icon = getPAPIIcon(lightName);
             label = lightName;
-            console.log(`Rendering PAPI light: ${label} at [${point.latitude}, ${point.longitude}]`);
           } else if (isTouchPoint) {
             icon = touchPointIcon;
             label = 'Touch Point';
-            console.log(`Rendering Touch Point at [${point.latitude}, ${point.longitude}]`);
           } else {
-            console.log(`Skipping unknown point type: ${pointId}`);
             return null; // Skip other reference points
           }
 

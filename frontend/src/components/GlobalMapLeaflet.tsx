@@ -65,7 +65,6 @@ const GlobalMapLeaflet: React.FC<GlobalMapProps> = ({
         const response = await api.get('/airports');
         setAirports(response.data || []);
       } catch (error) {
-        // console.error('Error loading airports:', error);
         setAirports([]);
       } finally {
         setLoading(false);

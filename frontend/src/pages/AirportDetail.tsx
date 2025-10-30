@@ -97,7 +97,6 @@ const AirportDetail: React.FC = () => {
       setRunways(runwaysData.runways || []);
       
     } catch (error) {
-      // console.error('Failed to fetch airport details:', error);
     } finally {
       setLoading(false);
     }
@@ -142,7 +141,6 @@ const AirportDetail: React.FC = () => {
 
       setReferencePoints(allPoints);
     } catch (error) {
-      // console.error('Failed to fetch reference points:', error);
       // Initialize with default points
       const defaultPoints = ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D', 'TOUCH_POINT'].map(type => ({
         point_type: type as ReferencePoint['point_type'],
@@ -182,7 +180,6 @@ const AirportDetail: React.FC = () => {
         is_active: true
       });
     } catch (error) {
-      // console.error('Failed to save runway:', error);
     }
   };
 
@@ -193,7 +190,6 @@ const AirportDetail: React.FC = () => {
       await api.deleteRunway(airportId!, runwayId);
       await fetchAirportDetails();
     } catch (error) {
-      // console.error('Failed to delete runway:', error);
     }
   };
 
@@ -221,7 +217,6 @@ const AirportDetail: React.FC = () => {
       setEditingPoints(false);
       alert('Reference points saved successfully!');
     } catch (error) {
-      // console.error('Failed to save reference points:', error);
       alert('Failed to save reference points');
     }
   };

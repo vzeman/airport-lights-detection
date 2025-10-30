@@ -22,7 +22,6 @@ interface MeasurementSession {
   html_report_url?: string;
   html_report_content_url?: string;
   video_urls?: any;
-  frames_processed?: number;
   total_frames?: number;
   progress_percentage?: number;
   current_phase?: string;
@@ -68,7 +67,7 @@ const PAPIMeasurements: React.FC = () => {
       const response = await api.get('/papi-measurements/airports-with-runways');
       setAirports(response.data);
     } catch (error) {
-      // console.error('Failed to fetch airports:', error);
+      // Failed silently
     }
   };
 
@@ -107,7 +106,6 @@ const PAPIMeasurements: React.FC = () => {
       // Poll for preview
       setTimeout(() => fetchPreview(response.data.session_id), 2000);
     } catch (error) {
-      // console.error('Upload failed:', error);
       setProcessing(false);
     }
   };
@@ -146,7 +144,6 @@ const PAPIMeasurements: React.FC = () => {
       
       // Process detected lights or set defaults
       const detectedLights = response.data.detected_lights || {};
-      // console.log('Detected lights from backend:', detectedLights);
       
       if (Object.keys(detectedLights).length > 0) {
         // Convert detected lights to our format if needed
@@ -178,7 +175,7 @@ const PAPIMeasurements: React.FC = () => {
           const imageUrl = URL.createObjectURL(imageResponse.data);
           setPreviewImageUrl(imageUrl);
         } catch (imageError) {
-          // console.error('Failed to fetch preview image:', imageError);
+          // Failed silently
         }
       }
       
@@ -213,51 +210,30 @@ const PAPIMeasurements: React.FC = () => {
       return;
     }
 
-    console.log('Starting preview regeneration for session:', session.session_id);
     setRegeneratingPreview(true);
     try {
-      console.log('Making POST request to regenerate-preview endpoint');
-      const response = await api.post(
+      await api.post(
         `/papi-measurements/session/${session.session_id}/regenerate-preview`
       );
-      console.log('Regenerate preview response:', response.data);
 
-      // DO NOT overwrite light positions - preserve user's manual adjustments
-      // The backend returns auto-detected positions, but we want to keep the user's manual changes
-      // The preview image will be updated with geometric visualization, but positions stay as manually adjusted
-      // if (response.data.light_positions) {
-      //   setLightPositions(response.data.light_positions);
-      // }
-
-      // Fetch the new preview URL (which triggers a new presigned URL from S3)
-      console.log('Fetching new preview URL from server');
       const previewResponse = await api.get(`/papi-measurements/session/${session.session_id}/preview`);
-      console.log('Preview response:', previewResponse.data);
 
-      // Fetch the new preview image with the new presigned URL
       if (previewResponse.data.preview_url) {
-        console.log('Fetching new preview image from:', previewResponse.data.preview_url);
         try {
           const imageResponse = await api.get(previewResponse.data.preview_url, {
             responseType: 'blob'
           });
-          // Revoke old URL to free memory
           if (previewImageUrl) {
             URL.revokeObjectURL(previewImageUrl);
           }
           const imageUrl = URL.createObjectURL(imageResponse.data);
           setPreviewImageUrl(imageUrl);
-          console.log('Preview image URL updated');
         } catch (imageError) {
           console.error('Failed to fetch new preview image:', imageError);
         }
       }
-
-      console.log('Preview regenerated successfully');
     } catch (error: any) {
-      console.error('Failed to regenerate preview - Full error:', error);
-      console.error('Error response:', error.response);
-      console.error('Error message:', error.message);
+      console.error('Failed to regenerate preview:', error);
       alert(`Failed to regenerate preview: ${error.response?.data?.detail || error.message}`);
     } finally {
       setRegeneratingPreview(false);
@@ -290,7 +266,7 @@ const PAPIMeasurements: React.FC = () => {
           setSession(prev => prev ? { ...prev, ...response.data } : response.data);
         }
       } catch (error) {
-        // console.error('Status check failed:', error);
+        // Failed silently
       }
     }, 3000);
   };
@@ -363,7 +339,6 @@ const PAPIMeasurements: React.FC = () => {
       
       return { x: brightestX, y: brightestY };
     } catch (error) {
-      // console.warn('Could not analyze image for light detection:', error);
       return { x: centerX, y: centerY };
     }
   };

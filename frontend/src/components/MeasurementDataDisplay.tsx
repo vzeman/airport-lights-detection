@@ -112,7 +112,6 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
       // Load notes from session_info (default to empty string if not present)
       const loadedNotes = response.data?.summary?.session_info?.notes || '';
       setNotes(loadedNotes);
-      console.log('Loaded notes:', loadedNotes); // Debug log
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to load measurement data');
     } finally {
@@ -239,18 +238,15 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
 
   const calculateTouchPointAngle = (dronePos: any, touchPoint: any, groundElevation: number, debug: boolean = false): number => {
     if (!dronePos || !touchPoint) {
-      // if (debug) console.log('[Calc Debug] Missing dronePos or touchPoint');
       return 0;
     }
 
     // Check for valid coordinates
     if (!dronePos.latitude || !dronePos.longitude || !dronePos.elevation) {
-      // if (debug) console.log('[Calc Debug] Invalid drone position data:', dronePos);
       return 0;
     }
 
     if (!touchPoint.latitude || !touchPoint.longitude) {
-      // if (debug) console.log('[Calc Debug] Invalid touch point coordinates:', touchPoint);
       return 0;
     }
 
@@ -258,7 +254,6 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
     const touchPointElevation = touchPoint.elevation ?? groundElevation;
 
     if (debug) {
-      // console.log('[Calc Debug] Touch point elevation:', touchPoint.elevation, 'Using:', touchPointElevation);
     }
 
     // Haversine formula to calculate horizontal distance
@@ -320,7 +315,6 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
         .filter(elev => elev !== null && elev !== undefined);
 
       if (lightName === 'PAPI_A') {
-        // console.log('[Ground Elevation Debug] PAPI elevations extracted:', papiElevations);
       }
 
       if (papiElevations.length > 0) {
@@ -330,11 +324,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
 
     // Debug: Check available reference points
     if (lightName === 'PAPI_A') {
-      // console.log('[Touch Point Debug] Available reference points:', Object.keys(data.reference_points || {}));
-      // console.log('[Touch Point Debug] Selected touch point:', touchPoint);
-      // console.log('[Touch Point Debug] Calculated ground elevation:', groundElevation);
       if (data.drone_positions && data.drone_positions[0]) {
-        // console.log('[Touch Point Debug] First drone position:', data.drone_positions[0]);
       }
     }
 
@@ -372,11 +362,9 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
         touchPointAngle = calculateTouchPointAngle(dronePos, touchPoint, groundElevation, enableDebug);
 
         if (enableDebug) {
-          // console.log('[Touch Point Debug] First calculation result:', touchPointAngle);
         }
       } else {
         if (lightName === 'PAPI_A' && index === 0) {
-          // console.log('[Touch Point Debug] Missing data - touchPoint:', !!touchPoint, 'dronePos:', !!dronePos);
         }
       }
 
@@ -421,8 +409,6 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
     // Calculate 50% threshold value
     const threshold = minMetric + (maxMetric - minMetric) * 0.5;
 
-    // console.log(`[${lightName}] Color metric range: [${minMetric.toFixed(2)}, ${maxMetric.toFixed(2)}]`);
-    // console.log(`[${lightName}] Transition threshold (50%): ${threshold.toFixed(2)}`);
 
     // Find all transition points where the metric crosses the threshold
     for (let i = 1; i < colorMetrics.length; i++) {
@@ -436,7 +422,6 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
       }
     }
 
-    // console.log(`[${lightName}] Raw transitions detected: ${transitionPoints.length}`);
 
     // Group nearby transitions (within 1.5 seconds) and keep only the first one
     const groupedTransitions: number[] = [];
@@ -456,7 +441,6 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
     }
 
     // Debug logging
-    // console.log(`[${lightName}] Detected ${groupedTransitions.length} final transitions:`, groupedTransitions);
 
     return groupedTransitions.sort((a, b) => a - b);
   };
@@ -1996,7 +1980,6 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                   src={data.video_urls?.enhanced_main}
                   onError={(e) => {
                     const video = e.currentTarget as HTMLVideoElement;
-                    // console.error('Enhanced video error:', {
                     //   error: video.error,
                     //   code: video.error?.code,
                     //   message: video.error?.message,
@@ -2005,7 +1988,6 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                     //   src: data.video_urls?.enhanced_main
                     // });
                   }}
-                  // onLoadedMetadata={() => console.log('Video loaded:', data.video_urls?.enhanced_main)}
                 >
                   Your browser does not support the video tag.
                 </video>
@@ -2148,14 +2130,12 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                         src={data.video_urls?.[light as keyof typeof data.video_urls]}
                         onError={(e) => {
                           const video = e.currentTarget as HTMLVideoElement;
-                          // console.error('Video error:', light, {
                           //   error: video.error,
                           //   networkState: video.networkState,
                           //   readyState: video.readyState,
                           //   src: data.video_urls?.[light as keyof typeof data.video_urls]
                           // });
                         }}
-                        // onLoadedMetadata={() => console.log('Video loaded:', light)}
                       >
                         Your browser does not support the video tag.
                       </video>
