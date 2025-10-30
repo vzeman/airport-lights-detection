@@ -10,7 +10,7 @@ import uuid
 # Add parent directory to path
 sys.path.append('.')
 
-from app.db.session import async_session as AsyncSessionLocal
+from app.db.base import AsyncSessionLocal
 from app.models import User, UserRole
 from app.core.security import get_password_hash
 

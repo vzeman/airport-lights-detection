@@ -14,7 +14,7 @@ import uuid
 sys.path.append('.')
 
 from app.db.base import engine, Base
-from app.db.session import async_session as AsyncSessionLocal
+from app.db.base import AsyncSessionLocal
 from app.models import User, UserRole, Permission
 from app.core.security import get_password_hash
 

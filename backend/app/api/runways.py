@@ -9,7 +9,7 @@ from pydantic import BaseModel
 import uuid
 from datetime import datetime
 
-from app.db.session import get_db
+from app.db.base import get_db
 from app.api.auth import get_current_user
 from app.models import User, Airport, Runway
 

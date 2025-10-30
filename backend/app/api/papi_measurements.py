@@ -4,18 +4,21 @@ API endpoints for PAPI light measurement workflow
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks, Body
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func, delete
+from sqlalchemy import select, and_, func, delete, text
+from sqlalchemy.orm.attributes import flag_modified
 from typing import List, Optional, Dict, Any
 import json
 import os
 import uuid
 from datetime import datetime
+from pydantic import ValidationError
 
-from app.db.session import get_db
+from app.db.base import get_db
 from app.api.auth import get_current_user
 from app.core.deps import require_airport_access, require_session_access
 from app.models import User, Airport, Runway, ReferencePoint, MeasurementSession
 from app.models.papi_measurement import PAPIReferencePointType, LightStatus
+from app.schemas.light_position import LightPositions, validate_and_normalize_light_positions
 from app.services.video_processor import VideoProcessor, PAPIReportGenerator, calculate_angle, GPSExtractor
 from app.services.video_s3_handler import get_video_s3_handler
 from app.core.config import settings
@@ -385,18 +388,64 @@ async def confirm_light_positions(
     logger.info(f"Current session status: {session.status}")
     logger.info(f"Current light_positions in session: {session.light_positions}")
 
-    # Update the session
+    # Validate and normalize light positions
+    try:
+        normalized_positions = validate_and_normalize_light_positions(light_positions)
+        logger.info(f"Light positions validated and normalized successfully")
+        logger.info(f"NORMALIZED POSITIONS: {json.dumps(normalized_positions, indent=2)}")
+    except ValidationError as e:
+        logger.error(f"Invalid light positions format: {e}")
+        raise HTTPException(status_code=400, detail=f"Invalid light positions: {e}")
+
+    # Update the session - use a fresh session object to ensure proper tracking
     logger.info(f"Updating session {session_id} with new light positions")
-    session.light_positions = light_positions
+    logger.info(f"BEFORE UPDATE - session.light_positions: {session.light_positions}")
+
+    # Create a dict copy to avoid any reference issues
+    light_positions_copy = json.loads(json.dumps(normalized_positions))
+    logger.info(f"Created copy of normalized positions: {json.dumps(light_positions_copy, indent=2)}")
+
+    session.light_positions = light_positions_copy
     session.status = "processing"
+    logger.info(f"AFTER ASSIGNMENT - session.light_positions: {session.light_positions}")
+
+    # Mark JSON field as modified so SQLAlchemy knows to save it
+    flag_modified(session, "light_positions")
+    logger.info(f"FLAG_MODIFIED called for light_positions")
 
     # Commit changes
-    await db.flush()
-    await db.commit()
+    try:
+        logger.info(f"About to flush...")
+        await db.flush()
+        logger.info(f"AFTER FLUSH - session.light_positions: {session.light_positions}")
+    except Exception as flush_error:
+        logger.error(f"FLUSH FAILED: {flush_error}")
+        await db.rollback()
+        raise
 
-    logger.info(f"After commit - status: {session.status}")
-    logger.info(f"After commit - light_positions (first 100 chars): {str(session.light_positions)[:100]}")
-    logger.info(f"Session {session_id} updated successfully, starting background processing")
+    try:
+        logger.info(f"About to commit...")
+        await db.commit()
+        logger.info(f"COMMIT COMPLETED")
+    except Exception as commit_error:
+        logger.error(f"COMMIT FAILED: {commit_error}")
+        await db.rollback()
+        raise
+
+    # CRITICAL: Verify with a completely fresh database query using raw SQL
+    try:
+        logger.info(f"Executing RAW SQL verification query...")
+        raw_query = f"SELECT light_positions FROM measurement_sessions WHERE id = '{session_id}'"
+        raw_result = await db.execute(text(raw_query))
+        raw_data = raw_result.fetchone()
+        if raw_data and raw_data[0]:
+            logger.info(f"RAW SQL VERIFICATION - light_positions from DB: {json.dumps(raw_data[0], indent=2)}")
+        else:
+            logger.error(f"RAW SQL VERIFICATION - No data found or NULL!")
+    except Exception as raw_error:
+        logger.error(f"RAW SQL VERIFICATION FAILED: {raw_error}")
+
+    logger.info(f"Session {session_id} update process completed, starting background processing")
 
     # Start full video processing
     background_tasks.add_task(process_video_full, session_id)
@@ -567,6 +616,7 @@ async def regenerate_preview(
         # If no positions exist yet, use the detected ones; otherwise keep existing manual positions.
         if not session.light_positions or len(session.light_positions) == 0:
             session.light_positions = detected_lights
+            flag_modified(session, "light_positions")
             logger.info(f"No existing light positions - using detected positions: {detected_lights}")
         else:
             logger.info(f"Preserving existing manual light positions (not overwriting with auto-detected)")
@@ -1334,9 +1384,9 @@ async def process_video_initial_with_s3_upload(session_id: str, video_path: str)
     """Upload video to S3, then extract first frame and detect lights"""
     import asyncio
     from sqlalchemy.ext.asyncio import AsyncSession
-    from app.db.session import async_session
+    from app.db.base import AsyncSessionLocal
 
-    async with async_session() as db:
+    async with AsyncSessionLocal() as db:
         try:
             # Get session from database
             result = await db.execute(
@@ -1382,10 +1432,10 @@ async def process_video_initial(session_id: str, video_path: str):
     """Extract first frame and detect lights (called after S3 upload)"""
     import asyncio
     from sqlalchemy.ext.asyncio import AsyncSession
-    from app.db.session import async_session
+    from app.db.base import AsyncSessionLocal
     from app.services.video_processor import GPSExtractor
 
-    async with async_session() as db:
+    async with AsyncSessionLocal() as db:
         try:
             # Get session from database
             result = await db.execute(
@@ -1488,6 +1538,7 @@ async def process_video_initial(session_id: str, video_path: str):
                 # Update session with metadata (including GPS) and detected lights
                 session.video_metadata = metadata
                 session.light_positions = detected_lights
+                flag_modified(session, "light_positions")
                 session.status = "preview_ready"
                 session.current_phase = "preview_ready"
                 session.progress_percentage = 100.0
@@ -1508,29 +1559,37 @@ async def process_video_full(session_id: str):
     import asyncio
     import cv2
     from sqlalchemy.ext.asyncio import AsyncSession
-    from app.db.session import async_session
+    from app.db.base import AsyncSessionLocal
     from app.services.video_processor import GPSExtractor
-    
-    async with async_session() as db:
+
+    async with AsyncSessionLocal() as db:
         try:
             # Get session from database with manually confirmed light positions
+            logger.info(f"========== process_video_full STARTED ==========")
+            logger.info(f"Creating NEW database session to load session_id: {session_id}")
+
             result = await db.execute(
                 select(MeasurementSession).where(MeasurementSession.id == session_id)
             )
             session = result.scalar_one_or_none()
 
-            if not session or not session.light_positions:
-                logger.error(f"Session {session_id} not found or has no light positions")
+            if not session:
+                logger.error(f"Session {session_id} not found in database!")
+                return
+
+            if not session.light_positions:
+                logger.error(f"Session {session_id} has NO light positions!")
                 return
 
             # Log the manually confirmed light positions that will be used
-            logger.info(f"========== STARTING VIDEO PROCESSING ==========")
+            logger.info(f"========== LOADED SESSION FROM DATABASE ==========")
             logger.info(f"Session ID: {session_id}")
+            logger.info(f"FULL light_positions JSON from DB: {json.dumps(session.light_positions, indent=2)}")
             logger.info(f"Using MANUALLY CONFIRMED light positions from database:")
             for light_name, pos in session.light_positions.items():
                 if light_name in ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D']:
                     logger.info(f"  {light_name}: x={pos.get('x', 'N/A')}%, y={pos.get('y', 'N/A')}%, width={pos.get('width', 'N/A')}%, height={pos.get('height', 'N/A')}%")
-            logger.info(f"================================================")
+            logger.info(f"=================================================")
 
             # Initialize progress tracking
             session.current_phase = "processing_frames"
@@ -1721,6 +1780,7 @@ async def process_video_full(session_id: str):
 
                     # Update session with refined positions
                     session.light_positions = refined_positions
+                    flag_modified(session, "light_positions")
                     await db.commit()
                     logger.info(f"Saved refined PAPI light positions to database for session {session_id}")
 
