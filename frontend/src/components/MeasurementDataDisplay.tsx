@@ -1309,7 +1309,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
               <div>
                 <h4 className="text-sm font-medium mb-3">Light Area (Pixels²) - All Lights</h4>
                 <p className="text-xs text-gray-600 mb-2">
-                  Shows the area of the lit region (≥ 15% red intensity) for each PAPI light over time. Larger area indicates stronger or more spread out light.
+                  Shows the area of the lit region (≥ 85% red intensity) for each PAPI light over time. Larger area indicates stronger or more spread out light.
                 </p>
                 <ResponsiveContainer width="100%" height={350}>
                   <LineChart data={formatComparisonChartData()} margin={{ left: 50, right: 20, top: 5, bottom: 5 }}>

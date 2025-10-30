@@ -2808,7 +2808,8 @@ class PAPIVideoGenerator:
                 # Draw manual selection rectangle in CYAN with thick border
                 manual_color = (255, 255, 0)  # Cyan (BGR format)
                 manual_thickness = 4
-                cv2.rectangle(enhanced_frame, (x1, y1), (x2, y2), manual_color, manual_thickness)
+                # Rectangle removed per user request - keeping only angle text
+                # cv2.rectangle(enhanced_frame, (x1, y1), (x2, y2), manual_color, manual_thickness)
 
                 # Add label showing this is the manual selection
                 label_text = f"{light_name.replace('PAPI_', '')} (Manual Selection)"
@@ -2871,8 +2872,9 @@ class PAPIVideoGenerator:
 
             # Draw rectangle and label
             thickness = 3  # Fixed thickness (confidence removed - not needed for user)
-            cv2.rectangle(enhanced_frame, (x1, y1), (x2, y2), rect_color, thickness)
-            
+            # Rectangle removed per user request - keeping only angle text
+            # cv2.rectangle(enhanced_frame, (x1, y1), (x2, y2), rect_color, thickness)
+
             # Calculate angle to PAPI light if we have GPS data
             angle_text = ""
             if cached_drone_data and reference_points:
@@ -3015,21 +3017,21 @@ class PAPIVideoGenerator:
         # Column 1: GPS Info
         x_col1 = 25
         cv2.putText(frame, "GPS POSITION", (x_col1, y_base),
-                   font, 0.9, (80, 80, 80), 2)  # Increased from 0.4 to 0.9, thickness 2
+                   font, 1.8, (80, 80, 80), 2)  # Doubled from 0.9 to 1.8
         cv2.putText(frame, f"Lat: {drone_data.get('latitude', 0):.6f}", (x_col1, y_base + 35),
-                   font, 0.7, (60, 60, 60), 2)  # Increased from 0.35 to 0.7
+                   font, 1.4, (60, 60, 60), 2)  # Doubled from 0.7 to 1.4
         cv2.putText(frame, f"Lon: {drone_data.get('longitude', 0):.6f}", (x_col1, y_base + 65),
-                   font, 0.7, (60, 60, 60), 2)
+                   font, 1.4, (60, 60, 60), 2)  # Doubled from 0.7 to 1.4
         cv2.putText(frame, f"Alt: {drone_data.get('elevation', 0):.1f}m", (x_col1, y_base + 95),
-                   font, 0.7, (60, 60, 60), 2)
+                   font, 1.4, (60, 60, 60), 2)  # Doubled from 0.7 to 1.4
         if drone_data.get('speed'):
             cv2.putText(frame, f"Spd: {drone_data['speed']:.1f} m/s", (x_col1, y_base + 125),
-                       font, 0.7, (60, 60, 60), 2)
+                       font, 1.4, (60, 60, 60), 2)  # Doubled from 0.7 to 1.4
 
         # Column 2: PAPI Vertical Angles
         x_col2 = col_width + 25
         cv2.putText(frame, "PAPI VERTICAL ANGLES", (x_col2, y_base),
-                   font, 0.9, (80, 80, 80), 2)  # Increased from 0.4 to 0.9
+                   font, 1.8, (80, 80, 80), 2)  # Doubled from 0.9 to 1.8
 
         y_papi = y_base + 35
         for papi_name, angle in papi_angles.items():
@@ -3053,7 +3055,7 @@ class PAPIVideoGenerator:
                 angle_text += f" (N:{nominal_angle:.2f})"
 
             cv2.putText(frame, angle_text, (x_col2, y_papi),
-                       font, 0.5, color, 2)  # Reduced font size to 0.5 to fit more text
+                       font, 1.0, color, 2)  # Doubled from 0.5 to 1.0
             y_papi += 28  # Increased spacing from 18 to 28
             if y_papi > header_y + header_height - 15:
                 break
@@ -3062,16 +3064,16 @@ class PAPIVideoGenerator:
         x_col3 = 2 * col_width + 25
         if touch_angle is not None:
             cv2.putText(frame, "TOUCH POINT", (x_col3, y_base),
-                       font, 0.9, (80, 80, 80), 2)  # Increased from 0.4 to 0.9
+                       font, 1.8, (80, 80, 80), 2)  # Doubled from 0.9 to 1.8
             cv2.putText(frame, f"Angle: {touch_angle:.2f}", (x_col3, y_base + 35),
-                       font, 0.8, (0, 180, 180), 2)  # Increased from 0.42 to 0.8
+                       font, 1.6, (0, 180, 180), 2)  # Doubled from 0.8 to 1.6
         else:
             cv2.putText(frame, "MEASUREMENT DATA", (x_col3, y_base),
-                       font, 0.9, (80, 80, 80), 2)  # Increased from 0.4 to 0.9
+                       font, 1.8, (80, 80, 80), 2)  # Doubled from 0.9 to 1.8
 
         # Frame number at bottom right of header
         cv2.putText(frame, f"Frame: {frame_number + 1}", (width - 200, header_height - 15),
-                   font, 0.7, (100, 100, 100), 2)  # Increased size and moved to header
+                   font, 1.4, (100, 100, 100), 2)  # Doubled from 0.7 to 1.4
     
     def _add_overlays_to_frame_with_tracking(self, frame: np.ndarray, tracked_positions: Dict, 
                                             frame_number: int, total_frames: int,
@@ -3114,7 +3116,8 @@ class PAPIVideoGenerator:
             
             # Draw rectangle around PAPI light with detected color
             thickness = 3  # Fixed thickness (confidence removed - not needed for user)
-            cv2.rectangle(enhanced_frame, (x1, y1), (x2, y2), rect_color, thickness)
+            # Rectangle removed per user request - keeping only angle text
+            # cv2.rectangle(enhanced_frame, (x1, y1), (x2, y2), rect_color, thickness)
 
             # Draw light name label
             label = f"{light_name}"
@@ -3171,10 +3174,11 @@ class PAPIVideoGenerator:
             
             # Get light status color from measurements if available
             light_color = self._get_light_status_color(light_name, frame_number, measurements_data)
-            
+
             # Draw rectangle around PAPI light
-            cv2.rectangle(enhanced_frame, (x1, y1), (x2, y2), light_color, 3)
-            
+            # Rectangle removed per user request - keeping only angle text
+            # cv2.rectangle(enhanced_frame, (x1, y1), (x2, y2), light_color, 3)
+
             # Draw center cross
             cv2.drawMarker(enhanced_frame, (pixel_x, pixel_y), light_color, 
                           cv2.MARKER_CROSS, 15, 2)
@@ -3820,27 +3824,27 @@ class PAPIVideoGenerator:
                 # Column 1: GPS Info
                 x_col1 = 25
                 cv2.putText(frame, "GPS POSITION", (x_col1, y_base),
-                           font, 0.9, (80, 80, 80), 2)  # Increased from 0.4 to 0.9, thickness 2
+                           font, 1.8, (80, 80, 80), 2)  # Doubled from 0.9 to 1.8
                 cv2.putText(frame, f"Lat: {drone_data['latitude']:.6f}", (x_col1, y_base + 35),
-                           font, 0.7, (60, 60, 60), 2)  # Increased from 0.35 to 0.7
+                           font, 1.4, (60, 60, 60), 2)  # Doubled from 0.7 to 1.4
                 cv2.putText(frame, f"Lon: {drone_data['longitude']:.6f}", (x_col1, y_base + 65),
-                           font, 0.7, (60, 60, 60), 2)
+                           font, 1.4, (60, 60, 60), 2)  # Doubled from 0.7 to 1.4
                 cv2.putText(frame, f"Alt: {drone_data['altitude']:.1f}m", (x_col1, y_base + 95),
-                           font, 0.7, (60, 60, 60), 2)
+                           font, 1.4, (60, 60, 60), 2)  # Doubled from 0.7 to 1.4
                 if 'speed' in drone_data:
                     cv2.putText(frame, f"Spd: {drone_data['speed']:.1f} m/s", (x_col1, y_base + 125),
-                               font, 0.7, (60, 60, 60), 2)
+                               font, 1.4, (60, 60, 60), 2)  # Doubled from 0.7 to 1.4
 
                 # Column 2: PAPI Vertical Angles
                 x_col2 = col_width + 25
                 cv2.putText(frame, "PAPI VERTICAL ANGLES", (x_col2, y_base),
-                           font, 0.9, (80, 80, 80), 2)  # Increased from 0.4 to 0.9
+                           font, 1.8, (80, 80, 80), 2)  # Doubled from 0.9 to 1.8
 
                 y_papi = y_base + 35
                 for papi_name, angle in papi_angles.items():
                     color = papi_colors.get(papi_name, (100, 100, 100))
                     cv2.putText(frame, f"{papi_name}: {angle:.2f}", (x_col2, y_papi),
-                               font, 0.7, color, 2)  # Increased from 0.38 to 0.7
+                               font, 1.4, color, 2)  # Doubled from 0.7 to 1.4
                     y_papi += 28  # Increased spacing from 18 to 28
                     if y_papi > header_y + header_height - 15:
                         break
@@ -3849,16 +3853,16 @@ class PAPIVideoGenerator:
                 x_col3 = 2 * col_width + 25
                 if touch_angle is not None:
                     cv2.putText(frame, "TOUCH POINT", (x_col3, y_base),
-                               font, 0.9, (80, 80, 80), 2)  # Increased from 0.4 to 0.9
+                               font, 1.8, (80, 80, 80), 2)  # Doubled from 0.9 to 1.8
                     cv2.putText(frame, f"Angle: {touch_angle:.2f}", (x_col3, y_base + 35),
-                               font, 0.8, (0, 180, 180), 2)  # Increased from 0.42 to 0.8
+                               font, 1.6, (0, 180, 180), 2)  # Doubled from 0.8 to 1.6
                 else:
                     cv2.putText(frame, "MEASUREMENT DATA", (x_col3, y_base),
-                               font, 0.9, (80, 80, 80), 2)  # Increased from 0.4 to 0.9
+                               font, 1.8, (80, 80, 80), 2)  # Doubled from 0.9 to 1.8
 
                 # Frame number at bottom right of header
                 cv2.putText(frame, f"Frame: {frame_number + 1}", (width - 200, header_height - 15),
-                           font, 0.7, (100, 100, 100), 2)  # Increased size and moved to header
+                           font, 1.4, (100, 100, 100), 2)  # Doubled from 0.7 to 1.4
 
             except Exception as e:
                 logger.warning(f"Error calculating angles: {e}")
