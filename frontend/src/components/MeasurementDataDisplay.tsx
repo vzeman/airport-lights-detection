@@ -236,137 +236,26 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
     }));
   };
 
-  const calculateTouchPointAngle = (dronePos: any, touchPoint: any, groundElevation: number, debug: boolean = false): number => {
-    if (!dronePos || !touchPoint) {
-      return 0;
-    }
-
-    // Check for valid coordinates
-    if (!dronePos.latitude || !dronePos.longitude || !dronePos.elevation) {
-      return 0;
-    }
-
-    if (!touchPoint.latitude || !touchPoint.longitude) {
-      return 0;
-    }
-
-    // Use ground elevation if touch point elevation is null
-    const touchPointElevation = touchPoint.elevation ?? groundElevation;
-
-    if (debug) {
-    }
-
-    // Haversine formula to calculate horizontal distance
-    const R = 6371000; // Earth's radius in meters
-    const lat1 = dronePos.latitude * Math.PI / 180;
-    const lat2 = touchPoint.latitude * Math.PI / 180;
-    const deltaLat = (touchPoint.latitude - dronePos.latitude) * Math.PI / 180;
-    const deltaLon = (touchPoint.longitude - dronePos.longitude) * Math.PI / 180;
-
-    const a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
-              Math.cos(lat1) * Math.cos(lat2) *
-              Math.sin(deltaLon / 2) * Math.sin(deltaLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    const horizontalDistance = R * c;
-
-    // Calculate vertical distance (from touch point UP to drone)
-    const verticalDistance = dronePos.elevation - touchPointElevation;
-
-    // Calculate elevation angle in degrees
-    const angleRadians = Math.atan2(verticalDistance, horizontalDistance);
-    const angleDegrees = angleRadians * 180 / Math.PI;
-
-    return angleDegrees;
-  };
 
   const formatRGBChartData = (lightName: string) => {
     if (!data || !data.papi_data[lightName]) return [];
 
     const lightData = data.papi_data[lightName];
 
-    // Find touch point by searching for key that contains 'TOUCH_POINT'
-    let touchPoint: {
-      latitude: number;
-      longitude: number;
-      elevation: number;
-      point_type: string;
-      nominal_angle?: number;
-      tolerance?: number;
-    } | null = null;
-    if (data.reference_points) {
-      const touchPointKey = Object.keys(data.reference_points).find(key =>
-        key.includes('TOUCH_POINT') || key.includes('ReferencePointType.TOUCH_POINT')
-      );
-      if (touchPointKey) {
-        touchPoint = data.reference_points[touchPointKey];
-      }
-    }
-
-    // Calculate ground elevation from PAPI lights for fallback
-    let groundElevation = 0;
-    if (data.reference_points) {
-      const papiKeys = Object.keys(data.reference_points).filter(key =>
-        key.includes('PAPI_A') || key.includes('PAPI_B') ||
-        key.includes('PAPI_C') || key.includes('PAPI_D')
-      );
-
-      const papiElevations = papiKeys
-        .map(key => data.reference_points[key]?.elevation)
-        .filter(elev => elev !== null && elev !== undefined);
-
-      if (lightName === 'PAPI_A') {
-      }
-
-      if (papiElevations.length > 0) {
-        groundElevation = papiElevations.reduce((sum, elev) => sum + elev, 0) / papiElevations.length;
-      }
-    }
-
-    // Debug: Check available reference points
-    if (lightName === 'PAPI_A') {
-      if (data.drone_positions && data.drone_positions[0]) {
-      }
-    }
-
     return lightData.timestamps.map((timestamp, index) => {
       const rgb = lightData.rgb_values[index] || [0, 0, 0];
       const [r, g, b] = Array.isArray(rgb) ? rgb : [0, 0, 0];
 
-      // Calculate chromaticity (normalized RGB)
-      const sum = r + g + b;
-      const redChromaticity = sum > 0 ? r / sum : 0;
-      const greenChromaticity = sum > 0 ? g / sum : 0;
-      const blueChromaticity = sum > 0 ? b / sum : 0;
+      // Get chromaticity from API (already calculated on backend)
+      const redChroma = lightData.chromaticity_red?.[index] ?? 0;
+      const greenChroma = lightData.chromaticity_green?.[index] ?? 0;
+      const blueChroma = lightData.chromaticity_blue?.[index] ?? 0;
 
-      // Scale chromaticity to 0-100 for better visualization (0-1 range scaled up)
-      const redChroma = redChromaticity * 100;
-      const greenChroma = greenChromaticity * 100;
-      const blueChroma = blueChromaticity * 100;
+      // Get intensity from API
+      const intensity = lightData.intensities?.[index] ?? 0;
 
-      // Calculate intensity from RGB if not available in API response (backward compatibility)
-      let intensity = 0;
-      if (lightData.intensities && lightData.intensities[index] !== undefined) {
-        intensity = lightData.intensities[index];
-      } else {
-        // Fallback: calculate intensity as mean of RGB
-        intensity = (r + g + b) / 3;
-      }
-
-      // Calculate touch point angle
-      const dronePos = data.drone_positions[index];
-      let touchPointAngle = 0;
-
-      if (touchPoint && dronePos) {
-        // Enable debug logging for first calculation
-        const enableDebug = lightName === 'PAPI_A' && index === 0;
-        touchPointAngle = calculateTouchPointAngle(dronePos, touchPoint, groundElevation, enableDebug);
-
-        if (enableDebug) {
-        }
-      } else {
-        if (lightName === 'PAPI_A' && index === 0) {
-        }
-      }
+      // Get touch point angle from API
+      const touchPointAngle = data.touch_point_angles?.[index] ?? 0;
 
       return {
         timestamp: timestamp ?? 0,
@@ -387,159 +276,17 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
   const findColorTransitionPoints = (lightName: string): number[] => {
     if (!data || !data.papi_data[lightName]) return [];
 
+    // Get transition timestamps directly from API
     const lightData = data.papi_data[lightName];
-    const transitionPoints: number[] = [];
-
-    // New algorithm: compute 2*R - G - B for each frame
-    const colorMetrics: number[] = [];
-
-    for (let i = 0; i < lightData.rgb_values.length; i++) {
-      const rgb = lightData.rgb_values[i] || [0, 0, 0];
-      const [r, g, b] = Array.isArray(rgb) ? rgb : [0, 0, 0];
-
-      // Calculate the color transition metric: 2*R - G - B
-      const metric = 2 * r - g - b;
-      colorMetrics.push(metric);
-    }
-
-    // Find minimum and maximum values
-    const minMetric = Math.min(...colorMetrics);
-    const maxMetric = Math.max(...colorMetrics);
-
-    // Calculate 50% threshold value
-    const threshold = minMetric + (maxMetric - minMetric) * 0.5;
-
-
-    // Find all transition points where the metric crosses the threshold
-    for (let i = 1; i < colorMetrics.length; i++) {
-      const prevMetric = colorMetrics[i - 1];
-      const currMetric = colorMetrics[i];
-
-      // Check if the metric crossed the threshold (in either direction)
-      if ((prevMetric < threshold && currMetric >= threshold) ||
-          (prevMetric > threshold && currMetric <= threshold)) {
-        transitionPoints.push(lightData.timestamps[i]);
-      }
-    }
-
-
-    // Group nearby transitions (within 1.5 seconds) and keep only the first one
-    const groupedTransitions: number[] = [];
-    const groupWindow = 1.5; // seconds
-
-    for (let i = 0; i < transitionPoints.length; i++) {
-      const currentPoint = transitionPoints[i];
-
-      // Check if this point is close to any already grouped point
-      const isNearExisting = groupedTransitions.some(
-        existingPoint => Math.abs(currentPoint - existingPoint) < groupWindow
-      );
-
-      if (!isNearExisting) {
-        groupedTransitions.push(currentPoint);
-      }
-    }
-
-    // Debug logging
-
-    return groupedTransitions.sort((a, b) => a - b);
+    return lightData.transition_timestamps || [];
   };
 
   const findColorTransitionWidths = (lightName: string): number[] => {
     if (!data || !data.papi_data[lightName]) return [];
 
+    // Get transition widths directly from API
     const lightData = data.papi_data[lightName];
-
-    // Get transition points first (timestamps where transitions occur)
-    const transitionPoints = findColorTransitionPoints(lightName);
-    if (transitionPoints.length === 0) return [];
-
-    // Compute color metrics for each frame (same as in findColorTransitionPoints)
-    const colorMetrics: number[] = [];
-    for (let i = 0; i < lightData.rgb_values.length; i++) {
-      const rgb = lightData.rgb_values[i] || [0, 0, 0];
-      const [r, g, b] = Array.isArray(rgb) ? rgb : [0, 0, 0];
-      const metric = 2 * r - g - b;
-      colorMetrics.push(metric);
-    }
-
-    // Find minimum and maximum values
-    const minMetric = Math.min(...colorMetrics);
-    const maxMetric = Math.max(...colorMetrics);
-    const range = maxMetric - minMetric;
-
-    // Define transition zone thresholds (20% to 80% of the range)
-    const lowerThreshold = minMetric + range * 0.2;
-    const upperThreshold = minMetric + range * 0.8;
-
-    // For each transition point, find the corresponding transition width
-    const transitionWidths: number[] = [];
-    const searchWindow = 2.0; // seconds - window to search for transition zone around each transition point
-
-    for (const transitionTimestamp of transitionPoints) {
-      // Find the frame index closest to this transition point
-      let transitionIdx = 0;
-      let minTimeDiff = Infinity;
-      for (let i = 0; i < lightData.timestamps.length; i++) {
-        const timeDiff = Math.abs(lightData.timestamps[i] - transitionTimestamp);
-        if (timeDiff < minTimeDiff) {
-          minTimeDiff = timeDiff;
-          transitionIdx = i;
-        }
-      }
-
-      // Find the extent of the transition zone around this point
-      let startIdx = transitionIdx;
-      let endIdx = transitionIdx;
-
-      // Search backwards for the start of the transition zone
-      for (let i = transitionIdx; i >= 0; i--) {
-        const timeDiff = Math.abs(lightData.timestamps[i] - transitionTimestamp);
-        if (timeDiff > searchWindow) break; // Too far from transition point
-
-        const metric = colorMetrics[i];
-        if (metric > lowerThreshold && metric < upperThreshold) {
-          startIdx = i;
-        } else if (i < transitionIdx) {
-          // We've exited the transition zone going backwards
-          break;
-        }
-      }
-
-      // Search forwards for the end of the transition zone
-      for (let i = transitionIdx; i < colorMetrics.length; i++) {
-        const timeDiff = Math.abs(lightData.timestamps[i] - transitionTimestamp);
-        if (timeDiff > searchWindow) break; // Too far from transition point
-
-        const metric = colorMetrics[i];
-        if (metric > lowerThreshold && metric < upperThreshold) {
-          endIdx = i;
-        } else if (i > transitionIdx) {
-          // We've exited the transition zone going forwards
-          break;
-        }
-      }
-
-      // Calculate the maximum width within this transition zone
-      let maxWidth = 0;
-      const angles: number[] = [];
-      for (let i = startIdx; i <= endIdx; i++) {
-        const angle = lightData.angles[i];
-        if (angle !== undefined && angle !== null) {
-          angles.push(angle);
-        }
-      }
-
-      if (angles.length > 0) {
-        const minAngle = Math.min(...angles);
-        const maxAngle = Math.max(...angles);
-        maxWidth = maxAngle - minAngle;
-      }
-
-      transitionWidths.push(maxWidth);
-    }
-
-    return transitionWidths;
+    return lightData.transition_widths || [];
   };
 
   const formatComparisonChartData = () => {
@@ -552,39 +299,6 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
 
     const baseTimestamps = data.papi_data[baseLight].timestamps;
 
-    // Find touch point for angle calculation
-    let touchPoint: {
-      latitude: number;
-      longitude: number;
-      elevation: number;
-      point_type: string;
-      nominal_angle?: number;
-      tolerance?: number;
-    } | null = null;
-    if (data.reference_points) {
-      const touchPointKey = Object.keys(data.reference_points).find(key =>
-        key.includes('TOUCH_POINT') || key.includes('ReferencePointType.TOUCH_POINT')
-      );
-      if (touchPointKey) {
-        touchPoint = data.reference_points[touchPointKey];
-      }
-    }
-
-    // Calculate ground elevation from PAPI lights for fallback
-    let groundElevation = 0;
-    if (data.reference_points) {
-      const papiKeys = Object.keys(data.reference_points).filter(key =>
-        key.includes('PAPI_A') || key.includes('PAPI_B') ||
-        key.includes('PAPI_C') || key.includes('PAPI_D')
-      );
-      const papiElevations = papiKeys
-        .map(key => data.reference_points[key]?.elevation)
-        .filter(elev => elev !== null && elev !== undefined);
-      if (papiElevations.length > 0) {
-        groundElevation = papiElevations.reduce((sum, elev) => sum + elev, 0) / papiElevations.length;
-      }
-    }
-
     return baseTimestamps.map((timestamp, index) => {
       const dataPoint: any = {
         timestamp: timestamp ?? 0,
@@ -595,26 +309,12 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
       allLights.forEach(lightName => {
         const lightData = data.papi_data[lightName];
         if (lightData && lightData.timestamps[index] !== undefined) {
-          const rgb = lightData.rgb_values[index] || [0, 0, 0];
-          const [r, g, b] = Array.isArray(rgb) ? rgb : [0, 0, 0];
-          const sum = r + g + b;
-          const redChromaticity = sum > 0 ? (r / sum) * 100 : 0;
-          const greenChromaticity = sum > 0 ? (g / sum) * 100 : 0;
+          // Get all values from API (already calculated on backend)
+          const redChromaticity = lightData.chromaticity_red?.[index] ?? 0;
+          const greenChromaticity = lightData.chromaticity_green?.[index] ?? 0;
           const colorDiff = redChromaticity - greenChromaticity;
-
-          // Calculate intensity from RGB if not available in API response (backward compatibility)
-          let intensity = 0;
-          if (lightData.intensities && lightData.intensities[index] !== undefined) {
-            intensity = lightData.intensities[index];
-          } else {
-            // Fallback: calculate intensity as mean of RGB
-            intensity = (r + g + b) / 3;
-          }
-
-          // Get angle
+          const intensity = lightData.intensities?.[index] ?? 0;
           const angle = lightData.angles[index] ?? 0;
-
-          // Get area (pixels²)
           const area = lightData.area_values?.[index] ?? 0;
 
           dataPoint[`${lightName}_redChroma`] = redChromaticity;
@@ -632,13 +332,8 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
         dataPoint['gp_avg_middle'] = data.summary.glide_path_angles.average_middle_lights[index] ?? 0;
       }
 
-      // Calculate touch point angle from drone position (same as individual light charts)
-      const dronePos = data.drone_positions?.[index];
-      let touchPointAngle = 0;
-      if (touchPoint && dronePos) {
-        touchPointAngle = calculateTouchPointAngle(dronePos, touchPoint, groundElevation);
-      }
-      dataPoint['touchPoint_angle'] = touchPointAngle;
+      // Get touch point angle from API
+      dataPoint['touchPoint_angle'] = data.touch_point_angles?.[index] ?? 0;
 
       return dataPoint;
     });

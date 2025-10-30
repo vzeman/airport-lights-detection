@@ -1088,10 +1088,10 @@ async def get_measurements_data(
     
     # Format PAPI data by grouping measurements by light
     papi_data = {
-        "PAPI_A": {"timestamps": [], "statuses": [], "angles": [], "horizontal_angles": [], "distances": [], "rgb_values": [], "intensities": [], "area_values": []},
-        "PAPI_B": {"timestamps": [], "statuses": [], "angles": [], "horizontal_angles": [], "distances": [], "rgb_values": [], "intensities": [], "area_values": []},
-        "PAPI_C": {"timestamps": [], "statuses": [], "angles": [], "horizontal_angles": [], "distances": [], "rgb_values": [], "intensities": [], "area_values": []},
-        "PAPI_D": {"timestamps": [], "statuses": [], "angles": [], "horizontal_angles": [], "distances": [], "rgb_values": [], "intensities": [], "area_values": []}
+        "PAPI_A": {"timestamps": [], "statuses": [], "angles": [], "horizontal_angles": [], "distances": [], "rgb_values": [], "intensities": [], "area_values": [], "chromaticity_red": [], "chromaticity_green": [], "chromaticity_blue": [], "transition_timestamps": [], "transition_widths": []},
+        "PAPI_B": {"timestamps": [], "statuses": [], "angles": [], "horizontal_angles": [], "distances": [], "rgb_values": [], "intensities": [], "area_values": [], "chromaticity_red": [], "chromaticity_green": [], "chromaticity_blue": [], "transition_timestamps": [], "transition_widths": []},
+        "PAPI_C": {"timestamps": [], "statuses": [], "angles": [], "horizontal_angles": [], "distances": [], "rgb_values": [], "intensities": [], "area_values": [], "chromaticity_red": [], "chromaticity_green": [], "chromaticity_blue": [], "transition_timestamps": [], "transition_widths": []},
+        "PAPI_D": {"timestamps": [], "statuses": [], "angles": [], "horizontal_angles": [], "distances": [], "rgb_values": [], "intensities": [], "area_values": [], "chromaticity_red": [], "chromaticity_green": [], "chromaticity_blue": [], "transition_timestamps": [], "transition_widths": []}
     }
     
     # Format drone positions
@@ -1138,6 +1138,18 @@ async def get_measurements_data(
                 papi_data[light_name]["rgb_values"].append(rgb_array)
                 papi_data[light_name]["intensities"].append(papi_light_data.intensity if papi_light_data.intensity is not None else 0.0)
                 papi_data[light_name]["area_values"].append(papi_light_data.area_pixels if papi_light_data.area_pixels is not None else 0)
+
+                # Calculate chromaticity (normalized RGB scaled to 0-100)
+                r, g, b = rgb_array
+                rgb_sum = r + g + b
+                if rgb_sum > 0:
+                    papi_data[light_name]["chromaticity_red"].append(round((r / rgb_sum) * 100, 2))
+                    papi_data[light_name]["chromaticity_green"].append(round((g / rgb_sum) * 100, 2))
+                    papi_data[light_name]["chromaticity_blue"].append(round((b / rgb_sum) * 100, 2))
+                else:
+                    papi_data[light_name]["chromaticity_red"].append(0.0)
+                    papi_data[light_name]["chromaticity_green"].append(0.0)
+                    papi_data[light_name]["chromaticity_blue"].append(0.0)
             else:
                 # No data for this light
                 papi_data[light_name]["statuses"].append("not_visible")
@@ -1147,6 +1159,9 @@ async def get_measurements_data(
                 papi_data[light_name]["rgb_values"].append([0, 0, 0])
                 papi_data[light_name]["intensities"].append(0.0)
                 papi_data[light_name]["area_values"].append(0)
+                papi_data[light_name]["chromaticity_red"].append(0.0)
+                papi_data[light_name]["chromaticity_green"].append(0.0)
+                papi_data[light_name]["chromaticity_blue"].append(0.0)
     
     # Calculate glide path angles
     # 1. Average glide path angle: average of all PAPI lights
@@ -1264,6 +1279,73 @@ async def get_measurements_data(
             touch_point_ref = point_data
             break
 
+    # Calculate touch point angle for each frame (for charts)
+    touch_point_angles = []
+    if touch_point_ref:
+        for frame in frames:
+            drone_data = {
+                'latitude': frame.drone_latitude,
+                'longitude': frame.drone_longitude,
+                'elevation': frame.drone_elevation
+            }
+            angle = calculate_angle(drone_data, touch_point_ref)
+            touch_point_angles.append(angle)
+    else:
+        # No touch point, fill with zeros
+        touch_point_angles = [0.0] * len(frames)
+
+    # Calculate transition timestamps and widths for each light based on status changes
+    for light_name in papi_data.keys():
+        statuses = papi_data[light_name]["statuses"]
+        timestamps = papi_data[light_name]["timestamps"]
+        angles = papi_data[light_name]["angles"]
+
+        transition_timestamps = []
+        transition_widths = []
+
+        # Find status transitions (where status changes)
+        for i in range(1, len(statuses)):
+            prev_status = statuses[i-1]
+            curr_status = statuses[i]
+
+            # Detect transition: status change from RED->WHITE, WHITE->RED, or involving TRANSITION
+            if prev_status != curr_status and prev_status != "not_visible" and curr_status != "not_visible":
+                # This is a transition point
+                transition_timestamp = timestamps[i]
+
+                # Calculate transition width by finding the angle range around this transition
+                # Look back and forward for the extent of the transition zone
+                start_idx = max(0, i - 10)  # Look back up to 10 frames
+                end_idx = min(len(statuses), i + 10)  # Look forward up to 10 frames
+
+                # Find where the transition zone starts and ends
+                transition_angles = []
+                for j in range(start_idx, end_idx):
+                    if statuses[j] in ["transition", "TRANSITION"] or (j >= i-2 and j <= i+2):
+                        # Include frames in transition status or close to the transition point
+                        if angles[j] and angles[j] != 0.0:
+                            transition_angles.append(angles[j])
+
+                # Calculate width as the range of angles in the transition zone
+                if transition_angles:
+                    width = max(transition_angles) - min(transition_angles)
+                else:
+                    width = 0.0
+
+                # Group nearby transitions (within 1.5 seconds)
+                is_near_existing = False
+                for existing_ts in transition_timestamps:
+                    if abs(transition_timestamp - existing_ts) < 1.5:
+                        is_near_existing = True
+                        break
+
+                if not is_near_existing:
+                    transition_timestamps.append(transition_timestamp)
+                    transition_widths.append(round(width, 3))
+
+        papi_data[light_name]["transition_timestamps"] = transition_timestamps
+        papi_data[light_name]["transition_widths"] = transition_widths
+
     # Calculate touch point angles at specific positions for each algorithm
     touch_point_at_avg_all = 0.0
     touch_point_at_avg_middle = 0.0
@@ -1361,7 +1443,8 @@ async def get_measurements_data(
         "drone_positions": drone_positions,
         "reference_points": reference_points,
         "runway": runway_data,
-        "video_urls": video_urls
+        "video_urls": video_urls,
+        "touch_point_angles": touch_point_angles
     }
 
 
