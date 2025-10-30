@@ -14,7 +14,7 @@ from alembic.config import Config
 from alembic import command
 
 from app.core.config import settings
-from app.api import auth, users, airports, airport_import, airspace, item_types, missions, papi_measurements, runways, reference_points
+from app.api import auth, users, airports, airport_import, airspace, item_types, missions, papi_measurements, runways, reference_points, drone_metadata
 from app.db.base import engine, Base, AsyncSessionLocal
 
 # Configure logging with force=True to override any existing configuration
@@ -210,6 +210,7 @@ app.include_router(missions.router, prefix="/api/v1")
 app.include_router(papi_measurements.router, prefix="/api/v1")
 app.include_router(runways.router, prefix="/api/v1")
 app.include_router(reference_points.router, prefix="/api/v1")
+app.include_router(drone_metadata.router, prefix="/api/v1")
 
 # WORKAROUND: Include papi_measurements router again without /api prefix 
 # to handle proxy requests that strip the /api prefix

@@ -256,6 +256,21 @@ class ApiClient {
     const response = await this.client.get(`/papi-measurements/sessions?page=${page}&page_size=${pageSize}`);
     return response.data;
   }
+
+  // Drone Metadata API
+  async extractDroneMetadata(files: File[]) {
+    const formData = new FormData();
+    files.forEach((file) => {
+      formData.append('files', file);
+    });
+
+    const response = await this.client.post('/drone-metadata/extract', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  }
 }
 
 export const api = new ApiClient();

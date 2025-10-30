@@ -8,6 +8,7 @@ import {
   Package,
   ChevronRight,
   Activity,
+  Wrench,
 } from "lucide-react"
 
 import {
@@ -49,6 +50,18 @@ const data = {
           title: "Airports",
           url: "/airports",
           icon: Plane,
+          isActive: false,
+          roles: ['all']
+        },
+      ],
+    },
+    {
+      title: "Tools",
+      items: [
+        {
+          title: "Drone Metadata",
+          url: "/tools/drone-metadata",
+          icon: Wrench,
           isActive: false,
           roles: ['all']
         },

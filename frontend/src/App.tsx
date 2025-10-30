@@ -16,6 +16,7 @@ import Settings from './pages/Settings';
 import PAPIMeasurements from './pages/PAPIMeasurements';
 import PAPIMeasurementsHistory from './pages/PAPIMeasurementsHistory';
 import PAPIMeasurementsResults from './pages/PAPIMeasurementsResults';
+import DroneMetadataTools from './pages/DroneMetadataTools';
 import Layout from './components/Layout';
 
 // Create Query Client
@@ -73,6 +74,7 @@ const AppRoutes: React.FC = () => {
         <Route path="papi-measurements" element={<PAPIMeasurements />} />
         <Route path="papi-measurements/history" element={<PAPIMeasurementsHistory />} />
         <Route path="papi-measurements/results/:sessionId" element={<PAPIMeasurementsResults />} />
+        <Route path="tools/drone-metadata" element={<DroneMetadataTools />} />
         <Route path="settings" element={<Settings />} />
         <Route path="profile" element={<div className="p-6">Profile (TODO)</div>} />
       </Route>
