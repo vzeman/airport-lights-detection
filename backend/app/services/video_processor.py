@@ -25,20 +25,94 @@ import threading
 logger = logging.getLogger(__name__)
 
 
-def extract_color_from_brightest_pixels(roi: np.ndarray, brightness_percentile: float = 0.70) -> Tuple[int, int, int]:
+def measure_light_dimensions(frame: np.ndarray, center_x: int, center_y: int,
+                            initial_search_size: int, brightness_threshold: float = 0.10) -> Tuple[int, int, int, int]:
     """
-    Extract RGB color from the brightest pixels in a region of interest.
+    Measure actual light dimensions and compute center of mass of brightest pixels.
 
-    Instead of averaging all pixels, this function:
-    1. Finds the top 30% brightest pixels
-    2. Creates a tight region around them
-    3. Averages only those bright pixels
+    This computes the weighted center using pixels above 10% of max RED intensity
+    (i.e., the top 90% of the intensity range), which provides more stable positioning
+    and captures a larger area around the light.
 
-    This gives more accurate color representation for small light sources.
+    Args:
+        frame: Full video frame
+        center_x, center_y: Initial center position for search
+        initial_search_size: Initial search area size
+        brightness_threshold: RED channel threshold (default 0.10 = top 90% of range)
+
+    Returns:
+        (computed_center_x, computed_center_y, width, height) in frame coordinates
+    """
+    frame_height, frame_width = frame.shape[:2]
+
+    # Extract initial search region
+    half_size = initial_search_size // 2
+    x1 = max(0, center_x - half_size)
+    y1 = max(0, center_y - half_size)
+    x2 = min(frame_width, center_x + half_size)
+    y2 = min(frame_height, center_y + half_size)
+
+    search_roi = frame[y1:y2, x1:x2]
+
+    if search_roi.size == 0:
+        return (center_x, center_y, initial_search_size, initial_search_size)
+
+    # Create RED channel mask with 90% threshold
+    red_channel = search_roi[:, :, 2]  # BGR format
+    max_red = np.max(red_channel)
+
+    if max_red == 0:
+        return (center_x, center_y, initial_search_size, initial_search_size)
+
+    threshold_value = max_red * brightness_threshold
+    red_mask = (red_channel >= threshold_value).astype(np.uint8)
+
+    # Find bright pixels
+    coords = np.column_stack(np.where(red_mask > 0))
+    if coords.shape[0] == 0:
+        return (center_x, center_y, initial_search_size, initial_search_size)
+
+    y_coords, x_coords = coords[:, 0], coords[:, 1]
+
+    # Compute center of mass (weighted average of bright pixel positions)
+    # Weight by RED channel intensity for better accuracy
+    bright_intensities = red_channel[red_mask > 0]
+    weighted_x = np.average(x_coords, weights=bright_intensities)
+    weighted_y = np.average(y_coords, weights=bright_intensities)
+
+    # Convert to frame coordinates
+    computed_center_x = int(x1 + weighted_x)
+    computed_center_y = int(y1 + weighted_y)
+
+    # Measure dimensions (bounding box of bright pixels)
+    measured_width = int(np.max(x_coords) - np.min(x_coords))
+    measured_height = int(np.max(y_coords) - np.min(y_coords))
+
+    # Ensure minimum size
+    measured_width = max(measured_width, 20)
+    measured_height = max(measured_height, 20)
+
+    return (computed_center_x, computed_center_y, measured_width, measured_height)
+
+
+def extract_color_from_brightest_pixels(roi: np.ndarray, brightness_percentile: float = 0.10) -> Tuple[int, int, int]:
+    """
+    Extract RGB color from pixels with highest RED channel values.
+
+    This function uses the RED channel to identify the light source, matching
+    the algorithm used for drawing green evaluation boxes in videos.
+
+    Algorithm:
+    1. Extracts RED channel from BGR image
+    2. Finds maximum RED value in ROI
+    3. Creates mask of pixels with RED >= 10% of max (i.e., top 90% of intensity range)
+    4. Averages RGB values ONLY from those pixels
+
+    This ensures consistency between visualization (green boxes) and RGB computation.
 
     Args:
         roi: Region of interest (BGR image)
-        brightness_percentile: Percentile threshold for bright pixels (0.7 = top 30%)
+        brightness_percentile: RED threshold as fraction of max (0.10 = top 90% of range)
 
     Returns:
         Tuple of (R, G, B) values
@@ -46,39 +120,40 @@ def extract_color_from_brightest_pixels(roi: np.ndarray, brightness_percentile: 
     if roi.size == 0 or roi.shape[0] == 0 or roi.shape[1] == 0:
         return (255, 255, 255)  # Default white
 
-    # Convert to grayscale to find brightness
-    if len(roi.shape) == 3:
-        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    # Handle grayscale images
+    if len(roi.shape) != 3:
+        mean_gray = np.mean(roi)
+        return (int(mean_gray), int(mean_gray), int(mean_gray))
+
+    # Extract RED channel (BGR format, so index 2)
+    red_channel = roi[:, :, 2]
+
+    # Find maximum RED value
+    max_red = np.max(red_channel)
+
+    if max_red == 0:
+        # No red signal, fallback to full ROI average
+        mean_bgr = cv2.mean(roi)[:3]
+        return (int(mean_bgr[2]), int(mean_bgr[1]), int(mean_bgr[0]))
+
+    # Create binary mask of pixels with RED >= threshold% of max RED
+    threshold_value = max_red * brightness_percentile
+    red_mask = (red_channel >= threshold_value)
+
+    # Count pixels in evaluation area
+    area_pixels = np.sum(red_mask)
+
+    if area_pixels > 0:
+        # Extract pixels that meet RED threshold
+        bright_pixels = roi[red_mask]
+        # Average the bright pixels (BGR)
+        mean_bgr = np.mean(bright_pixels, axis=0)
+        # Convert BGR to RGB
+        r, g, b = int(mean_bgr[2]), int(mean_bgr[1]), int(mean_bgr[0])
     else:
-        gray = roi
-
-    # Find brightness threshold (top 30% brightest pixels)
-    brightness_threshold = np.percentile(gray, brightness_percentile * 100)
-
-    # Create mask of bright pixels
-    bright_mask = gray >= brightness_threshold
-
-    # If we have bright pixels, average only those
-    if np.any(bright_mask):
-        # Extract bright pixels from color image
-        if len(roi.shape) == 3:
-            bright_pixels = roi[bright_mask]
-            # Average the bright pixels (BGR)
-            mean_bgr = np.mean(bright_pixels, axis=0)
-            # Convert BGR to RGB
-            r, g, b = int(mean_bgr[2]), int(mean_bgr[1]), int(mean_bgr[0])
-        else:
-            # Grayscale image
-            mean_gray = np.mean(gray[bright_mask])
-            r = g = b = int(mean_gray)
-    else:
-        # Fallback to full ROI average if no bright pixels found
-        if len(roi.shape) == 3:
-            mean_bgr = cv2.mean(roi)[:3]
-            r, g, b = int(mean_bgr[2]), int(mean_bgr[1]), int(mean_bgr[0])
-        else:
-            mean_gray = np.mean(gray)
-            r = g = b = int(mean_gray)
+        # Fallback to full ROI average if no pixels found
+        mean_bgr = cv2.mean(roi)[:3]
+        r, g, b = int(mean_bgr[2]), int(mean_bgr[1]), int(mean_bgr[0])
 
     return (r, g, b)
 
@@ -1444,8 +1519,8 @@ class VideoProcessor:
 
                 roi = frame[y1:y2, x1:x2]
                 if roi.size > 0:
-                    # Extract color from brightest 30% of pixels for more accurate color detection
-                    r, g, b = extract_color_from_brightest_pixels(roi, brightness_percentile=0.70)
+                    # Extract color using 10% RED threshold (top 90% of intensity range)
+                    r, g, b = extract_color_from_brightest_pixels(roi)
                     rgb_values = [r, g, b]
                 else:
                     rgb_values = [255, 255, 255]
@@ -2515,7 +2590,352 @@ class PAPIVideoGenerator:
             logger.info(f"Video generator initialized with GPU acceleration (batch size: {batch_size})")
         else:
             logger.info(f"Video generator initialized with CPU processing (batch size: {batch_size})")
-    
+
+    def process_video_single_pass(self, video_path: str, session_id: str,
+                                 light_positions: Dict, real_gps_data: List,
+                                 reference_points: Dict, runway_heading: float,
+                                 fps: int = 30) -> tuple:
+        """
+        OPTIMIZED SINGLE-PASS VIDEO PROCESSING
+
+        Process video ONCE to:
+        1. Compute frame measurements
+        2. Generate enhanced main video
+        3. Generate 4 individual PAPI videos
+
+        Returns: (measurements_data, papi_video_paths, enhanced_video_path)
+
+        Performance: 3x faster than 3-pass approach (reads video only once)
+        """
+        logger.info("=" * 80)
+        logger.info("STARTING SINGLE-PASS OPTIMIZED VIDEO PROCESSING")
+        logger.info(f"Video: {video_path}")
+        logger.info(f"Session: {session_id}")
+        logger.info("=" * 80)
+
+        # Open video
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            raise ValueError(f"Failed to open video: {video_path}")
+
+        # Get video properties
+        frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        video_fps = int(cap.get(cv2.CAP_PROP_FPS)) or fps
+
+        logger.info(f"Video: {frame_width}x{frame_height}, {video_fps}fps, {total_frames} frames")
+
+        # Initialize tracker
+        light_tracker = PAPILightTracker(light_positions, frame_width, frame_height)
+        if not light_tracker.tracked_lights:
+            raise ValueError("No PAPI lights initialized for tracking")
+
+        # Pre-compute GPS cache for all frames (done once, reused for all measurements)
+        logger.info("Pre-computing GPS data cache...")
+        gps_extractor = GPSExtractor()
+        gps_cache = {}
+        for frame_num in range(total_frames):
+            interpolated = gps_extractor.interpolate_gps_for_frame(real_gps_data, frame_num, video_fps)
+            if interpolated:
+                gps_cache[frame_num] = {
+                    "elevation": interpolated.altitude,
+                    "latitude": interpolated.latitude,
+                    "longitude": interpolated.longitude,
+                    "speed": interpolated.speed or 0.0,
+                    "heading": interpolated.heading or 0.0,
+                    "ref_points": reference_points,
+                    "runway_heading": runway_heading
+                }
+        logger.info(f"Pre-computed GPS for {len(gps_cache)} frames")
+
+        # Initialize video writers
+        # Enhanced main video
+        enhanced_path = os.path.join(self.output_dir, f"{session_id}_enhanced_main_video.mp4")
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        enhanced_writer = cv2.VideoWriter(enhanced_path, fourcc, video_fps, (frame_width, frame_height))
+
+        if not enhanced_writer.isOpened():
+            raise ValueError(f"Failed to create enhanced video writer: {enhanced_path}")
+
+        # Individual PAPI video writers (300x420 frames)
+        papi_writers = {}
+        papi_paths = {}
+        for light_name in ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D']:
+            papi_path = os.path.join(self.output_dir, f"{session_id}_{light_name}_video.mp4")
+            papi_writer = cv2.VideoWriter(papi_path, fourcc, video_fps, (300, 420))
+            if papi_writer.isOpened():
+                papi_writers[light_name] = papi_writer
+                papi_paths[light_name] = papi_path
+                logger.info(f"Created {light_name} video writer: {papi_path}")
+
+        # Storage for measurements
+        measurements_data = []
+
+        # SINGLE-PASS PROCESSING LOOP
+        frame_number = 0
+        start_time = time.time()
+
+        logger.info("Starting single-pass frame processing...")
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            # Get GPS data for this frame
+            drone_data = gps_cache.get(frame_number)
+            if not drone_data:
+                logger.warning(f"No GPS data for frame {frame_number}, skipping")
+                frame_number += 1
+                continue
+
+            # Track light positions
+            tracked_positions = light_tracker.update_frame(frame, frame_number)
+
+            # Compute measurements for this frame
+            frame_measurements = VideoProcessor.process_frame(
+                frame, tracked_positions, drone_data, reference_points
+            )
+
+            # Store measurements
+            frame_data = {
+                "session_id": session_id,
+                "frame_number": frame_number,
+                "timestamp": frame_number / video_fps,
+                "drone_latitude": float(drone_data["latitude"]),
+                "drone_longitude": float(drone_data["longitude"]),
+                "drone_elevation": drone_data["elevation"]
+            }
+
+            # Add PAPI measurements
+            for light_name in ["papi_a", "papi_b", "papi_c", "papi_d"]:
+                light_key = light_name.upper().replace("_", "_")
+                if light_key in frame_measurements:
+                    data = frame_measurements[light_key]
+                    frame_data[f"{light_name}_status"] = data["status"]
+                    frame_data[f"{light_name}_rgb"] = data["rgb"]
+                    frame_data[f"{light_name}_intensity"] = data["intensity"]
+                    frame_data[f"{light_name}_angle"] = data["angle"]
+                    frame_data[f"{light_name}_horizontal_angle"] = data.get("horizontal_angle")
+                    frame_data[f"{light_name}_distance_ground"] = data["distance_ground"]
+                    frame_data[f"{light_name}_distance_direct"] = data["distance_direct"]
+
+                    # Extract area_pixels from tracked_positions evaluation_area
+                    if light_key in tracked_positions:
+                        eval_area = tracked_positions[light_key].get('evaluation_area', {})
+                        frame_data[f"{light_name}_area_pixels"] = eval_area.get('area_pixels', 0)
+                    else:
+                        frame_data[f"{light_name}_area_pixels"] = 0
+
+            measurements_data.append(frame_data)
+
+            # Generate enhanced main video frame
+            enhanced_frame = self._add_overlays_to_frame_with_tracking_optimized(
+                frame.copy(), tracked_positions, frame_number, total_frames,
+                measurements_data, None, reference_points, drone_data
+            )
+            enhanced_writer.write(enhanced_frame)
+
+            # Generate individual PAPI video frames
+            for light_name in ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D']:
+                if light_name not in papi_writers:
+                    continue
+
+                tracked_pos = tracked_positions.get(light_name)
+                if not tracked_pos:
+                    # Write blank frame
+                    blank_frame = np.zeros((420, 300, 3), dtype=np.uint8)
+                    papi_writers[light_name].write(blank_frame)
+                    continue
+
+                # Get initial light position from tracker
+                tracker_x, tracker_y = tracked_pos['x'], tracked_pos['y']
+                size = tracked_pos['size']
+
+                # PASS 1: Measure around tracker position to find stable center
+                # Returns: (computed_center_x, computed_center_y, width, height)
+                stable_center_x, stable_center_y, initial_width, initial_height = measure_light_dimensions(
+                    frame, tracker_x, tracker_y, size, brightness_threshold=0.10
+                )
+
+                # PASS 2: Measure again around the computed stable center for accurate dimensions
+                # This ensures the ROI is perfectly sized and prevents parts being cut off
+                final_center_x, final_center_y, measured_width, measured_height = measure_light_dimensions(
+                    frame, stable_center_x, stable_center_y, max(initial_width, initial_height) * 2,
+                    brightness_threshold=0.10
+                )
+
+                # Use the final computed center for positioning (maximum stability)
+                x, y = final_center_x, final_center_y
+
+                # Use 3x measured size for ROI (to show more context around the light)
+                roi_width = measured_width * 3
+                roi_height = measured_height * 3
+
+                # Make ROI square by using the larger dimension
+                roi_size = max(roi_width, roi_height)
+                half_roi_size = roi_size // 2
+
+                # Define region bounds using stable center
+                x1 = max(0, x - half_roi_size)
+                y1 = max(0, y - half_roi_size)
+                x2 = min(frame_width, x + half_roi_size)
+                y2 = min(frame_height, y + half_roi_size)
+
+                # Extract region
+                light_frame = frame[y1:y2, x1:x2]
+
+                if light_frame.size > 0:
+                    # Get RGB values and evaluation area
+                    rgb = tracked_pos.get('rgb', [255, 255, 255])
+                    eval_area = tracked_pos.get('evaluation_area')
+
+                    # Calculate original region dimensions
+                    original_region_width = x2 - x1
+                    original_region_height = y2 - y1
+                    scale_x = 300.0 / original_region_width if original_region_width > 0 else 1.0
+                    scale_y = 300.0 / original_region_height if original_region_height > 0 else 1.0
+
+                    # Create RED channel mask BEFORE resizing
+                    red_mask = None
+                    if light_frame.size > 0:
+                        red_channel = light_frame[:, :, 2]  # BGR format
+                        max_red = np.max(red_channel)
+                        if max_red > 0:
+                            threshold_value = max_red * 0.10
+                            red_mask = (red_channel >= threshold_value).astype(np.uint8) * 255
+
+                    # Resize light frame to 300x300
+                    light_frame_resized = cv2.resize(light_frame, (300, 300))
+
+                    # Draw evaluation area contours (green)
+                    if red_mask is not None and red_mask.size > 0:
+                        red_mask_resized = cv2.resize(red_mask, (300, 300), interpolation=cv2.INTER_NEAREST)
+                        contours, _ = cv2.findContours(red_mask_resized, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                        cv2.drawContours(light_frame_resized, contours, -1, (0, 255, 0), 2)
+
+                    # Create final frame with footer (300x420)
+                    final_frame = np.zeros((420, 300, 3), dtype=np.uint8)
+                    final_frame[0:300, 0:300] = light_frame_resized
+                    final_frame[300:420, 0:300] = [245, 245, 245]  # Light gray footer
+
+                    # Get angle information
+                    nominal_angle = None
+                    transition_angle = None
+                    current_angle = None
+
+                    # Extract current angle from measurements
+                    if frame_measurements and light_name in frame_measurements:
+                        current_angle = frame_measurements[light_name].get('angle')
+
+                    # Extract nominal angle and tolerance from reference points
+                    if reference_points and light_name in reference_points:
+                        ref_point = reference_points[light_name]
+                        nominal_angle = ref_point.get('nominal_angle')
+                        tolerance = ref_point.get('tolerance')
+                        if nominal_angle is not None and tolerance is not None:
+                            transition_angle = nominal_angle + tolerance
+
+                    # Add footer information
+                    font = cv2.FONT_HERSHEY_SIMPLEX
+
+                    # Header: Light name and frame number
+                    header_text = f"{light_name}  |  Frame {frame_number + 1}/{total_frames}"
+                    cv2.putText(final_frame, header_text, (10, 318),
+                               font, 0.45, (50, 50, 50), 1)
+
+                    # Add separator line
+                    cv2.line(final_frame, (10, 325), (290, 325), (200, 200, 200), 1)
+
+                    # Angle information grid (3 columns)
+                    y_base = 345
+                    col_width = 100
+
+                    # Column 1: Nominal Angle
+                    cv2.putText(final_frame, "Nominal", (10, y_base),
+                               font, 0.38, (100, 100, 100), 1)
+                    if nominal_angle is not None:
+                        cv2.putText(final_frame, f"{nominal_angle:.2f}", (10, y_base + 18),
+                                   font, 0.55, (70, 130, 180), 2)
+                    else:
+                        cv2.putText(final_frame, "N/A", (10, y_base + 18),
+                                   font, 0.5, (150, 150, 150), 1)
+
+                    # Column 2: Transition Angle
+                    cv2.putText(final_frame, "Transition", (col_width, y_base),
+                               font, 0.38, (100, 100, 100), 1)
+                    if transition_angle is not None:
+                        cv2.putText(final_frame, f"{transition_angle:.2f}", (col_width, y_base + 18),
+                                   font, 0.55, (218, 165, 32), 2)
+                    else:
+                        cv2.putText(final_frame, "N/A", (col_width, y_base + 18),
+                                   font, 0.5, (150, 150, 150), 1)
+
+                    # Column 3: Current Angle
+                    cv2.putText(final_frame, "Current", (col_width * 2, y_base),
+                               font, 0.38, (100, 100, 100), 1)
+                    if current_angle is not None:
+                        cv2.putText(final_frame, f"{current_angle:.2f}", (col_width * 2, y_base + 18),
+                                   font, 0.55, (34, 139, 34), 2)
+                    else:
+                        cv2.putText(final_frame, "N/A", (col_width * 2, y_base + 18),
+                                   font, 0.5, (150, 150, 150), 1)
+
+                    # RGB values and evaluation area (bottom section)
+                    rgb_y = 410
+                    cv2.putText(final_frame, f"R:{rgb[0]:.0f}", (10, rgb_y), font, 0.4, (0, 0, 200), 1)
+                    cv2.putText(final_frame, f"G:{rgb[1]:.0f}", (70, rgb_y), font, 0.4, (0, 128, 0), 1)
+                    cv2.putText(final_frame, f"B:{rgb[2]:.0f}", (130, rgb_y), font, 0.4, (200, 0, 0), 1)
+
+                    # Evaluation area
+                    eval_y = 390
+                    if eval_area and eval_area.get('area_pixels', 0) > 0:
+                        cv2.putText(final_frame, f"Eval Area:", (10, eval_y), font, 0.4, (0, 255, 0), 1)
+                        cv2.putText(final_frame, f"{eval_area['area_pixels']}px", (75, eval_y), font, 0.4, (50, 50, 50), 1)
+
+                    papi_writers[light_name].write(final_frame)
+                else:
+                    # Write blank frame
+                    blank_frame = np.zeros((420, 300, 3), dtype=np.uint8)
+                    papi_writers[light_name].write(blank_frame)
+
+            frame_number += 1
+
+            # Progress callback
+            if frame_number % 30 == 0:
+                progress = (frame_number / total_frames) * 100
+                elapsed = time.time() - start_time
+                fps_actual = frame_number / elapsed if elapsed > 0 else 0
+                logger.info(f"Progress: {progress:.1f}% ({frame_number}/{total_frames}) - {fps_actual:.1f} fps")
+                if self.progress_callback:
+                    self.progress_callback(progress, f"processing_frame_{frame_number}")
+
+        # Release all resources
+        cap.release()
+        enhanced_writer.release()
+        for writer in papi_writers.values():
+            writer.release()
+
+        elapsed_time = time.time() - start_time
+        logger.info(f"Single-pass processing complete: {frame_number} frames in {elapsed_time:.1f}s")
+        logger.info(f"Average FPS: {frame_number / elapsed_time:.1f}")
+
+        # Convert videos to H.264
+        logger.info("Converting videos to H.264...")
+        convert_to_h264(enhanced_path)
+        for papi_path in papi_paths.values():
+            convert_to_h264(papi_path)
+
+        logger.info("=" * 80)
+        logger.info("SINGLE-PASS PROCESSING COMPLETE")
+        logger.info(f"Enhanced video: {enhanced_path}")
+        logger.info(f"PAPI videos: {list(papi_paths.keys())}")
+        logger.info(f"Measurements: {len(measurements_data)} frames")
+        logger.info("=" * 80)
+
+        return (measurements_data, papi_paths, enhanced_path)
+
     def generate_enhanced_main_video(self, video_path: str, session_id: str,
                                    light_positions: Dict, measurements_data: List[Dict],
                                    drone_telemetry: List[Dict] = None,

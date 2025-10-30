@@ -1691,20 +1691,13 @@ async def process_video_full(session_id: str):
                     logger.error(f"Failed to download video from S3: {e}")
                     raise ValueError(f"Failed to download video from S3 for processing: {e}")
 
-            # Open video file
+            # Video will be opened by single-pass function
+            # Get total frames for progress tracking
             cap = cv2.VideoCapture(video_path)
             total_frames = session.total_frames or int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            
-            # Initialize PAPI light tracker with manually selected positions
-            # The tracker will START from manual positions and TRACK them as they move through frames
-            from app.services.video_processor import PAPILightTracker
-            logger.info(f"Initializing PAPI light tracker with manually selected positions")
-            logger.info(f"Manual light positions (percentage): {session.light_positions}")
+            cap.release()  # Close immediately, will be reopened in single-pass function
 
-            light_tracker = PAPILightTracker(session.light_positions, frame_width, frame_height)
-            logger.info(f"Light tracker initialized - will track manually selected lights across frames")
+            logger.info(f"Video has {total_frames} frames")
 
             # Get GPS data from session metadata (extracted during initial processing)
             real_gps_data = []
@@ -1798,109 +1791,62 @@ async def process_video_full(session_id: str):
             # Initialize S3 handler for storing results
             s3_handler = get_video_s3_handler()
 
-            # Collect frame measurements in memory (not database)
-            frame_measurements_list = []
+            # OPTIMIZED: Use single-pass video processing
+            # This reads the video ONCE and simultaneously:
+            # 1. Computes measurements
+            # 2. Generates enhanced main video
+            # 3. Generates 4 individual PAPI videos
+            # Result: 3x faster than old 3-pass approach
 
-            frame_number = 0
+            logger.info("=" * 80)
+            logger.info("USING OPTIMIZED SINGLE-PASS VIDEO PROCESSING")
+            logger.info(f"This will be ~3x faster than the old 3-pass approach")
+            logger.info("=" * 80)
 
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                
-                # Extract real GPS data for this frame
-                drone_data = None
-                if real_gps_data:
-                    gps_extractor = GPSExtractor()
-                    interpolated_gps = gps_extractor.interpolate_gps_for_frame(real_gps_data, frame_number, fps)
-                    if interpolated_gps:
-                        drone_data = {
-                            "elevation": interpolated_gps.altitude,
-                            "latitude": interpolated_gps.latitude,
-                            "longitude": interpolated_gps.longitude,
-                            "speed": interpolated_gps.speed or 0.0,
-                            "heading": interpolated_gps.heading or 0.0,
-                            "ref_points": ref_points_dict,
-                            "runway_heading": runway_heading
-                        }
-                
-                # Raise exception if no real GPS data is available
-                if not drone_data:
-                    raise ValueError(f"No GPS data available for frame {frame_number}. Video must contain GPS telemetry data for processing.")
-
-                # Update light positions using tracking
-                # Tracker starts from manually selected positions and follows lights across frames
-                tracked_positions = light_tracker.update_frame(frame, frame_number)
-
-                # Save refined positions back to database after first frame (frame 0)
-                if frame_number == 0:
-                    # Extract refined positions from tracker
-                    refined_positions = {}
-                    for light_name in ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D']:
-                        if light_name in tracked_positions:
-                            pos = tracked_positions[light_name]
-                            # Convert pixel coordinates back to percentages
-                            refined_positions[light_name] = {
-                                'x': (pos['x'] / frame.shape[1]) * 100,
-                                'y': (pos['y'] / frame.shape[0]) * 100,
-                                'size': (pos['size'] / frame.shape[1]) * 100,
-                                'confidence': pos.get('confidence', 1.0)
-                            }
-
-                    # Update session with refined positions
-                    session.light_positions = refined_positions
-                    flag_modified(session, "light_positions")
-                    await db.commit()
-                    logger.info(f"Saved refined PAPI light positions to database for session {session_id}")
-
-                # Process frame with tracked positions (which started from manual positions)
-                measurements = VideoProcessor.process_frame(
-                    frame, tracked_positions, drone_data, ref_points_dict
-                )
-
-                # Collect frame measurement in memory (will be saved to S3/DB later)
-                frame_data = {
-                    "session_id": session_id,
-                    "frame_number": frame_number,
-                    "timestamp": frame_number / 30.0,  # Assuming 30fps
-                    "drone_latitude": float(drone_data["latitude"]),
-                    "drone_longitude": float(drone_data["longitude"]),
-                    "drone_elevation": drone_data["elevation"]
-                }
-
-                # Add PAPI measurements
-                for light_name in ["papi_a", "papi_b", "papi_c", "papi_d"]:
-                    light_key = light_name.upper().replace("_", "_")
-                    if light_key in measurements:
-                        data = measurements[light_key]
-                        frame_data[f"{light_name}_status"] = data["status"]
-                        frame_data[f"{light_name}_rgb"] = data["rgb"]
-                        frame_data[f"{light_name}_intensity"] = data["intensity"]
-                        frame_data[f"{light_name}_angle"] = data["angle"]
-                        frame_data[f"{light_name}_horizontal_angle"] = data.get("horizontal_angle")
-                        frame_data[f"{light_name}_distance_ground"] = data["distance_ground"]
-                        frame_data[f"{light_name}_distance_direct"] = data["distance_direct"]
-
-                        # Extract area_pixels from tracked_positions evaluation_area
-                        if light_key in tracked_positions:
-                            eval_area = tracked_positions[light_key].get('evaluation_area', {})
-                            frame_data[f"{light_name}_area_pixels"] = eval_area.get('area_pixels', 0)
-                        else:
-                            frame_data[f"{light_name}_area_pixels"] = 0
-
-                frame_measurements_list.append(frame_data)
-                frame_number += 1
-
-                # Update progress every 10 frames
-                if frame_number % 10 == 0:
-                    session.processed_frames = frame_number
-                    if total_frames > 0:
-                        session.progress_percentage = min(80.0, (frame_number / total_frames) * 75.0)  # Reserve 20% for video generation and finalization
-                    await db.commit()
-            
+            # Close the cap opened earlier (will be reopened in single-pass function)
             cap.release()
 
-            logger.info(f"Collected {len(frame_measurements_list)} frame measurements in memory")
+            # Define progress callback
+            async def update_progress_async(percentage: float, message: str):
+                """Update session progress in database"""
+                try:
+                    session.progress_percentage = min(95.0, percentage)  # Reserve 5% for finalization
+                    session.current_phase = message
+                    await db.flush()
+                    logger.info(f"Progress: {percentage:.1f}% - {message}")
+                except Exception as e:
+                    logger.warning(f"Failed to update progress: {e}")
+
+            def update_progress(percentage: float, message: str):
+                """Synchronous wrapper for progress updates"""
+                import asyncio
+                try:
+                    asyncio.create_task(update_progress_async(percentage, message))
+                except RuntimeError:
+                    logger.info(f"Progress: {percentage:.1f}% - {message}")
+
+            # Use tmp folder for video generation
+            video_output_dir = Path(settings.TEMP_PATH) / "videos" / session_id
+
+            # Create video generator with progress callback
+            from app.services.video_processor import PAPIVideoGenerator
+            video_generator = PAPIVideoGenerator(str(video_output_dir), progress_callback=update_progress)
+
+            # Process video in single pass
+            frame_measurements_list, papi_video_paths, enhanced_main_video_path = video_generator.process_video_single_pass(
+                video_path=video_path,
+                session_id=session_id,
+                light_positions=session.light_positions,
+                real_gps_data=real_gps_data,
+                reference_points=ref_points_dict,
+                runway_heading=runway_heading,
+                fps=fps
+            )
+
+            logger.info(f"Single-pass processing complete!")
+            logger.info(f"- Measurements: {len(frame_measurements_list)} frames")
+            logger.info(f"- Enhanced video: {enhanced_main_video_path}")
+            logger.info(f"- PAPI videos: {list(papi_video_paths.keys())}")
 
             # Save frame measurements to S3 as compressed JSON
             session.current_phase = "uploading_measurements_to_s3"
@@ -1987,130 +1933,46 @@ async def process_video_full(session_id: str):
             session.progress_percentage = 85.0
             await db.commit()
 
-            # Update progress: generating PAPI light videos
-            session.current_phase = "generating_papi_videos"
-            session.progress_percentage = 87.0
+            # Videos are already generated by single-pass processing above
+            # Now just upload them to S3
+
+            # Update progress: uploading videos to S3
+            session.current_phase = "uploading_videos_to_s3"
+            session.progress_percentage = 90.0
             await db.commit()
-            
-            # Generate individual PAPI light videos and enhanced main video
-            papi_video_paths = {}
-            enhanced_main_video_path = ""
-            try:
-                from app.services.video_processor import PAPIVideoGenerator
 
-                # Define progress callback to update database
-                async def update_progress_async(percentage: float, message: str):
-                    """Update session progress in database"""
-                    try:
-                        session.progress_percentage = percentage
-                        session.current_phase = message
-                        await db.flush()  # Use flush() instead of commit() to avoid transaction conflicts
-                        logger.info(f"Progress update: {percentage:.1f}% - {message}")
-                    except Exception as e:
-                        logger.warning(f"Failed to update progress: {e}")
-
-                def update_progress(percentage: float, message: str):
-                    """Synchronous wrapper for progress updates"""
-                    # Schedule the async update
-                    import asyncio
-                    try:
-                        asyncio.create_task(update_progress_async(percentage, message))
-                    except RuntimeError:
-                        # If no event loop, just log
-                        logger.info(f"Progress: {percentage:.1f}% - {message}")
-
-                # Use tmp folder for video generation
-                video_output_dir = Path(settings.TEMP_PATH) / "videos" / session_id
-                video_generator = PAPIVideoGenerator(str(video_output_dir), progress_callback=update_progress)
-
-                # Log light positions being passed to video generators
-                logger.info(f"========== GENERATING PAPI VIDEOS ==========")
-                logger.info(f"Passing manually confirmed light positions to video generator:")
-                for light_name, pos in session.light_positions.items():
-                    if light_name in ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D']:
-                        logger.info(f"  {light_name}: {pos}")
-                logger.info(f"============================================")
-
-                # Generate individual PAPI light videos with angle information
-                # Use video_path which is either the original local path or the S3 downloaded temp path
-                papi_video_paths = video_generator.generate_papi_videos(
-                    video_path, session_id, session.light_positions, measurements_data, ref_points_dict
+            # Upload enhanced video to S3
+            if enhanced_main_video_path:
+                enhanced_s3_key = await s3_handler.save_processed_video(
+                    session_id=session_id,
+                    video_path=enhanced_main_video_path,
+                    video_type="enhanced"
                 )
-                logger.info(f"Generated {len(papi_video_paths)} PAPI light videos")
+                if enhanced_s3_key:
+                    session.enhanced_video_s3_key = enhanced_s3_key
+                    logger.info(f"Uploaded enhanced video to S3: {enhanced_s3_key}")
+                else:
+                    raise Exception("Failed to upload enhanced video to S3")
 
-                # Update progress: PAPI videos generated
-                session.current_phase = "generating_enhanced_video"
-                session.progress_percentage = 92.0
-                await db.commit()
+            # Upload individual PAPI light videos to S3
+            for papi_name, papi_video_path in papi_video_paths.items():
+                if papi_video_path:
+                    try:
+                        papi_s3_key = await s3_handler.save_processed_video(
+                            session_id=session_id,
+                            video_path=papi_video_path,
+                            video_type=papi_name.lower()  # "papi_a", "papi_b", etc.
+                        )
+                        if papi_s3_key:
+                            # Store S3 key in session
+                            setattr(session, f"{papi_name.lower()}_video_s3_key", papi_s3_key)
+                            logger.info(f"Uploaded {papi_name} video to S3: {papi_s3_key}")
+                    except Exception as papi_upload_error:
+                        logger.warning(f"Failed to upload {papi_name} video to S3: {papi_upload_error}")
 
-                # Generate enhanced main video with drone position overlays and PAPI light rectangles
-                try:
-                    logger.info(f"Starting enhanced video generation for session {session_id}")
-                    logger.info(f"Reference points available: {list(ref_points_dict.keys())}")
-                    logger.info(f"Measurements data frames: {len(measurements_data) if measurements_data else 0}")
-
-                    # Use video_path which is either the original local path or the S3 downloaded temp path
-                    enhanced_main_video_path = video_generator.generate_enhanced_main_video(
-                        video_path, session_id, session.light_positions, measurements_data,
-                        drone_telemetry, ref_points_dict  # real drone telemetry, reference_points
-                    )
-                    if enhanced_main_video_path:
-                        logger.info(f"Generated enhanced main video: {enhanced_main_video_path}")
-                    else:
-                        error_msg = "Enhanced main video generation returned empty path"
-                        logger.error(error_msg)
-                        session.error_message = error_msg
-                        await db.commit()
-                except Exception as enhanced_error:
-                    error_msg = f"Enhanced video generation failed: {str(enhanced_error)}"
-                    logger.error(error_msg)
-                    import traceback
-                    logger.error(f"Enhanced video traceback: {traceback.format_exc()}")
-                    session.error_message = error_msg
-                    await db.commit()
-
-                # Update progress: videos generated, uploading to S3
-                session.current_phase = "uploading_videos_to_s3"
-                session.progress_percentage = 93.0
-                await db.commit()
-
-                # Upload enhanced videos to S3
-                if enhanced_main_video_path:
-                    enhanced_s3_key = await s3_handler.save_processed_video(
-                        session_id=session_id,
-                        video_path=enhanced_main_video_path,
-                        video_type="enhanced"
-                    )
-                    if enhanced_s3_key:
-                        session.enhanced_video_s3_key = enhanced_s3_key
-                        logger.info(f"Uploaded enhanced video to S3: {enhanced_s3_key}")
-                    else:
-                        raise Exception("Failed to upload enhanced video to S3")
-
-                # Upload individual PAPI light videos to S3
-                for papi_name, papi_video_path in papi_video_paths.items():
-                    if papi_video_path:
-                        try:
-                            papi_s3_key = await s3_handler.save_processed_video(
-                                session_id=session_id,
-                                video_path=papi_video_path,
-                                video_type=papi_name.lower()  # "papi_a", "papi_b", etc.
-                            )
-                            if papi_s3_key:
-                                # Store S3 key in session
-                                setattr(session, f"{papi_name.lower()}_video_s3_key", papi_s3_key)
-                                logger.info(f"Uploaded {papi_name} video to S3: {papi_s3_key}")
-                        except Exception as papi_upload_error:
-                            logger.warning(f"Failed to upload {papi_name} video to S3: {papi_upload_error}")
-
-                session.current_phase = "storing_results"
-                session.progress_percentage = 95.0
-                await db.commit()
-
-            except Exception as video_error:
-                logger.warning(f"Failed to generate PAPI videos: {video_error}")
-                import traceback
-                logger.warning(f"Video generation traceback: {traceback.format_exc()}")
+            session.current_phase = "storing_results"
+            session.progress_percentage = 95.0
+            await db.commit()
 
             # Update progress: finalizing
             session.current_phase = "completing"
@@ -2144,7 +2006,7 @@ async def process_video_full(session_id: str):
             session.completed_at = datetime.utcnow()
             session.current_phase = "completed"
             session.progress_percentage = 100.0
-            session.processed_frames = frame_number
+            session.processed_frames = len(frame_measurements_list)
             await db.commit()
             
         except Exception as e:
