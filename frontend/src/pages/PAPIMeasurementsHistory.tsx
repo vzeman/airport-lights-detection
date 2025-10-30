@@ -156,10 +156,8 @@ const PAPIMeasurementsHistory: React.FC = () => {
                   <TableHead>Airport</TableHead>
                   <TableHead>Runway</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead>Recording Date</TableHead>
-                  <TableHead>Video Filename</TableHead>
-                  <TableHead>Duration</TableHead>
+                  <TableHead>Dates</TableHead>
+                  <TableHead>Video</TableHead>
                   <TableHead>Notes</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
@@ -167,7 +165,7 @@ const PAPIMeasurementsHistory: React.FC = () => {
               <TableBody>
                 {sessions.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                       No measurement sessions found. Start a new measurement to see results here.
                     </TableCell>
                   </TableRow>
@@ -180,13 +178,31 @@ const PAPIMeasurementsHistory: React.FC = () => {
                       <TableCell>{session.runway_code}</TableCell>
                       <TableCell>{getStatusBadge(session.status)}</TableCell>
                       <TableCell>
-                        {format(new Date(session.created_at), 'MMM dd, yyyy HH:mm')}
+                        <div className="flex flex-col gap-1 text-xs">
+                          <div
+                            className="cursor-help"
+                            title={`Created: ${format(new Date(session.created_at), 'MMM dd, yyyy HH:mm:ss')}`}
+                          >
+                            {format(new Date(session.created_at), 'MMM dd, yyyy')}
+                          </div>
+                          <div
+                            className="text-muted-foreground cursor-help"
+                            title={session.recording_date ? `Recorded: ${format(new Date(session.recording_date), 'MMM dd, yyyy HH:mm:ss')}` : 'No recording date'}
+                          >
+                            {session.recording_date ? format(new Date(session.recording_date), 'MMM dd, yyyy') : '-'}
+                          </div>
+                        </div>
                       </TableCell>
                       <TableCell>
-                        {session.recording_date ? format(new Date(session.recording_date), 'MMM dd, yyyy HH:mm') : '-'}
+                        <div className="flex flex-col gap-1 text-xs">
+                          <div className="truncate max-w-xs">
+                            {session.original_video_filename || '-'}
+                          </div>
+                          <div className="text-muted-foreground">
+                            {formatDuration(session.duration_seconds)}
+                          </div>
+                        </div>
                       </TableCell>
-                      <TableCell>{session.original_video_filename || '-'}</TableCell>
-                      <TableCell>{formatDuration(session.duration_seconds)}</TableCell>
                       <TableCell className="text-sm text-muted-foreground max-w-xs truncate">
                         {session.notes_preview || '-'}
                       </TableCell>
