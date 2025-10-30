@@ -1162,7 +1162,39 @@ async def get_measurements_data(
                 papi_data[light_name]["chromaticity_red"].append(0.0)
                 papi_data[light_name]["chromaticity_green"].append(0.0)
                 papi_data[light_name]["chromaticity_blue"].append(0.0)
-    
+
+    # Fix initial frames with white RGB values (255, 255, 255) and invalid intensity
+    # Find first frame with valid color and apply to all previous white frames
+    for light_name in papi_data.keys():
+        rgb_values = papi_data[light_name]["rgb_values"]
+        intensities = papi_data[light_name]["intensities"]
+
+        if len(rgb_values) >= 2:
+            # Find first RGB value that is NOT white (255, 255, 255)
+            first_valid_rgb = None
+            first_valid_intensity = None
+            first_valid_index = -1
+
+            for idx, rgb in enumerate(rgb_values):
+                if (isinstance(rgb, list) and len(rgb) >= 3 and
+                    not (rgb[0] == 255 and rgb[1] == 255 and rgb[2] == 255)):
+                    first_valid_rgb = rgb
+                    first_valid_intensity = intensities[idx] if idx < len(intensities) else None
+                    first_valid_index = idx
+                    break
+
+            # If we found valid data, replace all previous white values
+            if first_valid_rgb is not None and first_valid_index > 0:
+                for idx in range(first_valid_index):
+                    current_rgb = rgb_values[idx]
+                    if (isinstance(current_rgb, list) and len(current_rgb) >= 3 and
+                        current_rgb[0] == 255 and current_rgb[1] == 255 and current_rgb[2] == 255):
+                        papi_data[light_name]["rgb_values"][idx] = first_valid_rgb
+                        if first_valid_intensity is not None and idx < len(intensities):
+                            papi_data[light_name]["intensities"][idx] = first_valid_intensity
+
+                logger.info(f"Fixed {light_name}: replaced {first_valid_index} white RGB/intensity frames")
+
     # Calculate glide path angles
     # 1. Average glide path angle: average of all PAPI lights
     # 2. Middle lights glide path angle: average of middle PAPI lights

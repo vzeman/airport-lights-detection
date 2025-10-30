@@ -113,6 +113,43 @@ class VideoS3Handler:
                 # Already in nested format
                 measurements_dict.append(m)
 
+        # Fix initial frames with white RGB values (255, 255, 255) and invalid intensity
+        # Find first frame with valid color and apply to all previous white frames
+        if len(measurements_dict) >= 2:
+            # Track first valid data for each PAPI light
+            for papi_light in ['papi_a', 'papi_b', 'papi_c', 'papi_d']:
+                first_valid_data = None
+                first_valid_index = -1
+
+                # Find first frame with valid RGB (not white 255, 255, 255)
+                for idx, frame in enumerate(measurements_dict):
+                    papi_data = frame.get(papi_light)
+                    if papi_data and isinstance(papi_data, dict):
+                        rgb = papi_data.get('rgb')
+                        if (rgb and isinstance(rgb, dict) and
+                            not (rgb.get('r') == 255 and rgb.get('g') == 255 and rgb.get('b') == 255)):
+                            first_valid_data = {
+                                'rgb': rgb,
+                                'intensity': papi_data.get('intensity')
+                            }
+                            first_valid_index = idx
+                            break
+
+                # If we found valid data, replace all previous white/invalid values
+                if first_valid_data is not None and first_valid_index > 0:
+                    for idx in range(first_valid_index):
+                        frame = measurements_dict[idx]
+                        papi_data = frame.get(papi_light)
+                        if papi_data and isinstance(papi_data, dict):
+                            current_rgb = papi_data.get('rgb')
+                            if (current_rgb and isinstance(current_rgb, dict) and
+                                current_rgb.get('r') == 255 and current_rgb.get('g') == 255 and current_rgb.get('b') == 255):
+                                papi_data['rgb'] = first_valid_data['rgb']
+                                if first_valid_data['intensity'] is not None:
+                                    papi_data['intensity'] = first_valid_data['intensity']
+
+                    sys.stderr.write(f"[INFO] Fixed {papi_light}: replaced {first_valid_index} white RGB/intensity frames\n"); sys.stderr.flush()
+
         s3_key = await self.s3.upload_frame_measurements(
             session_id=session_id,
             measurements=measurements_dict

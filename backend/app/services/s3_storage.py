@@ -237,6 +237,42 @@ class S3StorageService:
             measurements = json.loads(json_str)
 
             sys.stderr.write(f"[INFO] Downloaded {len(measurements)} frame measurements from s3://{self.bucket}/{key}\n"); sys.stderr.flush()
+
+            # Fix initial frames with white RGB values (255, 255, 255) and invalid intensity - for old stored data
+            if len(measurements) >= 2:
+                for papi_light in ['papi_a', 'papi_b', 'papi_c', 'papi_d']:
+                    first_valid_data = None
+                    first_valid_index = -1
+
+                    # Find first frame with valid RGB (not white 255, 255, 255)
+                    for idx, frame in enumerate(measurements):
+                        papi_data = frame.get(papi_light)
+                        if papi_data and isinstance(papi_data, dict):
+                            rgb = papi_data.get('rgb')
+                            if (rgb and isinstance(rgb, dict) and
+                                not (rgb.get('r') == 255 and rgb.get('g') == 255 and rgb.get('b') == 255)):
+                                first_valid_data = {
+                                    'rgb': rgb,
+                                    'intensity': papi_data.get('intensity')
+                                }
+                                first_valid_index = idx
+                                break
+
+                    # If we found valid data, replace all previous white/invalid values
+                    if first_valid_data is not None and first_valid_index > 0:
+                        for idx in range(first_valid_index):
+                            frame = measurements[idx]
+                            papi_data = frame.get(papi_light)
+                            if papi_data and isinstance(papi_data, dict):
+                                current_rgb = papi_data.get('rgb')
+                                if (current_rgb and isinstance(current_rgb, dict) and
+                                    current_rgb.get('r') == 255 and current_rgb.get('g') == 255 and current_rgb.get('b') == 255):
+                                    papi_data['rgb'] = first_valid_data['rgb'].copy()  # Copy to avoid reference issues
+                                    if first_valid_data['intensity'] is not None:
+                                        papi_data['intensity'] = first_valid_data['intensity']
+
+                        sys.stderr.write(f"[INFO] Fixed {papi_light} in loaded data: replaced {first_valid_index} white RGB/intensity frames\n"); sys.stderr.flush()
+
             return measurements
         except ClientError as e:
             if e.response['Error']['Code'] == 'NoSuchKey':
