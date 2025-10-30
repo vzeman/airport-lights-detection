@@ -3,7 +3,7 @@ from app.models.airport import Airport, ItemType, AirportItem, ComplianceFramewo
 from app.models.task import Task, Measurement, AuditLog, TaskStatus, TaskPriority, TaskType
 from app.models.papi_measurement import (
     PAPIReferencePoint, PAPIReferencePointType,
-    MeasurementSession, FrameMeasurement, MeasurementReport, LightStatus
+    MeasurementSession, MeasurementReport, LightStatus
 )
 from app.models.runway import Runway
 from app.models.reference_point import ReferencePoint, ReferencePointType
@@ -30,7 +30,6 @@ __all__ = [
     "PAPIReferencePoint",
     "PAPIReferencePointType",
     "MeasurementSession",
-    "FrameMeasurement",
     "MeasurementReport",
     "LightStatus",
     "MaintenanceTask",

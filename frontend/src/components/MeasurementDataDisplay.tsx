@@ -54,6 +54,7 @@ interface MeasurementData {
       distances: number[];
       rgb_values: Array<[number, number, number]>;
       intensities: number[];
+      area_values: number[];
     };
   };
   drone_positions: Array<{
@@ -629,11 +630,15 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
           // Get angle
           const angle = lightData.angles[index] ?? 0;
 
+          // Get area (pixels²)
+          const area = lightData.area_values?.[index] ?? 0;
+
           dataPoint[`${lightName}_redChroma`] = redChromaticity;
           dataPoint[`${lightName}_greenChroma`] = greenChromaticity;
           dataPoint[`${lightName}_colorDiff`] = colorDiff;
           dataPoint[`${lightName}_intensity`] = intensity;
           dataPoint[`${lightName}_angle`] = angle;
+          dataPoint[`${lightName}_area`] = area;
         }
       });
 
@@ -1296,6 +1301,39 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                     <Line type="monotone" dataKey="PAPI_B_colorDiff" stroke="#f97316" strokeWidth={2} dot={false} name="PAPI B Color Diff" />
                     <Line type="monotone" dataKey="PAPI_C_colorDiff" stroke="#eab308" strokeWidth={2} dot={false} name="PAPI C Color Diff" />
                     <Line type="monotone" dataKey="PAPI_D_colorDiff" stroke="#22c55e" strokeWidth={2} dot={false} name="PAPI D Color Diff" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Light Area Chart */}
+              <div>
+                <h4 className="text-sm font-medium mb-3">Light Area (Pixels²) - All Lights</h4>
+                <p className="text-xs text-gray-600 mb-2">
+                  Shows the area of the lit region (≥ 15% red intensity) for each PAPI light over time. Larger area indicates stronger or more spread out light.
+                </p>
+                <ResponsiveContainer width="100%" height={350}>
+                  <LineChart data={formatComparisonChartData()} margin={{ left: 50, right: 20, top: 5, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="timestamp"
+                      label={{ value: 'Time (s)', position: 'insideBottom', offset: -5 }}
+                    />
+                    <YAxis
+                      label={{ value: 'Area (px²)', angle: -90, position: 'insideLeft', dx: 15 }}
+                      domain={[0, 'dataMax + 100']}
+                    />
+                    <Tooltip
+                      formatter={(value: any, name: string) => {
+                        if (value == null) return ['N/A', name];
+                        return [`${Math.round(value)} px²`, name];
+                      }}
+                      labelFormatter={(value: any) => `Time: ${(value ?? 0).toFixed(2)}s`}
+                    />
+                    <Legend />
+                    <Line type="monotone" dataKey="PAPI_A_area" stroke="#ef4444" strokeWidth={2} dot={false} name="PAPI A Area" />
+                    <Line type="monotone" dataKey="PAPI_B_area" stroke="#f97316" strokeWidth={2} dot={false} name="PAPI B Area" />
+                    <Line type="monotone" dataKey="PAPI_C_area" stroke="#eab308" strokeWidth={2} dot={false} name="PAPI C Area" />
+                    <Line type="monotone" dataKey="PAPI_D_area" stroke="#22c55e" strokeWidth={2} dot={false} name="PAPI D Area" />
                   </LineChart>
                 </ResponsiveContainer>
               </div>

@@ -3,6 +3,7 @@ Pydantic schemas for frame measurements
 These schemas ensure robust JSON serialization/deserialization with default values
 """
 from typing import Optional, Dict, Any
+import sys
 from pydantic import BaseModel, Field, field_validator, model_validator
 from enum import Enum
 
@@ -24,6 +25,7 @@ class PAPILightData(BaseModel):
     horizontal_angle: Optional[float] = Field(default=None, description="Horizontal angle from runway centerline")
     distance_ground: Optional[float] = Field(default=None, description="Distance on ground")
     distance_direct: Optional[float] = Field(default=None, description="Direct distance to drone")
+    area_pixels: Optional[int] = Field(default=0, description="Area of lit region in pixels² (≥ 15% intensity)")
 
     class Config:
         use_enum_values = True
@@ -81,81 +83,6 @@ class FrameMeasurementData(BaseModel):
         }
 
 
-def frame_measurement_to_dict(measurement: any) -> dict:
-    """
-    Convert database FrameMeasurement model to dictionary for JSON storage
-
-    Args:
-        measurement: FrameMeasurement database model instance
-
-    Returns:
-        Dictionary suitable for JSON serialization
-    """
-    # Keep Decimal precision - convert to float for JSON but preserve all decimal places
-    # Using float() is safe here because Python float (64-bit) has ~15-17 significant digits
-    # and GPS coords with 8 decimal places have ~10 significant digits
-    data = {
-        "frame_number": measurement.frame_number,
-        "timestamp": measurement.timestamp,
-        "drone_latitude": float(measurement.drone_latitude) if measurement.drone_latitude is not None else None,
-        "drone_longitude": float(measurement.drone_longitude) if measurement.drone_longitude is not None else None,
-        "drone_elevation": measurement.drone_elevation,
-        "gimbal_pitch": measurement.gimbal_pitch,
-        "gimbal_roll": measurement.gimbal_roll,
-        "gimbal_yaw": measurement.gimbal_yaw,
-    }
-
-    # Add PAPI A data
-    if measurement.papi_a_status:
-        data["papi_a"] = {
-            "status": measurement.papi_a_status.value if hasattr(measurement.papi_a_status, 'value') else measurement.papi_a_status,
-            "rgb": measurement.papi_a_rgb,
-            "intensity": measurement.papi_a_intensity,
-            "angle": measurement.papi_a_angle,
-            "horizontal_angle": measurement.papi_a_horizontal_angle,
-            "distance_ground": measurement.papi_a_distance_ground,
-            "distance_direct": measurement.papi_a_distance_direct
-        }
-
-    # Add PAPI B data
-    if measurement.papi_b_status:
-        data["papi_b"] = {
-            "status": measurement.papi_b_status.value if hasattr(measurement.papi_b_status, 'value') else measurement.papi_b_status,
-            "rgb": measurement.papi_b_rgb,
-            "intensity": measurement.papi_b_intensity,
-            "angle": measurement.papi_b_angle,
-            "horizontal_angle": measurement.papi_b_horizontal_angle,
-            "distance_ground": measurement.papi_b_distance_ground,
-            "distance_direct": measurement.papi_b_distance_direct
-        }
-
-    # Add PAPI C data
-    if measurement.papi_c_status:
-        data["papi_c"] = {
-            "status": measurement.papi_c_status.value if hasattr(measurement.papi_c_status, 'value') else measurement.papi_c_status,
-            "rgb": measurement.papi_c_rgb,
-            "intensity": measurement.papi_c_intensity,
-            "angle": measurement.papi_c_angle,
-            "horizontal_angle": measurement.papi_c_horizontal_angle,
-            "distance_ground": measurement.papi_c_distance_ground,
-            "distance_direct": measurement.papi_c_distance_direct
-        }
-
-    # Add PAPI D data
-    if measurement.papi_d_status:
-        data["papi_d"] = {
-            "status": measurement.papi_d_status.value if hasattr(measurement.papi_d_status, 'value') else measurement.papi_d_status,
-            "rgb": measurement.papi_d_rgb,
-            "intensity": measurement.papi_d_intensity,
-            "angle": measurement.papi_d_angle,
-            "horizontal_angle": measurement.papi_d_horizontal_angle,
-            "distance_ground": measurement.papi_d_distance_ground,
-            "distance_direct": measurement.papi_d_distance_direct
-        }
-
-    return data
-
-
 def convert_flat_dict_to_nested(flat_dict: dict) -> dict:
     """
     Convert flat dictionary structure to nested format for JSON storage
@@ -194,7 +121,8 @@ def convert_flat_dict_to_nested(flat_dict: dict) -> dict:
                 "angle": flat_dict.get(f"{papi_name}_angle"),
                 "horizontal_angle": flat_dict.get(f"{papi_name}_horizontal_angle"),
                 "distance_ground": flat_dict.get(f"{papi_name}_distance_ground"),
-                "distance_direct": flat_dict.get(f"{papi_name}_distance_direct")
+                "distance_direct": flat_dict.get(f"{papi_name}_distance_direct"),
+                "area_pixels": flat_dict.get(f"{papi_name}_area_pixels")
             }
 
     return data
@@ -224,7 +152,7 @@ def parse_frame_measurements(json_data: list) -> list[FrameMeasurementData]:
             # Log warning but continue processing
             import logging
             logger = logging.getLogger(__name__)
-            logger.warning(f"Failed to parse frame measurement {i}: {e}. Skipping this frame.")
+            sys.stderr.write(f"[WARNING] Failed to parse frame measurement {i}: {e}. Skipping this frame.\n"); sys.stderr.flush()
             continue
 
     return validated_measurements

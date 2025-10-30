@@ -3,6 +3,7 @@ Video S3 Handler - Manages video and frame measurement storage with S3
 This module provides a clean interface for video processing with S3 integration
 """
 import os
+import sys
 import logging
 import tempfile
 from typing import Optional, List, Dict, Any
@@ -10,7 +11,7 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.services.s3_storage import get_s3_storage
-from app.schemas.frame_measurement import frame_measurement_to_dict, convert_flat_dict_to_nested
+from app.schemas.frame_measurement import convert_flat_dict_to_nested
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ class VideoS3Handler:
 
     def __init__(self):
         self.s3 = get_s3_storage()
-        logger.info("VideoS3Handler initialized with S3 storage")
+        sys.stderr.write(f"[INFO] VideoS3Handler initialized with S3 storage\n"); sys.stderr.flush()
 
     async def save_uploaded_video(
         self,
@@ -50,7 +51,7 @@ class VideoS3Handler:
         with open(local_path, 'wb') as f:
             f.write(video_content)
 
-        logger.info(f"Saved video locally to {local_path}")
+        sys.stderr.write(f"[INFO] Saved video locally to {local_path}\n"); sys.stderr.flush()
 
         # Upload to S3
         s3_key = await self.s3.upload_video(
@@ -58,7 +59,7 @@ class VideoS3Handler:
             file_path=str(local_path),
             video_type="original"
         )
-        logger.info(f"Uploaded original video to S3: {s3_key}")
+        sys.stderr.write(f"[INFO] Uploaded original video to S3: {s3_key}\n"); sys.stderr.flush()
 
         return str(local_path), s3_key
 
@@ -84,7 +85,7 @@ class VideoS3Handler:
             file_path=video_path,
             video_type=video_type
         )
-        logger.info(f"Uploaded {video_type} video to S3: {s3_key}")
+        sys.stderr.write(f"[INFO] Uploaded {video_type} video to S3: {s3_key}\n"); sys.stderr.flush()
         return s3_key
 
     async def save_frame_measurements(
@@ -97,29 +98,26 @@ class VideoS3Handler:
 
         Args:
             session_id: Session ID
-            measurements: List of FrameMeasurement objects or dicts
+            measurements: List of measurement dicts
 
         Returns:
             S3 key
         """
-        # Convert measurements to dict format if needed
+        # Convert flat dict structure to nested format
         measurements_dict = []
         for m in measurements:
-            if hasattr(m, 'frame_number'):
-                # Database model - convert using frame_measurement_to_dict
-                measurements_dict.append(frame_measurement_to_dict(m))
-            elif isinstance(m, dict) and 'papi_a_status' in m:
+            if isinstance(m, dict) and 'papi_a_status' in m:
                 # Flat dict structure - convert to nested
                 measurements_dict.append(convert_flat_dict_to_nested(m))
             else:
-                # Already in nested format or no conversion needed
+                # Already in nested format
                 measurements_dict.append(m)
 
         s3_key = await self.s3.upload_frame_measurements(
             session_id=session_id,
             measurements=measurements_dict
         )
-        logger.info(f"Uploaded {len(measurements_dict)} frame measurements to S3: {s3_key}")
+        sys.stderr.write(f"[INFO] Uploaded {len(measurements_dict)} frame measurements to S3: {s3_key}\n"); sys.stderr.flush()
         return s3_key
 
     async def get_frame_measurements(
@@ -136,7 +134,7 @@ class VideoS3Handler:
             List of frame measurement dicts
         """
         measurements = await self.s3.get_frame_measurements(session_id)
-        logger.info(f"Retrieved {len(measurements)} frame measurements from S3")
+        sys.stderr.write(f"[INFO] Retrieved {len(measurements)} frame measurements from S3\n"); sys.stderr.flush()
         return measurements
 
     def cleanup_local_files(
@@ -155,16 +153,16 @@ class VideoS3Handler:
             if file_path and os.path.exists(file_path):
                 try:
                     os.remove(file_path)
-                    logger.info(f"Deleted local file: {file_path}")
+                    sys.stderr.write(f"[INFO] Deleted local file: {file_path}\n"); sys.stderr.flush()
                 except Exception as e:
-                    logger.warning(f"Failed to delete local file {file_path}: {e}")
+                    sys.stderr.write(f"[WARNING] Failed to delete local file {file_path}: {e}\n"); sys.stderr.flush()
 
         # Clean up temp directory if empty
         temp_dir = Path(settings.TEMP_PATH) / session_id
         if temp_dir.exists():
             try:
                 temp_dir.rmdir()
-                logger.info(f"Deleted temp directory: {temp_dir}")
+                sys.stderr.write(f"[INFO] Deleted temp directory: {temp_dir}\n"); sys.stderr.flush()
             except OSError:
                 # Directory not empty, that's okay
                 pass
@@ -208,7 +206,7 @@ class VideoS3Handler:
                 )
                 return url
             except Exception as e:
-                logger.error(f"Failed to generate presigned URL: {e}")
+                sys.stderr.write(f"[ERROR] Failed to generate presigned URL: {e}\n"); sys.stderr.flush()
                 return None
         else:
             # Return local file path
@@ -233,9 +231,9 @@ class VideoS3Handler:
         """
         try:
             await self.s3.delete_session_data(session_id)
-            logger.info(f"Deleted S3 data for session {session_id}")
+            sys.stderr.write(f"[INFO] Deleted S3 data for session {session_id}\n"); sys.stderr.flush()
         except Exception as e:
-            logger.error(f"Failed to delete S3 data for session {session_id}: {e}")
+            sys.stderr.write(f"[ERROR] Failed to delete S3 data for session {session_id}: {e}\n"); sys.stderr.flush()
 
 
 # Singleton instance

@@ -44,6 +44,13 @@ app_logger = logging.getLogger('app')
 app_logger.setLevel(logging.INFO)
 app_logger.propagate = True
 
+# CRITICAL FIX: Ensure ALL child loggers inherit handlers
+# This makes logger.info() work in all app.* modules
+for logger_name in ['app.api', 'app.services', 'app.models', 'app.core']:
+    child_logger = logging.getLogger(logger_name)
+    child_logger.setLevel(logging.INFO)
+    child_logger.propagate = True
+
 # Get the main logger for this module
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -64,29 +71,25 @@ async def lifespan(app: FastAPI):
 
     # CRITICAL FIX: Re-configure logging AFTER uvicorn has started
     # Uvicorn replaces handlers during startup, so we need to fix it here
+    # ONLY configure root logger - all children will inherit via propagation
     stdout_handler = logging.StreamHandler(sys.stdout)
     stdout_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 
     file_handler = logging.FileHandler(logs_dir / "backend.log", mode='a')
     file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 
-    # Add handlers to root logger
+    # Configure ONLY the root logger - all child loggers will inherit these handlers
     root_logger.handlers.clear()
     root_logger.addHandler(stdout_handler)
     root_logger.addHandler(file_handler)
     root_logger.setLevel(logging.INFO)
 
-    # Add handlers to app logger
-    app_logger.handlers.clear()
-    app_logger.addHandler(stdout_handler)
-    app_logger.addHandler(file_handler)
-    app_logger.setLevel(logging.INFO)
-
-    # Add handlers to THIS module's logger
-    logger.handlers.clear()
-    logger.addHandler(stdout_handler)
-    logger.addHandler(file_handler)
-    logger.setLevel(logging.INFO)
+    # Ensure all child loggers propagate to root (this is default, but let's be explicit)
+    for logger_name in logging.root.manager.loggerDict:
+        child_logger = logging.getLogger(logger_name)
+        child_logger.setLevel(logging.NOTSET)  # Inherit from parent
+        child_logger.propagate = True  # Propagate to parent
+        child_logger.handlers = []  # Don't add handlers to children
 
     logger.info("Starting up...")
     logger.info("Logger handlers configured: %s", [type(h).__name__ for h in logger.handlers])
@@ -231,6 +234,11 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
+    import sys
+    sys.stderr.write("=== HEALTH CHECK CALLED VIA STDERR ===\n")
+    sys.stderr.flush()
+    print("=== HEALTH CHECK CALLED VIA PRINT ===")
+    sys.stdout.flush()
     logger.info("Health check endpoint called")
     return {"status": "healthy"}
 

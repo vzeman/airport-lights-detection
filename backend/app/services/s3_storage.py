@@ -3,6 +3,7 @@ S3 Storage Service for Airport Management System
 Handles all S3 operations for videos, frame measurements, and reports
 """
 import boto3
+import sys
 import gzip
 import json
 import io
@@ -22,7 +23,7 @@ class S3StorageService:
     def __init__(self):
         """Initialize S3 client with credentials from config"""
         if not settings.USE_S3_STORAGE:
-            logger.warning("S3 storage is disabled in configuration")
+            sys.stderr.write(f"[WARNING] S3 storage is disabled in configuration\n"); sys.stderr.flush()
             return
 
         # Force S3v4 signature and use addressing_style='virtual' for presigned URLs
@@ -39,7 +40,7 @@ class S3StorageService:
             )
         )
         self.bucket = settings.S3_BUCKET
-        logger.info(f"S3 storage initialized for bucket: {self.bucket} with S3v4 signatures")
+        sys.stderr.write(f"[INFO] S3 storage initialized for bucket: {self.bucket} with S3v4 signatures\n"); sys.stderr.flush()
 
     def _get_video_key(self, session_id: str, video_type: str = "original", filename: str = None) -> str:
         """Generate S3 key for video files"""
@@ -85,10 +86,10 @@ class S3StorageService:
                         'ServerSideEncryption': 'AES256'
                     }
                 )
-            logger.info(f"Uploaded video to s3://{self.bucket}/{key}")
+            sys.stderr.write(f"[INFO] Uploaded video to s3://{self.bucket}/{key}\n"); sys.stderr.flush()
             return key
         except Exception as e:
-            logger.error(f"Failed to upload video to S3: {e}")
+            sys.stderr.write(f"[ERROR] Failed to upload video to S3: {e}\n"); sys.stderr.flush()
             raise
 
     async def upload_video_stream(
@@ -122,10 +123,10 @@ class S3StorageService:
                     'ServerSideEncryption': 'AES256'
                 }
             )
-            logger.info(f"Uploaded video stream to s3://{self.bucket}/{key}")
+            sys.stderr.write(f"[INFO] Uploaded video stream to s3://{self.bucket}/{key}\n"); sys.stderr.flush()
             return key
         except Exception as e:
-            logger.error(f"Failed to upload video stream to S3: {e}")
+            sys.stderr.write(f"[ERROR] Failed to upload video stream to S3: {e}\n"); sys.stderr.flush()
             raise
 
     async def download_video(self, s3_key: str, local_path: str) -> None:
@@ -138,9 +139,9 @@ class S3StorageService:
         """
         try:
             self.s3_client.download_file(self.bucket, s3_key, local_path)
-            logger.info(f"Downloaded video from s3://{self.bucket}/{s3_key} to {local_path}")
+            sys.stderr.write(f"[INFO] Downloaded video from s3://{self.bucket}/{s3_key} to {local_path}\n"); sys.stderr.flush()
         except Exception as e:
-            logger.error(f"Failed to download video from S3: {e}")
+            sys.stderr.write(f"[ERROR] Failed to download video from S3: {e}\n"); sys.stderr.flush()
             raise
 
     async def upload_preview_image(
@@ -172,10 +173,10 @@ class S3StorageService:
                         'ServerSideEncryption': 'AES256'
                     }
                 )
-            logger.info(f"Uploaded preview image to s3://{self.bucket}/{key}")
+            sys.stderr.write(f"[INFO] Uploaded preview image to s3://{self.bucket}/{key}\n"); sys.stderr.flush()
             return key
         except Exception as e:
-            logger.error(f"Failed to upload preview image to S3: {e}")
+            sys.stderr.write(f"[ERROR] Failed to upload preview image to S3: {e}\n"); sys.stderr.flush()
             raise
 
     async def upload_frame_measurements(
@@ -211,10 +212,10 @@ class S3StorageService:
             )
 
             size_mb = len(compressed_data) / 1024 / 1024
-            logger.info(f"Uploaded {len(measurements)} frame measurements to s3://{self.bucket}/{key} ({size_mb:.2f} MB)")
+            sys.stderr.write(f"[INFO] Uploaded {len(measurements)} frame measurements to s3://{self.bucket}/{key} ({size_mb:.2f} MB)\n"); sys.stderr.flush()
             return key
         except Exception as e:
-            logger.error(f"Failed to upload frame measurements to S3: {e}")
+            sys.stderr.write(f"[ERROR] Failed to upload frame measurements to S3: {e}\n"); sys.stderr.flush()
             raise
 
     async def get_frame_measurements(self, session_id: str) -> List[Dict[str, Any]]:
@@ -235,16 +236,16 @@ class S3StorageService:
             json_str = gzip.decompress(compressed_data).decode('utf-8')
             measurements = json.loads(json_str)
 
-            logger.info(f"Downloaded {len(measurements)} frame measurements from s3://{self.bucket}/{key}")
+            sys.stderr.write(f"[INFO] Downloaded {len(measurements)} frame measurements from s3://{self.bucket}/{key}\n"); sys.stderr.flush()
             return measurements
         except ClientError as e:
             if e.response['Error']['Code'] == 'NoSuchKey':
-                logger.warning(f"Frame measurements not found for session {session_id}")
+                sys.stderr.write(f"[WARNING] Frame measurements not found for session {session_id}\n"); sys.stderr.flush()
                 return []
-            logger.error(f"Failed to download frame measurements from S3: {e}")
+            sys.stderr.write(f"[ERROR] Failed to download frame measurements from S3: {e}\n"); sys.stderr.flush()
             raise
         except Exception as e:
-            logger.error(f"Failed to process frame measurements: {e}")
+            sys.stderr.write(f"[ERROR] Failed to process frame measurements: {e}\n"); sys.stderr.flush()
             raise
 
     def generate_presigned_url(
@@ -281,10 +282,10 @@ class S3StorageService:
                 Params=params,
                 ExpiresIn=expires_in
             )
-            logger.debug(f"Generated presigned URL for {s3_key} (expires in {expires_in}s)")
+            sys.stderr.write(f"[DEBUG] Generated presigned URL for {s3_key} (expires in {expires_in}s)\n"); sys.stderr.flush()
             return url
         except Exception as e:
-            logger.error(f"Failed to generate presigned URL: {e}")
+            sys.stderr.write(f"[ERROR] Failed to generate presigned URL: {e}\n"); sys.stderr.flush()
             raise
 
     async def delete_session_data(self, session_id: str) -> None:
@@ -320,12 +321,12 @@ class S3StorageService:
                         Delete={'Objects': objects}
                     )
                     deleted_count += len(objects)
-                    logger.info(f"Deleted {len(objects)} objects from {prefix}")
+                    sys.stderr.write(f"[INFO] Deleted {len(objects)} objects from {prefix}\n"); sys.stderr.flush()
             except Exception as e:
-                logger.error(f"Failed to delete objects from {prefix}: {e}")
+                sys.stderr.write(f"[ERROR] Failed to delete objects from {prefix}: {e}\n"); sys.stderr.flush()
                 # Continue with other prefixes even if one fails
 
-        logger.info(f"Deleted total of {deleted_count} objects for session {session_id}")
+        sys.stderr.write(f"[INFO] Deleted total of {deleted_count} objects for session {session_id}\n"); sys.stderr.flush()
 
     async def upload_report(
         self,
@@ -363,10 +364,10 @@ class S3StorageService:
                         'ServerSideEncryption': 'AES256'
                     }
                 )
-            logger.info(f"Uploaded report to s3://{self.bucket}/{key}")
+            sys.stderr.write(f"[INFO] Uploaded report to s3://{self.bucket}/{key}\n"); sys.stderr.flush()
             return key
         except Exception as e:
-            logger.error(f"Failed to upload report to S3: {e}")
+            sys.stderr.write(f"[ERROR] Failed to upload report to S3: {e}\n"); sys.stderr.flush()
             raise
 
     def check_object_exists(self, s3_key: str) -> bool:

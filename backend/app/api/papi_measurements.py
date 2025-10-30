@@ -14,11 +14,10 @@ from datetime import datetime
 from app.db.session import get_db
 from app.api.auth import get_current_user
 from app.core.deps import require_airport_access, require_session_access
-from app.models import User, Airport, Runway, ReferencePoint, MeasurementSession, FrameMeasurement
+from app.models import User, Airport, Runway, ReferencePoint, MeasurementSession
 from app.models.papi_measurement import PAPIReferencePointType, LightStatus
 from app.services.video_processor import VideoProcessor, PAPIReportGenerator, calculate_angle, GPSExtractor
 from app.services.video_s3_handler import get_video_s3_handler
-from app.schemas.frame_measurement import frame_measurement_to_dict
 from app.core.config import settings
 import logging
 
@@ -415,17 +414,22 @@ async def reprocess_video(
     """Reprocess an existing session's video"""
     _, session = session_access
 
-    # Delete existing frame measurements
-    await db.execute(
-        delete(FrameMeasurement).where(FrameMeasurement.session_id == session_id)
-    )
-    await db.commit()
-
     # Reset session status
     session.status = "processing"
     session.error_message = None
     session.processed_frames = 0
     session.progress_percentage = 0.0
+    session.current_phase = "initializing"
+
+    # Clear all processed data S3 keys so frontend doesn't load old data
+    session.frame_measurements_s3_key = None
+    session.enhanced_video_s3_key = None
+    session.enhanced_audio_video_s3_key = None
+    session.papi_a_video_s3_key = None
+    session.papi_b_video_s3_key = None
+    session.papi_c_video_s3_key = None
+    session.papi_d_video_s3_key = None
+
     await db.commit()
 
     logger.info(f"Reprocessing video for session {session_id}")
@@ -614,11 +618,7 @@ async def get_processing_status(
             # Frames are in S3, use processed_frames field
             frame_count = fresh_session.processed_frames or 0
         else:
-            # Frames are in DB, count actual records
-            count_result = await db.execute(
-                select(func.count(FrameMeasurement.id)).where(FrameMeasurement.session_id == session_id)
-            )
-            frame_count = count_result.scalar()
+            frame_count = fresh_session.processed_frames or 0
 
     # Update session object with fresh data for use below
     session.status = fresh_session.status
@@ -706,12 +706,7 @@ async def get_measurement_report(
     _, session = session_access
 
     # Get all frame measurements
-    result = await db.execute(
-        select(FrameMeasurement)
-        .where(FrameMeasurement.session_id == session_id)
-        .order_by(FrameMeasurement.frame_number)
-    )
-    frames = result.scalars().all()
+    frames = []
     
     if not frames:
         raise HTTPException(404, "No measurement data found")
@@ -1057,10 +1052,10 @@ async def get_measurements_data(
     
     # Format PAPI data by grouping measurements by light
     papi_data = {
-        "PAPI_A": {"timestamps": [], "statuses": [], "angles": [], "horizontal_angles": [], "distances": [], "rgb_values": [], "intensities": []},
-        "PAPI_B": {"timestamps": [], "statuses": [], "angles": [], "horizontal_angles": [], "distances": [], "rgb_values": [], "intensities": []},
-        "PAPI_C": {"timestamps": [], "statuses": [], "angles": [], "horizontal_angles": [], "distances": [], "rgb_values": [], "intensities": []},
-        "PAPI_D": {"timestamps": [], "statuses": [], "angles": [], "horizontal_angles": [], "distances": [], "rgb_values": [], "intensities": []}
+        "PAPI_A": {"timestamps": [], "statuses": [], "angles": [], "horizontal_angles": [], "distances": [], "rgb_values": [], "intensities": [], "area_values": []},
+        "PAPI_B": {"timestamps": [], "statuses": [], "angles": [], "horizontal_angles": [], "distances": [], "rgb_values": [], "intensities": [], "area_values": []},
+        "PAPI_C": {"timestamps": [], "statuses": [], "angles": [], "horizontal_angles": [], "distances": [], "rgb_values": [], "intensities": [], "area_values": []},
+        "PAPI_D": {"timestamps": [], "statuses": [], "angles": [], "horizontal_angles": [], "distances": [], "rgb_values": [], "intensities": [], "area_values": []}
     }
     
     # Format drone positions
@@ -1106,6 +1101,7 @@ async def get_measurements_data(
                     rgb_array = [0, 0, 0]
                 papi_data[light_name]["rgb_values"].append(rgb_array)
                 papi_data[light_name]["intensities"].append(papi_light_data.intensity if papi_light_data.intensity is not None else 0.0)
+                papi_data[light_name]["area_values"].append(papi_light_data.area_pixels if papi_light_data.area_pixels is not None else 0)
             else:
                 # No data for this light
                 papi_data[light_name]["statuses"].append("not_visible")
@@ -1114,6 +1110,7 @@ async def get_measurements_data(
                 papi_data[light_name]["distances"].append(0.0)
                 papi_data[light_name]["rgb_values"].append([0, 0, 0])
                 papi_data[light_name]["intensities"].append(0.0)
+                papi_data[light_name]["area_values"].append(0)
     
     # Calculate glide path angles
     # 1. Average glide path angle: average of all PAPI lights
@@ -1754,6 +1751,13 @@ async def process_video_full(session_id: str):
                         frame_data[f"{light_name}_horizontal_angle"] = data.get("horizontal_angle")
                         frame_data[f"{light_name}_distance_ground"] = data["distance_ground"]
                         frame_data[f"{light_name}_distance_direct"] = data["distance_direct"]
+
+                        # Extract area_pixels from tracked_positions evaluation_area
+                        if light_key in tracked_positions:
+                            eval_area = tracked_positions[light_key].get('evaluation_area', {})
+                            frame_data[f"{light_name}_area_pixels"] = eval_area.get('area_pixels', 0)
+                        else:
+                            frame_data[f"{light_name}_area_pixels"] = 0
 
                 frame_measurements_list.append(frame_data)
                 frame_number += 1
