@@ -19,14 +19,122 @@ from app.core.deps import require_airport_access, require_session_access
 from app.models import User, Airport, Runway, ReferencePoint, MeasurementSession
 from app.models.papi_measurement import PAPIReferencePointType, LightStatus
 from app.schemas.light_position import LightPositions, validate_and_normalize_light_positions
-from app.services.video_processor import VideoProcessor, PAPIReportGenerator, calculate_angle, GPSExtractor
+from app.services.video_processor import VideoProcessor, PAPIReportGenerator, calculate_angle, GPSExtractor, measure_light_dimensions
 from app.services.video_s3_handler import get_video_s3_handler
 from app.core.config import settings
 import logging
+import cv2
+import numpy as np
+import traceback
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/papi-measurements", tags=["PAPI Measurements"])
+
+
+async def refine_light_positions_from_video(session: MeasurementSession, manual_positions: Dict) -> Dict:
+    """
+    Refine manually-selected light positions using two-pass measurement algorithm.
+
+    This matches the same algorithm used during video processing:
+    1. First pass: Measure around manual position to find initial center
+    2. Second pass: Measure around refined center with 3x bigger area for accurate dimensions
+
+    Args:
+        session: The measurement session
+        manual_positions: Dictionary with manual light positions (x, y, size for each light)
+
+    Returns:
+        Dictionary with refined positions
+    """
+    logger.info(f"Starting two-pass light position refinement for session {session.id}")
+
+    # Get video path
+    video_path = None
+    cleanup_needed = False
+
+    try:
+        if settings.USE_S3_STORAGE and session.original_video_s3_key:
+            # Download from S3 to temp location
+            from app.services.s3_storage import get_s3_storage
+            s3_storage = get_s3_storage()
+
+            temp_dir = Path(settings.TEMP_PATH) / "temp-refinement"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            video_path = str(temp_dir / f"{session.id}_refinement.mp4")
+
+            logger.info(f"Downloading video from S3: {session.original_video_s3_key} to {video_path}")
+            await s3_storage.download_file(session.original_video_s3_key, video_path)
+            cleanup_needed = True
+        else:
+            # Local storage
+            video_path = os.path.join(settings.VIDEO_UPLOAD_PATH, session.filename)
+
+        if not os.path.exists(video_path):
+            raise FileNotFoundError(f"Video not found at {video_path}")
+
+        # Open video and read first frame
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            raise ValueError(f"Failed to open video: {video_path}")
+
+        ret, frame = cap.read()
+        cap.release()
+
+        if not ret or frame is None:
+            raise ValueError("Failed to read first frame from video")
+
+        logger.info(f"Successfully loaded first frame: {frame.shape}")
+
+        # Refine each light position
+        refined_positions = {}
+
+        for light_name in ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D']:
+            if light_name not in manual_positions:
+                logger.warning(f"{light_name} not in manual positions, skipping")
+                continue
+
+            manual_pos = manual_positions[light_name]
+            manual_x = int(manual_pos['x'])
+            manual_y = int(manual_pos['y'])
+            manual_size = int(manual_pos.get('size', 50))  # Default size if not provided
+
+            logger.info(f"Refining {light_name}: manual position ({manual_x}, {manual_y}), size {manual_size}")
+
+            # PASS 1: Measure around manual position
+            center_x_pass1, center_y_pass1, width_pass1, height_pass1 = measure_light_dimensions(
+                frame, manual_x, manual_y, manual_size, brightness_threshold=0.10
+            )
+
+            logger.info(f"{light_name} Pass 1: center=({center_x_pass1}, {center_y_pass1}), size=({width_pass1}x{height_pass1})")
+
+            # PASS 2: Measure around refined center with 3x bigger search area
+            search_size_pass2 = max(width_pass1, height_pass1) * 3
+            center_x_pass2, center_y_pass2, width_pass2, height_pass2 = measure_light_dimensions(
+                frame, center_x_pass1, center_y_pass1, int(search_size_pass2), brightness_threshold=0.10
+            )
+
+            logger.info(f"{light_name} Pass 2 (final): center=({center_x_pass2}, {center_y_pass2}), size=({width_pass2}x{height_pass2})")
+
+            # Store refined position
+            refined_positions[light_name] = {
+                'x': center_x_pass2,
+                'y': center_y_pass2,
+                'size': max(width_pass2, height_pass2)
+            }
+
+        logger.info(f"Refinement complete. Refined {len(refined_positions)} lights")
+        return refined_positions
+
+    finally:
+        # Cleanup temp file if needed
+        if cleanup_needed and video_path and os.path.exists(video_path):
+            try:
+                os.remove(video_path)
+                logger.info(f"Cleaned up temp video file: {video_path}")
+            except Exception as e:
+                logger.warning(f"Failed to cleanup temp video file: {e}")
 
 
 @router.get("/sessions")
@@ -397,6 +505,19 @@ async def confirm_light_positions(
         logger.error(f"Invalid light positions format: {e}")
         raise HTTPException(status_code=400, detail=f"Invalid light positions: {e}")
 
+    # Refine light positions using two-pass measurement algorithm
+    try:
+        refined_positions = await refine_light_positions_from_video(
+            session=session,
+            manual_positions=normalized_positions
+        )
+        logger.info(f"Light positions refined using two-pass measurement")
+        logger.info(f"REFINED POSITIONS: {json.dumps(refined_positions, indent=2)}")
+        normalized_positions = refined_positions
+    except Exception as e:
+        logger.warning(f"Failed to refine light positions, using manual positions: {e}")
+        # Continue with manual positions if refinement fails
+
     # Update the session - use a fresh session object to ensure proper tracking
     logger.info(f"Updating session {session_id} with new light positions")
     logger.info(f"BEFORE UPDATE - session.light_positions: {session.light_positions}")
@@ -463,6 +584,13 @@ async def reprocess_video(
     """Reprocess an existing session's video"""
     _, session = session_access
 
+    # PRESERVE transition angles from previous processing (stored in video_metadata)
+    # These will be used to show transition bars in regenerated videos
+    existing_transition_angles = None
+    if session.video_metadata and 'transition_angles' in session.video_metadata:
+        existing_transition_angles = session.video_metadata['transition_angles']
+        logger.info(f"Preserved transition angles from previous processing for reuse")
+
     # Reset session status
     session.status = "processing"
     session.error_message = None
@@ -478,6 +606,16 @@ async def reprocess_video(
     session.papi_b_video_s3_key = None
     session.papi_c_video_s3_key = None
     session.papi_d_video_s3_key = None
+
+    # Store flag indicating this is a reprocess (will be checked in process_video_full)
+    if not session.video_metadata:
+        session.video_metadata = {}
+    session.video_metadata['is_reprocessing'] = True
+    # Restore preserved transition angles if they exist
+    if existing_transition_angles:
+        session.video_metadata['preserved_transition_angles'] = existing_transition_angles
+
+    flag_modified(session, "video_metadata")
 
     await db.commit()
 
@@ -977,15 +1115,43 @@ async def get_measurements_data(
 
     # Load frame measurements from S3
     frames = []
+    metadata = {}
     logger.info(f"Loading frame measurements from S3: {session.frame_measurements_s3_key}")
     measurements_data = await s3_handler.get_frame_measurements(session_id)
     if measurements_data:
+        # Extract frames and metadata from the measurements data
+        if isinstance(measurements_data, dict):
+            frames_list = measurements_data.get('frames', [])
+            metadata = measurements_data.get('metadata', {})
+        else:
+            # Backward compatibility: if measurements_data is a list
+            frames_list = measurements_data
+            metadata = {}
+
         # Convert dict measurements to FrameMeasurement-like objects for compatibility
         from app.schemas.frame_measurement import parse_frame_measurements
-        frames = parse_frame_measurements(measurements_data)
-        logger.info(f"Loaded {len(frames)} measurements from S3")
+        frames = parse_frame_measurements(frames_list)
     else:
         logger.error(f"Failed to load measurements from S3 for session {session_id}")
+
+    # Extract chromacity transition angles from metadata (available even without frames)
+    chromacity_transition_angles_from_metadata = {}
+    logger.info(f"Checking metadata for transition angles. metadata keys: {metadata.keys() if metadata else 'None'}")
+    if metadata and "transition_angles" in metadata:
+        logger.info(f"Found transition_angles in metadata: {metadata['transition_angles'].keys()}")
+        for light_name, angles_data in metadata["transition_angles"].items():
+            chromacity_transition_angles_from_metadata[light_name] = {
+                "transition_angle_min": angles_data.get("transition_angle_min"),
+                "transition_angle_middle": angles_data.get("transition_angle_middle"),
+                "transition_angle_max": angles_data.get("transition_angle_max"),
+                "transition_frames_count": angles_data.get("transition_frames_count", 0),
+                "chromaRG_min": angles_data.get("chromaRG_min"),
+                "chromaRG_max": angles_data.get("chromaRG_max"),
+                "middle_chromaRG": angles_data.get("middle_chromaRG")
+            }
+        logger.info(f"Extracted {len(chromacity_transition_angles_from_metadata)} lights from metadata")
+    else:
+        logger.warning(f"No transition_angles found in metadata")
 
     # If session is not completed or has no frame measurements, return basic info with video URLs
     if session.status != "completed" or not frames:
@@ -1031,6 +1197,7 @@ async def get_measurements_data(
             "reference_points": [],
             "runway": None,
             "video_urls": video_urls,
+            "chromacity_transition_angles": chromacity_transition_angles_from_metadata,
             "message": f"Session status: {session.status}. Video processing may still be in progress."
         }
     
@@ -1198,7 +1365,7 @@ async def get_measurements_data(
     # Calculate glide path angles
     # 1. Average glide path angle: average of all PAPI lights
     # 2. Middle lights glide path angle: average of middle PAPI lights
-    # 3. Transition-based glide path angle: average angle when specific lights show white on left and red on right
+    # 3. Chromacity-based transition angle: derived from chromacity analysis (R-G) transition zone
 
     glide_path_angles_avg = []
     glide_path_angles_middle = []
@@ -1258,49 +1425,27 @@ async def get_measurements_data(
             else:
                 glide_path_angles_middle.append(0.0)
 
-            # Calculate transition-based glide path angle
-            # Look for frames where left light is white and right light is red
+            # Calculate chromacity-based transition angle
+            # GP Angle when PAPI_B is white & PAPI_C is red
+            # This is the middle point between PAPI_B's transition end and PAPI_C's transition start
             transition_angle = None
 
-            if num_lights == 2:
-                # 2 lights: PAPI_A white and PAPI_B red
-                if "PAPI_A" in papi_data and "PAPI_B" in papi_data:
-                    status_a = papi_data["PAPI_A"]["statuses"][frame_idx]
-                    status_b = papi_data["PAPI_B"]["statuses"][frame_idx]
-                    if status_a == "WHITE" and status_b == "RED":
-                        angle_a = papi_data["PAPI_A"]["angles"][frame_idx]
-                        angle_b = papi_data["PAPI_B"]["angles"][frame_idx]
-                        if angle_a and angle_b and angle_a != 0.0 and angle_b != 0.0:
-                            transition_angle = (angle_a + angle_b) / 2
+            # Check if we have chromacity transition data in metadata
+            if metadata and "transition_angles" in metadata:
+                # Get PAPI_B's transition_angle_max (end of white-to-red transition)
+                # Get PAPI_C's transition_angle_min (start of white-to-red transition)
+                papi_b_end = None
+                papi_c_start = None
 
-            elif num_lights == 4:
-                # 4 lights: PAPI_B white and PAPI_C red
-                if "PAPI_B" in papi_data and "PAPI_C" in papi_data:
-                    status_b = papi_data["PAPI_B"]["statuses"][frame_idx]
-                    status_c = papi_data["PAPI_C"]["statuses"][frame_idx]
-                    if status_b == "WHITE" and status_c == "RED":
-                        angle_b = papi_data["PAPI_B"]["angles"][frame_idx]
-                        angle_c = papi_data["PAPI_C"]["angles"][frame_idx]
-                        if angle_b and angle_c and angle_b != 0.0 and angle_c != 0.0:
-                            transition_angle = (angle_b + angle_c) / 2
+                if "PAPI_B" in metadata["transition_angles"]:
+                    papi_b_end = metadata["transition_angles"]["PAPI_B"].get("transition_angle_max")
 
-            elif num_lights >= 8:
-                # 8 lights: (PAPI_B white and PAPI_C red) AND (PAPI_F white and PAPI_G red)
-                if all(light in papi_data for light in ["PAPI_B", "PAPI_C", "PAPI_F", "PAPI_G"]):
-                    status_b = papi_data["PAPI_B"]["statuses"][frame_idx]
-                    status_c = papi_data["PAPI_C"]["statuses"][frame_idx]
-                    status_f = papi_data["PAPI_F"]["statuses"][frame_idx]
-                    status_g = papi_data["PAPI_G"]["statuses"][frame_idx]
+                if "PAPI_C" in metadata["transition_angles"]:
+                    papi_c_start = metadata["transition_angles"]["PAPI_C"].get("transition_angle_min")
 
-                    if (status_b == "WHITE" and status_c == "RED" and
-                        status_f == "WHITE" and status_g == "RED"):
-                        angles = []
-                        for light in ["PAPI_B", "PAPI_C", "PAPI_F", "PAPI_G"]:
-                            angle = papi_data[light]["angles"][frame_idx]
-                            if angle and angle != 0.0:
-                                angles.append(angle)
-                        if angles:
-                            transition_angle = sum(angles) / len(angles)
+                # Calculate GP angle as the midpoint between PAPI_B end and PAPI_C start
+                if papi_b_end is not None and papi_c_start is not None:
+                    transition_angle = (papi_b_end + papi_c_start) / 2.0
 
             glide_path_angles_transition.append(transition_angle if transition_angle else 0.0)
 
@@ -1326,57 +1471,74 @@ async def get_measurements_data(
         # No touch point, fill with zeros
         touch_point_angles = [0.0] * len(frames)
 
-    # Calculate transition timestamps and widths for each light based on status changes
+    # Calculate transition timestamps and widths for each light based on chromacity analysis
+    # These will be populated from metadata after we extract chromacity_transition_angles
     for light_name in papi_data.keys():
-        statuses = papi_data[light_name]["statuses"]
-        timestamps = papi_data[light_name]["timestamps"]
-        angles = papi_data[light_name]["angles"]
+        # Initialize empty - will be populated from chromacity data below
+        papi_data[light_name]["transition_timestamps"] = []
+        papi_data[light_name]["transition_widths"] = []
 
-        transition_timestamps = []
-        transition_widths = []
+    # Extract chromacity-based transition angles from metadata or frame measurements
+    # Prefer metadata (which is always available) over frame data
+    if chromacity_transition_angles_from_metadata:
+        # Use the metadata-based transition angles (already extracted above)
+        chromacity_transition_angles = chromacity_transition_angles_from_metadata
+        logger.info(f"Using chromacity transition angles from metadata")
+    else:
+        # Fallback: try to extract from frame measurements if metadata is not available
+        chromacity_transition_angles = {}
+        if len(frames) > 0:
+            # Get the first frame to extract the transition angle data
+            # (it's the same for all frames since it's computed once per light)
+            first_frame_data = frames[0]
 
-        # Find status transitions (where status changes)
-        for i in range(1, len(statuses)):
-            prev_status = statuses[i-1]
-            curr_status = statuses[i]
+            for light_name in ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D']:
+                light_key = light_name.lower()
 
-            # Detect transition: status change from RED->WHITE, WHITE->RED, or involving TRANSITION
-            if prev_status != curr_status and prev_status != "not_visible" and curr_status != "not_visible":
-                # This is a transition point
-                transition_timestamp = timestamps[i]
+                # Extract all three transition angle values
+                transition_angle_min = None
+                transition_angle_middle = None
+                transition_angle_max = None
 
-                # Calculate transition width by finding the angle range around this transition
-                # Look back and forward for the extent of the transition zone
-                start_idx = max(0, i - 10)  # Look back up to 10 frames
-                end_idx = min(len(statuses), i + 10)  # Look forward up to 10 frames
+                if isinstance(first_frame_data, dict):
+                    transition_angle_min = first_frame_data.get(f'{light_key}_transition_angle_min')
+                    transition_angle_middle = first_frame_data.get(f'{light_key}_transition_angle_middle')
+                    transition_angle_max = first_frame_data.get(f'{light_key}_transition_angle_max')
+                elif hasattr(first_frame_data, f'{light_key}_transition_angle_min'):
+                    transition_angle_min = getattr(first_frame_data, f'{light_key}_transition_angle_min')
+                    transition_angle_middle = getattr(first_frame_data, f'{light_key}_transition_angle_middle')
+                    transition_angle_max = getattr(first_frame_data, f'{light_key}_transition_angle_max')
 
-                # Find where the transition zone starts and ends
-                transition_angles = []
-                for j in range(start_idx, end_idx):
-                    if statuses[j] in ["transition", "TRANSITION"] or (j >= i-2 and j <= i+2):
-                        # Include frames in transition status or close to the transition point
-                        if angles[j] and angles[j] != 0.0:
-                            transition_angles.append(angles[j])
+                # Create the entry for this light with all three values
+                chromacity_transition_angles[light_name] = {
+                    "transition_angle_min": transition_angle_min,
+                    "transition_angle_middle": transition_angle_middle,
+                    "transition_angle_max": transition_angle_max,
+                    "transition_frames_count": 0,
+                    "chromaRG_min": None,
+                    "chromaRG_max": None,
+                    "middle_chromaRG": None
+                }
+            logger.info(f"Using chromacity transition angles from frame measurements")
 
-                # Calculate width as the range of angles in the transition zone
-                if transition_angles:
-                    width = max(transition_angles) - min(transition_angles)
-                else:
-                    width = 0.0
+    # Populate transition_timestamps and transition_widths from chromacity data
+    # Transition Angle = Chroma Middle, Transition Width = Chroma End - Chroma Start
+    for light_name in ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D']:
+        if light_name in chromacity_transition_angles and light_name in papi_data:
+            angles_data = chromacity_transition_angles[light_name]
+            transition_angle_min = angles_data.get("transition_angle_min")
+            transition_angle_middle = angles_data.get("transition_angle_middle")
+            transition_angle_max = angles_data.get("transition_angle_max")
 
-                # Group nearby transitions (within 1.5 seconds)
-                is_near_existing = False
-                for existing_ts in transition_timestamps:
-                    if abs(transition_timestamp - existing_ts) < 1.5:
-                        is_near_existing = True
-                        break
-
-                if not is_near_existing:
-                    transition_timestamps.append(transition_timestamp)
-                    transition_widths.append(round(width, 3))
-
-        papi_data[light_name]["transition_timestamps"] = transition_timestamps
-        papi_data[light_name]["transition_widths"] = transition_widths
+            # Only populate if we have valid values
+            if (transition_angle_min is not None and
+                transition_angle_middle is not None and
+                transition_angle_max is not None):
+                # Transition Angle = Chroma Middle
+                papi_data[light_name]["transition_timestamps"] = [transition_angle_middle]
+                # Transition Width = Chroma End - Chroma Start
+                transition_width = transition_angle_max - transition_angle_min
+                papi_data[light_name]["transition_widths"] = [round(transition_width, 3)]
 
     # Calculate touch point angles at specific positions for each algorithm
     touch_point_at_avg_all = 0.0
@@ -1476,7 +1638,8 @@ async def get_measurements_data(
         "reference_points": reference_points,
         "runway": runway_data,
         "video_urls": video_urls,
-        "touch_point_angles": touch_point_angles
+        "touch_point_angles": touch_point_angles,
+        "chromacity_transition_angles": chromacity_transition_angles
     }
 
 
@@ -1880,15 +2043,66 @@ async def process_video_full(session_id: str):
             logger.info(f"- Enhanced video: {enhanced_main_video_path}")
             logger.info(f"- PAPI videos: {list(papi_video_paths.keys())}")
 
+            # Compute chromacity-based transition angles for each PAPI light
+            logger.info("Computing chromacity-based transition angles...")
+            transition_angles_data = {}
+            for light_name in ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D']:
+                transition_result = PAPIVideoGenerator.compute_transition_angles_from_chromacity(
+                    frame_measurements_list,
+                    light_name,
+                    ref_points_dict
+                )
+                transition_angles_data[light_name] = transition_result
+                logger.info(f"{light_name}: {transition_result}")
+
+            # Store transition angles in session metadata (will be saved with measurements)
+            # This makes the data available for charts and reports
+            for frame_data in frame_measurements_list:
+                # Add transition angles to each frame for easy access
+                for light_name in ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D']:
+                    light_key = light_name.lower()
+                    # Store all three transition angles (min, middle, max)
+                    if transition_angles_data[light_name]['transition_angle_middle'] is not None:
+                        frame_data[f'{light_key}_transition_angle_min'] = transition_angles_data[light_name]['transition_angle_min']
+                        frame_data[f'{light_key}_transition_angle_middle'] = transition_angles_data[light_name]['transition_angle_middle']
+                        frame_data[f'{light_key}_transition_angle_max'] = transition_angles_data[light_name]['transition_angle_max']
+                        # Keep the old key for backward compatibility
+                        frame_data[f'{light_key}_transition_angle'] = transition_angles_data[light_name]['transition_angle_middle']
+                    else:
+                        frame_data[f'{light_key}_transition_angle_min'] = None
+                        frame_data[f'{light_key}_transition_angle_middle'] = None
+                        frame_data[f'{light_key}_transition_angle_max'] = None
+                        frame_data[f'{light_key}_transition_angle'] = None
+
             # Save frame measurements to S3 as compressed JSON
             session.current_phase = "uploading_measurements_to_s3"
             session.progress_percentage = 80.0
             await db.commit()
 
-            s3_key = await s3_handler.save_frame_measurements(session_id, frame_measurements_list)
+            # Prepare metadata with transition angles summary
+            metadata = {
+                "transition_angles": {
+                    light_name: {
+                        "transition_angle_min": data.get("transition_angle_min"),
+                        "transition_angle_max": data.get("transition_angle_max"),
+                        "transition_angle_middle": data.get("transition_angle_middle"),
+                        "transition_frames_count": data.get("transition_frames_count"),
+                        "chromaRG_min": data.get("chromaRG_min"),
+                        "chromaRG_max": data.get("chromaRG_max"),
+                        "middle_chromaRG": data.get("middle_chromaRG")
+                    }
+                    for light_name, data in transition_angles_data.items()
+                }
+            }
+
+            s3_key = await s3_handler.save_frame_measurements(
+                session_id,
+                frame_measurements_list,
+                metadata=metadata
+            )
             if s3_key:
                 session.frame_measurements_s3_key = s3_key
-                logger.info(f"Saved {len(frame_measurements_list)} measurements to S3: {s3_key}")
+                logger.info(f"Saved {len(frame_measurements_list)} measurements with metadata to S3: {s3_key}")
             else:
                 raise Exception("Failed to upload frame measurements to S3")
             await db.commit()
@@ -1905,6 +2119,10 @@ async def process_video_full(session_id: str):
             for m in frame_measurements_list:
                 frame_data = {
                     'timestamp': m['timestamp'] * 1000,  # Convert to milliseconds
+                    'papi_a_transition_angle': m.get('papi_a_transition_angle'),
+                    'papi_b_transition_angle': m.get('papi_b_transition_angle'),
+                    'papi_c_transition_angle': m.get('papi_c_transition_angle'),
+                    'papi_d_transition_angle': m.get('papi_d_transition_angle'),
                     'PAPI_A': {
                         'status': m.get('papi_a_status'),
                         'rgb': m.get('papi_a_rgb'),
@@ -1960,13 +2178,29 @@ async def process_video_full(session_id: str):
                 }
                 drone_telemetry.append(drone_frame_data)
 
-            # Update progress: preparing videos
-            session.current_phase = "preparing_videos"
+            # Update progress: regenerating PAPI videos with transition angles
+            session.current_phase = "regenerating_papi_videos"
             session.progress_percentage = 85.0
             await db.commit()
 
-            # Videos are already generated by single-pass processing above
-            # Now just upload them to S3
+            # Regenerate PAPI videos with transition angles (chromacity-based)
+            # The initial videos from single-pass didn't have transition angles yet
+            logger.info("Regenerating PAPI videos with chromacity-based transition angles...")
+            updated_papi_video_paths = video_generator.generate_papi_videos(
+                video_path=video_path,
+                session_id=session_id,
+                light_positions=session.light_positions,
+                measurements_data=measurements_data,
+                reference_points=ref_points_dict
+            )
+
+            # Replace old PAPI video paths with new ones that include transition angles
+            if updated_papi_video_paths:
+                papi_video_paths.update(updated_papi_video_paths)
+                logger.info(f"Regenerated PAPI videos with transition angles: {list(updated_papi_video_paths.keys())}")
+
+            # Videos are now ready with transition angles
+            # Upload them to S3
 
             # Update progress: uploading videos to S3
             session.current_phase = "uploading_videos_to_s3"

@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 from typing import Dict, List, Tuple, Optional
 import os
+import sys
 import json
 import logging
 from dataclasses import dataclass
@@ -2106,6 +2107,37 @@ class PAPILightTracker:
         self.global_motion = (0.0, 0.0)  # Estimated camera motion
         self.prev_detections = []  # Previous frame detections for motion estimation
     
+    def stabilize_size_change(self, new_size: int, last_size: int, max_change_percent: float = 0.05) -> int:
+        """
+        Limit frame size changes to maximum percentage between frames.
+
+        Args:
+            new_size: Newly detected size
+            last_size: Previous frame's size
+            max_change_percent: Maximum allowed change (default 0.10 = 10%)
+
+        Returns:
+            Stabilized size limited to max_change_percent
+        """
+        if last_size <= 0:
+            return new_size
+
+        # Calculate actual change percentage
+        change_ratio = abs(new_size - last_size) / last_size
+
+        # If change is within limit, use new size
+        if change_ratio <= max_change_percent:
+            return new_size
+
+        # Otherwise, clamp to maximum allowed change
+        max_change = int(last_size * max_change_percent)
+        if new_size > last_size:
+            stabilized_size = last_size + max_change
+        else:
+            stabilized_size = last_size - max_change
+
+        return stabilized_size
+
     def estimate_global_motion(self, current_lights: List, prev_lights: List) -> Tuple[float, float]:
         """Estimate global camera motion between frames using detected lights"""
         if len(current_lights) < 3 or len(prev_lights) < 3:
@@ -2485,12 +2517,16 @@ class PAPILightTracker:
                 else:
                     rgb = (best_match.r, best_match.g, best_match.b)
 
-                # Update tracked light with stabilized position
+                # Stabilize size changes to prevent jumps (max 10% change per frame)
+                last_size = tracked_light.sizes[-1] if tracked_light.sizes else search_size
+                stabilized_size = self.stabilize_size_change(search_size, last_size)
+
+                # Update tracked light with stabilized position and size
                 tracked_light.positions.append((stabilized_x, stabilized_y))
                 tracked_light.rgb_values.append(rgb)
                 tracked_light.frame_numbers.append(frame_number)
                 tracked_light.confidence_scores.append(refined_conf)
-                tracked_light.sizes.append(search_size)
+                tracked_light.sizes.append(stabilized_size)
                 tracked_light.evaluation_area.append(eval_area)
 
                 # Log first few frames for debugging
@@ -2508,7 +2544,7 @@ class PAPILightTracker:
                 frame_positions[light_name] = {
                     'x': stabilized_x,
                     'y': stabilized_y,
-                    'size': search_size,
+                    'size': stabilized_size,
                     'rgb': list(rgb),
                     'confidence': refined_conf,
                     'evaluation_area': eval_area
@@ -2605,7 +2641,15 @@ class PAPIVideoGenerator:
 
         Returns: (measurements_data, papi_video_paths, enhanced_video_path)
 
-        Performance: 3x faster than 3-pass approach (reads video only once)
+        Performance: 3x faster than multi-pass approach (reads video only once)
+
+        LIMITATION: Transition angle visualization bars do NOT appear in the initial
+        enhanced video because transition angles are computed AFTER video generation
+        (by the caller). Transition bars will appear when the video is reprocessed
+        with the saved measurements that include transition angle data.
+
+        TODO: Refactor to compute transition angles mid-processing so bars appear
+        in initial video generation. This requires a two-pass approach.
         """
         logger.info("=" * 80)
         logger.info("STARTING SINGLE-PASS OPTIMIZED VIDEO PROCESSING")
@@ -2769,13 +2813,16 @@ class PAPIVideoGenerator:
                 # Use the final computed center for positioning (maximum stability)
                 x, y = final_center_x, final_center_y
 
-                # Use 3x measured size for ROI (to show more context around the light)
-                roi_width = measured_width * 3
-                roi_height = measured_height * 3
+                # Calculate ROI size so light covers ~33% of final video width
+                # Target: light should be ~100px in final 300px video
+                # Formula: roi_size = measured_size / desired_coverage
+                # We use 1.5x to account for the light core vs full visible area
+                roi_width = int(measured_width * 1.5)
+                roi_height = int(measured_height * 1.5)
 
                 # Make ROI square by using the larger dimension
                 roi_size = max(roi_width, roi_height)
-                half_roi_size = roi_size // 2
+                half_roi_size = int(roi_size // 2)
 
                 # Define region bounds using stable center
                 x1 = max(0, x - half_roi_size)
@@ -2822,34 +2869,38 @@ class PAPIVideoGenerator:
 
                     # Get angle information
                     nominal_angle = None
-                    transition_angle = None
+                    transition_angle_min = None
+                    transition_angle_middle = None
+                    transition_angle_max = None
                     current_angle = None
 
-                    # Extract current angle from measurements
+                    # Extract current angle and transition angles from measurements
                     if frame_measurements and light_name in frame_measurements:
                         current_angle = frame_measurements[light_name].get('angle')
+                        # Extract chromacity-based transition angles if available
+                        light_key = light_name.lower()
+                        transition_angle_min = frame_measurements.get(f'{light_key}_transition_angle_min')
+                        transition_angle_middle = frame_measurements.get(f'{light_key}_transition_angle_middle')
+                        transition_angle_max = frame_measurements.get(f'{light_key}_transition_angle_max')
 
-                    # Extract nominal angle and tolerance from reference points
+                    # Extract nominal angle from reference points
                     if reference_points and light_name in reference_points:
                         ref_point = reference_points[light_name]
                         nominal_angle = ref_point.get('nominal_angle')
-                        tolerance = ref_point.get('tolerance')
-                        if nominal_angle is not None and tolerance is not None:
-                            transition_angle = nominal_angle + tolerance
 
                     # Add footer information
                     font = cv2.FONT_HERSHEY_SIMPLEX
 
                     # Header: Light name and frame number
                     header_text = f"{light_name}  |  Frame {frame_number + 1}/{total_frames}"
-                    cv2.putText(final_frame, header_text, (10, 318),
+                    cv2.putText(final_frame, header_text, (10, 308),
                                font, 0.45, (50, 50, 50), 1)
 
                     # Add separator line
-                    cv2.line(final_frame, (10, 325), (290, 325), (200, 200, 200), 1)
+                    cv2.line(final_frame, (10, 315), (290, 315), (200, 200, 200), 1)
 
                     # Angle information grid (3 columns)
-                    y_base = 345
+                    y_base = 330
                     col_width = 100
 
                     # Column 1: Nominal Angle
@@ -2862,12 +2913,17 @@ class PAPIVideoGenerator:
                         cv2.putText(final_frame, "N/A", (10, y_base + 18),
                                    font, 0.5, (150, 150, 150), 1)
 
-                    # Column 2: Transition Angle
+                    # Column 2: Transition Angles (min/middle/max)
                     cv2.putText(final_frame, "Transition", (col_width, y_base),
                                font, 0.38, (100, 100, 100), 1)
-                    if transition_angle is not None:
-                        cv2.putText(final_frame, f"{transition_angle:.2f}", (col_width, y_base + 18),
-                                   font, 0.55, (218, 165, 32), 2)
+                    if transition_angle_middle is not None:
+                        # Display all three values on separate lines
+                        cv2.putText(final_frame, f"S:{transition_angle_min:.2f}", (col_width, y_base + 14),
+                                   font, 0.35, (218, 165, 32), 1)
+                        cv2.putText(final_frame, f"M:{transition_angle_middle:.2f}", (col_width, y_base + 28),
+                                   font, 0.45, (218, 165, 32), 2)
+                        cv2.putText(final_frame, f"E:{transition_angle_max:.2f}", (col_width, y_base + 42),
+                                   font, 0.35, (218, 165, 32), 1)
                     else:
                         cv2.putText(final_frame, "N/A", (col_width, y_base + 18),
                                    font, 0.5, (150, 150, 150), 1)
@@ -2881,6 +2937,69 @@ class PAPIVideoGenerator:
                     else:
                         cv2.putText(final_frame, "N/A", (col_width * 2, y_base + 18),
                                    font, 0.5, (150, 150, 150), 1)
+
+                    # Draw transition visualization bar
+                    if transition_angle_min is not None and transition_angle_max is not None and current_angle is not None:
+                        bar_y = 375
+                        bar_x_start = 10
+                        bar_width = 280
+                        bar_height = 12
+
+                        # Define angle range for the bar (wider range to show context)
+                        # Typically PAPI range is around 2.5° to 3.5°, transition around 2.9-3.1°
+                        angle_range_start = max(0, transition_angle_min - 0.5)
+                        angle_range_end = transition_angle_max + 0.5
+                        angle_range = angle_range_end - angle_range_start
+
+                        if angle_range > 0:
+                            # Calculate positions on the bar
+                            def angle_to_x(angle):
+                                return bar_x_start + int((angle - angle_range_start) / angle_range * bar_width)
+
+                            transition_start_x = angle_to_x(transition_angle_min)
+                            transition_end_x = angle_to_x(transition_angle_max)
+                            current_x = angle_to_x(current_angle)
+
+                            # Draw bar sections
+                            # Red section (before transition start)
+                            cv2.rectangle(final_frame, (bar_x_start, bar_y),
+                                        (transition_start_x, bar_y + bar_height),
+                                        (0, 0, 180), -1)  # Red
+
+                            # Gray section (transition zone)
+                            cv2.rectangle(final_frame, (transition_start_x, bar_y),
+                                        (transition_end_x, bar_y + bar_height),
+                                        (128, 128, 128), -1)  # Gray
+
+                            # White section (after transition end)
+                            cv2.rectangle(final_frame, (transition_end_x, bar_y),
+                                        (bar_x_start + bar_width, bar_y + bar_height),
+                                        (240, 240, 240), -1)  # White
+
+                            # Draw border around entire bar
+                            cv2.rectangle(final_frame, (bar_x_start, bar_y),
+                                        (bar_x_start + bar_width, bar_y + bar_height),
+                                        (100, 100, 100), 1)
+
+                            # Draw current position indicator (vertical line with circle)
+                            current_x = max(bar_x_start, min(bar_x_start + bar_width, current_x))
+                            cv2.line(final_frame, (current_x, bar_y - 2),
+                                   (current_x, bar_y + bar_height + 2),
+                                   (0, 255, 0), 2)  # Green line
+                            cv2.circle(final_frame, (current_x, bar_y + bar_height // 2),
+                                     3, (0, 255, 0), -1)  # Green circle
+
+                            # Add angle labels at key points
+                            label_font_scale = 0.25
+                            label_color = (80, 80, 80)
+                            # Start angle label
+                            cv2.putText(final_frame, f"{angle_range_start:.1f}",
+                                      (bar_x_start - 5, bar_y - 2),
+                                      font, label_font_scale, label_color, 1)
+                            # End angle label
+                            cv2.putText(final_frame, f"{angle_range_end:.1f}",
+                                      (bar_x_start + bar_width - 15, bar_y - 2),
+                                      font, label_font_scale, label_color, 1)
 
                     # RGB values and evaluation area (bottom section)
                     rgb_y = 410
@@ -2935,6 +3054,147 @@ class PAPIVideoGenerator:
         logger.info("=" * 80)
 
         return (measurements_data, papi_paths, enhanced_path)
+
+    @staticmethod
+    def compute_transition_angles_from_chromacity(measurements_data: List[Dict],
+                                                   light_name: str,
+                                                   reference_points: Dict = None) -> Dict:
+        """
+        Compute transition angles for a PAPI light based on chromacity analysis.
+
+        This method implements the chromacity-based algorithm to find transition angles:
+        1. Calculate chromaRG (ChromacityRed - ChromacityGreen) for each frame
+        2. Find chromaRGmax and chromaRGmin for the PAPI light
+        3. Compute MiddleChromaRG = (chromaRGmax - chromaRGmin) * 0.5
+        4. Identify frames where chromaRG is in [0.3*MiddleChromaRG, 0.7*MiddleChromaRG]
+        5. Convert drone elevation to angles for those frames
+        6. Store min/max/middle transition angles
+
+        Args:
+            measurements_data: List of frame measurement dictionaries
+            light_name: Name of the PAPI light (e.g., "PAPI_A", "PAPI_B")
+            reference_points: Optional reference points dict for the light
+
+        Returns:
+            Dictionary containing:
+                - transition_angle_min: Minimum transition angle
+                - transition_angle_max: Maximum transition angle
+                - transition_angle_middle: Middle transition angle
+                - transition_frames_count: Number of frames in transition zone
+                - chromaRG_min: Minimum chromaRG value
+                - chromaRG_max: Maximum chromaRG value
+                - middle_chromaRG: Middle chromaRG value
+        """
+        light_key = light_name.lower()
+
+        # Extract chromacity data for all frames
+        chroma_rg_values = []
+        frame_angles = []
+        frame_indices = []
+
+        for idx, frame_data in enumerate(measurements_data):
+            rgb_key = f"{light_key}_rgb"
+            angle_key = f"{light_key}_angle"
+
+            # Skip if no data for this light
+            if rgb_key not in frame_data or angle_key not in frame_data:
+                continue
+
+            rgb = frame_data[rgb_key]
+            angle = frame_data[angle_key]
+
+            # Skip invalid data
+            if not rgb or angle is None or angle == 0.0:
+                continue
+
+            # Calculate chromacity (normalized RGB)
+            if isinstance(rgb, dict):
+                r, g, b = rgb.get('r', 0), rgb.get('g', 0), rgb.get('b', 0)
+            elif isinstance(rgb, list) and len(rgb) >= 3:
+                r, g, b = rgb[0], rgb[1], rgb[2]
+            else:
+                continue
+
+            rgb_sum = r + g + b
+            if rgb_sum == 0:
+                continue
+
+            # Normalize to 0-1 range (not 0-100)
+            chroma_red = r / rgb_sum
+            chroma_green = g / rgb_sum
+
+            # Calculate chromaRG (Red - Green)
+            chroma_rg = chroma_red - chroma_green
+
+            chroma_rg_values.append(chroma_rg)
+            frame_angles.append(angle)
+            frame_indices.append(idx)
+
+        # Handle edge case: no valid frames
+        if len(chroma_rg_values) == 0:
+            logger.warning(f"No valid chromacity data found for {light_name}")
+            return {
+                "transition_angle_min": None,
+                "transition_angle_max": None,
+                "transition_angle_middle": None,
+                "transition_frames_count": 0,
+                "chromaRG_min": None,
+                "chromaRG_max": None,
+                "middle_chromaRG": None
+            }
+
+        # Find chromaRG min and max
+        chroma_rg_min = min(chroma_rg_values)
+        chroma_rg_max = max(chroma_rg_values)
+
+        # Calculate middle chromaRG (50% point between min and max)
+        middle_chroma_rg = chroma_rg_min + (chroma_rg_max - chroma_rg_min) * 0.5
+
+        # Calculate the range
+        chroma_rg_range = chroma_rg_max - chroma_rg_min
+
+        # Define transition zone: 40-60% of the range around the middle point
+        # This gives us a window centered at the 50% point
+        transition_zone_min = chroma_rg_min + chroma_rg_range * 0.4
+        transition_zone_max = chroma_rg_min + chroma_rg_range * 0.6
+
+        # Find frames in transition zone
+        transition_angles = []
+        for chroma_rg, angle in zip(chroma_rg_values, frame_angles):
+            if transition_zone_min <= chroma_rg <= transition_zone_max:
+                transition_angles.append(angle)
+
+        # Handle edge case: no frames in transition zone
+        if len(transition_angles) == 0:
+            logger.warning(f"No frames found in transition zone for {light_name}")
+            return {
+                "transition_angle_min": None,
+                "transition_angle_max": None,
+                "transition_angle_middle": None,
+                "transition_frames_count": 0,
+                "chromaRG_min": chroma_rg_min,
+                "chromaRG_max": chroma_rg_max,
+                "middle_chromaRG": middle_chroma_rg
+            }
+
+        # Calculate transition angle statistics
+        transition_angle_min = min(transition_angles)
+        transition_angle_max = max(transition_angles)
+        transition_angle_middle = (transition_angle_min + transition_angle_max) / 2.0
+
+        logger.info(f"{light_name} transition angles: min={transition_angle_min:.3f}°, "
+                   f"max={transition_angle_max:.3f}°, middle={transition_angle_middle:.3f}° "
+                   f"({len(transition_angles)} frames)")
+
+        return {
+            "transition_angle_min": round(transition_angle_min, 3),
+            "transition_angle_max": round(transition_angle_max, 3),
+            "transition_angle_middle": round(transition_angle_middle, 3),
+            "transition_frames_count": len(transition_angles),
+            "chromaRG_min": round(chroma_rg_min, 4),
+            "chromaRG_max": round(chroma_rg_max, 4),
+            "middle_chromaRG": round(middle_chroma_rg, 4)
+        }
 
     def generate_enhanced_main_video(self, video_path: str, session_id: str,
                                    light_positions: Dict, measurements_data: List[Dict],
@@ -3178,7 +3438,159 @@ class PAPIVideoGenerator:
         # Write all enhanced frames
         for enhanced_frame in enhanced_frames:
             out.write(enhanced_frame)
-    
+
+    def _add_papi_transition_bars(self, frame: np.ndarray, frame_number: int,
+                                   measurements_data: List[Dict] = None,
+                                   tracked_positions: Dict = None,
+                                   reference_points: Dict = None,
+                                   cached_drone_data: Dict = None):
+        """
+        Draw stacked transition visualization bars for all 4 PAPI lights.
+
+        Note: During initial video generation, measurements_data is built frame-by-frame
+        and doesn't have transition angles yet. This method will gracefully skip if
+        transition data is not available. Transition bars will appear during reprocessing
+        when the full measurements data (with transition angles) is loaded.
+        """
+        if not measurements_data or frame_number >= len(measurements_data):
+            return
+
+        frame_data = measurements_data[frame_number]
+        height, width = frame.shape[:2]
+
+        # Check if ANY light has transition angle data
+        # If not, skip rendering (happens during initial video generation)
+        has_transition_data = False
+        for light in ['papi_a', 'papi_b', 'papi_c', 'papi_d']:
+            if f'{light}_transition_angle_min' in frame_data:
+                has_transition_data = True
+                break
+
+        if not has_transition_data:
+            # Transition angles not computed yet - skip bars
+            # This is normal during initial video generation
+            return
+
+        # Position bars in the middle-right of the screen (avoiding top header which is 180px)
+        bar_start_y = 250  # Start below the header (header is 180px high)
+        bar_width = 350  # Width of each transition bar
+        bar_height = 18  # Height of each bar
+        bar_spacing = 23  # Spacing between bars
+        bar_x_start = width - bar_width - 15  # Right side with 15px margin
+
+        # PAPI light names and colors
+        papi_lights = ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D']
+        papi_colors = {
+            'PAPI_A': (180, 130, 70),   # Steel blue (BGR)
+            'PAPI_B': (34, 139, 34),    # Forest green
+            'PAPI_C': (32, 165, 218),   # Goldenrod
+            'PAPI_D': (34, 34, 178),    # Firebrick
+        }
+
+        # Draw each PAPI light's transition bar
+        for idx, light_name in enumerate(papi_lights):
+            bar_y = bar_start_y + (idx * bar_spacing)
+            light_key = light_name.lower()
+
+            # Get transition angles for this light
+            transition_angle_min = frame_data.get(f'{light_key}_transition_angle_min')
+            transition_angle_middle = frame_data.get(f'{light_key}_transition_angle_middle')
+            transition_angle_max = frame_data.get(f'{light_key}_transition_angle_max')
+
+            # Calculate current angle using GPS data (same as in overlay labels)
+            current_angle = None
+            if cached_drone_data and reference_points and light_name in reference_points:
+                try:
+                    drone_lat = cached_drone_data.get('latitude')
+                    drone_lon = cached_drone_data.get('longitude')
+                    drone_alt = cached_drone_data.get('elevation', 0)
+
+                    papi_lat = reference_points[light_name].get('latitude')
+                    papi_lon = reference_points[light_name].get('longitude')
+                    papi_alt = reference_points[light_name].get('elevation', 0)
+
+                    if drone_lat and drone_lon and papi_lat and papi_lon:
+                        drone_data = {
+                            'latitude': drone_lat,
+                            'longitude': drone_lon,
+                            'elevation': drone_alt
+                        }
+                        papi_gps = {
+                            'latitude': papi_lat,
+                            'longitude': papi_lon,
+                            'elevation': papi_alt
+                        }
+                        current_angle = calculate_angle(drone_data, papi_gps)
+                except Exception as e:
+                    logger.debug(f"Failed to calculate angle for {light_name}: {e}")
+
+            # Skip if no transition data
+            if transition_angle_min is None or transition_angle_max is None:
+                continue
+
+            # Calculate angle range for the bar
+            angle_range_start = max(0, transition_angle_min - 0.5)
+            angle_range_end = transition_angle_max + 0.5
+            angle_range = angle_range_end - angle_range_start
+
+            if angle_range <= 0:
+                continue
+
+            # Helper function to convert angle to x-coordinate
+            def angle_to_x(angle):
+                return bar_x_start + int((angle - angle_range_start) / angle_range * bar_width)
+
+            transition_start_x = angle_to_x(transition_angle_min)
+            transition_end_x = angle_to_x(transition_angle_max)
+
+            # Draw white background for the entire bar area
+            cv2.rectangle(frame, (bar_x_start, bar_y - 2),
+                        (bar_x_start + bar_width, bar_y + bar_height + 2),
+                        (255, 255, 255), -1)
+
+            # Draw border
+            cv2.rectangle(frame, (bar_x_start, bar_y),
+                        (bar_x_start + bar_width, bar_y + bar_height),
+                        (100, 100, 100), 1)
+
+            # Red section (before transition start)
+            cv2.rectangle(frame, (bar_x_start, bar_y),
+                        (transition_start_x, bar_y + bar_height),
+                        (0, 0, 200), -1)  # Red
+
+            # Gray section (transition zone)
+            cv2.rectangle(frame, (transition_start_x, bar_y),
+                        (transition_end_x, bar_y + bar_height),
+                        (150, 150, 150), -1)  # Gray
+
+            # White section (after transition end)
+            cv2.rectangle(frame, (transition_end_x, bar_y),
+                        (bar_x_start + bar_width, bar_y + bar_height),
+                        (240, 240, 240), -1)  # Light white
+
+            # Draw current position indicator if available
+            if current_angle is not None and angle_range_start <= current_angle <= angle_range_end:
+                current_x = angle_to_x(current_angle)
+                # Green vertical line
+                cv2.line(frame, (current_x, bar_y - 2),
+                       (current_x, bar_y + bar_height + 2),
+                       (0, 255, 0), 3)  # Green line
+                # Green circle
+                cv2.circle(frame, (current_x, bar_y + bar_height // 2),
+                         4, (0, 255, 0), -1)  # Green circle
+
+            # Add light label
+            label_text = f"{light_name.replace('PAPI_', '')}"
+            label_color = papi_colors.get(light_name, (100, 100, 100))
+            cv2.putText(frame, label_text, (bar_x_start - 30, bar_y + 15),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, label_color, 2)
+
+            # Add transition angle values
+            if transition_angle_middle is not None:
+                angle_text = f"{transition_angle_middle:.2f}°"
+                cv2.putText(frame, angle_text, (bar_x_start + bar_width + 10, bar_y + 15),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, (60, 60, 60), 1)
+
     def _add_overlays_to_frame_with_tracking_optimized(self, frame: np.ndarray, tracked_positions: Dict,
                                                       frame_number: int, total_frames: int,
                                                       measurements_data: List[Dict] = None,
@@ -3350,7 +3762,10 @@ class PAPIVideoGenerator:
         # Add optimized overlays
         self._add_drone_position_overlay_optimized(enhanced_frame, frame_number, cached_drone_data, reference_points)
         self._add_progress_bar(enhanced_frame, frame_number, total_frames)
-        
+
+        # Add PAPI transition visualization bars
+        self._add_papi_transition_bars(enhanced_frame, frame_number, measurements_data, tracked_positions, reference_points, cached_drone_data)
+
         return enhanced_frame
     
     def _add_drone_position_overlay_optimized(self, frame: np.ndarray, frame_number: int,
@@ -3447,15 +3862,13 @@ class PAPIVideoGenerator:
         for papi_name, angle in papi_angles.items():
             color = papi_colors.get(papi_name, (100, 100, 100))
 
-            # Get nominal angle and transition angle from reference points
+
             nominal_angle = None
             transition_angle = None
             if reference_points and papi_name in reference_points:
                 ref_point = reference_points[papi_name]
                 nominal_angle = ref_point.get('nominal_angle')
-                tolerance = ref_point.get('tolerance')
-                if nominal_angle is not None and tolerance is not None:
-                    transition_angle = nominal_angle + tolerance
+
 
             # Format angle text with nominal and transition angles
             angle_text = f"{papi_name}: {angle:.2f}"
@@ -3987,73 +4400,139 @@ class PAPIVideoGenerator:
 
                             # Get angle information from reference points
                             nominal_angle = None
-                            transition_angle = None
+                            transition_angle_min = None
+                            transition_angle_middle = None
+                            transition_angle_max = None
                             current_angle = None
 
-                            # Extract current angle from measurements
+                            # Extract current angle and transition angles from measurements
                             if measurements_data and frame_count < len(measurements_data):
                                 frame_measurements = measurements_data[frame_count]
                                 if light_name in frame_measurements:
                                     current_angle = frame_measurements[light_name].get('angle')
+                                # Extract chromacity-based transition angles if available
+                                light_key = light_name.lower()
+                                transition_angle_min = frame_measurements.get(f'{light_key}_transition_angle_min')
+                                transition_angle_middle = frame_measurements.get(f'{light_key}_transition_angle_middle')
+                                transition_angle_max = frame_measurements.get(f'{light_key}_transition_angle_max')
 
-                            # Extract nominal angle and tolerance from reference points
+                            # Extract nominal angle from reference points
                             if reference_points and light_name in reference_points:
                                 ref_point = reference_points[light_name]
                                 nominal_angle = ref_point.get('nominal_angle')
-                                tolerance = ref_point.get('tolerance')
-                                if nominal_angle is not None and tolerance is not None:
-                                    transition_angle = nominal_angle + tolerance
+
 
                             # Professional footer layout
                             font = cv2.FONT_HERSHEY_SIMPLEX
 
                             # Header: Light name and frame number (line 1)
                             header_text = f"{light_name}  |  Frame {frame_count}"
-                            cv2.putText(final_frame, header_text, (10, 318),
+                            cv2.putText(final_frame, header_text, (10, 308),
                                       font, 0.45, (50, 50, 50), 1)  # Dark gray
 
                             # Add a subtle separator line
-                            cv2.line(final_frame, (10, 325), (290, 325), (200, 200, 200), 1)
+                            cv2.line(final_frame, (10, 315), (290, 315), (200, 200, 200), 1)
 
                             # Angle information grid (3 columns)
-                            y_base = 350
+                            y_base = 330
                             col_width = 100
 
                             # Column 1: Nominal Angle
+                            cv2.putText(final_frame, "Nominal", (10, y_base),
+                                      font, 0.38, (100, 100, 100), 1)
                             if nominal_angle is not None:
-                                cv2.putText(final_frame, "Nominal", (10, y_base),
-                                          font, 0.38, (100, 100, 100), 1)
                                 cv2.putText(final_frame, f"{nominal_angle:.2f}", (10, y_base + 18),
                                           font, 0.55, (70, 130, 180), 2)  # Steel blue
                             else:
-                                cv2.putText(final_frame, "Nominal", (10, y_base),
-                                          font, 0.38, (100, 100, 100), 1)
                                 cv2.putText(final_frame, "N/A", (10, y_base + 18),
                                           font, 0.5, (150, 150, 150), 1)
 
-                            # Column 2: Transition Angle
-                            if transition_angle is not None:
-                                cv2.putText(final_frame, "Transition", (col_width, y_base),
-                                          font, 0.38, (100, 100, 100), 1)
-                                cv2.putText(final_frame, f"{transition_angle:.2f}", (col_width, y_base + 18),
-                                          font, 0.55, (218, 165, 32), 2)  # Goldenrod
+                            # Column 2: Transition Angles (min/middle/max)
+                            cv2.putText(final_frame, "Transition", (col_width, y_base),
+                                      font, 0.38, (100, 100, 100), 1)
+                            if transition_angle_middle is not None:
+                                # Display all three values on separate lines
+                                cv2.putText(final_frame, f"S:{transition_angle_min:.2f}", (col_width, y_base + 14),
+                                          font, 0.35, (218, 165, 32), 1)
+                                cv2.putText(final_frame, f"M:{transition_angle_middle:.2f}", (col_width, y_base + 28),
+                                          font, 0.45, (218, 165, 32), 2)
+                                cv2.putText(final_frame, f"E:{transition_angle_max:.2f}", (col_width, y_base + 42),
+                                          font, 0.35, (218, 165, 32), 1)
                             else:
-                                cv2.putText(final_frame, "Transition", (col_width, y_base),
-                                          font, 0.38, (100, 100, 100), 1)
                                 cv2.putText(final_frame, "N/A", (col_width, y_base + 18),
                                           font, 0.5, (150, 150, 150), 1)
 
                             # Column 3: Current Angle
+                            cv2.putText(final_frame, "Current", (col_width * 2, y_base),
+                                      font, 0.38, (100, 100, 100), 1)
                             if current_angle is not None:
-                                cv2.putText(final_frame, "Current", (col_width * 2, y_base),
-                                          font, 0.38, (100, 100, 100), 1)
                                 cv2.putText(final_frame, f"{current_angle:.2f}", (col_width * 2, y_base + 18),
                                           font, 0.55, (34, 139, 34), 2)  # Forest green
                             else:
-                                cv2.putText(final_frame, "Current", (col_width * 2, y_base),
-                                          font, 0.38, (100, 100, 100), 1)
-                                cv2.putText(final_frame, "N/A", (col_width * 2, y_base + 18),
+                                cv2.putText(final_frame, "Current", (col_width * 2, y_base + 18),
                                           font, 0.5, (150, 150, 150), 1)
+
+                            # Draw transition visualization bar
+                            if transition_angle_min is not None and transition_angle_max is not None and current_angle is not None:
+                                bar_y = 375
+                                bar_x_start = 10
+                                bar_width = 280
+                                bar_height = 12
+
+                                # Define angle range for the bar (wider range to show context)
+                                angle_range_start = max(0, transition_angle_min - 0.5)
+                                angle_range_end = transition_angle_max + 0.5
+                                angle_range = angle_range_end - angle_range_start
+
+                                if angle_range > 0:
+                                    # Calculate positions on the bar
+                                    def angle_to_x(angle):
+                                        return bar_x_start + int((angle - angle_range_start) / angle_range * bar_width)
+
+                                    transition_start_x = angle_to_x(transition_angle_min)
+                                    transition_end_x = angle_to_x(transition_angle_max)
+                                    current_x = angle_to_x(current_angle)
+
+                                    # Draw bar sections
+                                    # Red section (before transition start)
+                                    cv2.rectangle(final_frame, (bar_x_start, bar_y),
+                                                (transition_start_x, bar_y + bar_height),
+                                                (0, 0, 180), -1)  # Red
+
+                                    # Gray section (transition zone)
+                                    cv2.rectangle(final_frame, (transition_start_x, bar_y),
+                                                (transition_end_x, bar_y + bar_height),
+                                                (128, 128, 128), -1)  # Gray
+
+                                    # White section (after transition end)
+                                    cv2.rectangle(final_frame, (transition_end_x, bar_y),
+                                                (bar_x_start + bar_width, bar_y + bar_height),
+                                                (240, 240, 240), -1)  # White
+
+                                    # Draw border around entire bar
+                                    cv2.rectangle(final_frame, (bar_x_start, bar_y),
+                                                (bar_x_start + bar_width, bar_y + bar_height),
+                                                (100, 100, 100), 1)
+
+                                    # Draw current position indicator (vertical line with circle)
+                                    current_x = max(bar_x_start, min(bar_x_start + bar_width, current_x))
+                                    cv2.line(final_frame, (current_x, bar_y - 2),
+                                           (current_x, bar_y + bar_height + 2),
+                                           (0, 255, 0), 2)  # Green line
+                                    cv2.circle(final_frame, (current_x, bar_y + bar_height // 2),
+                                             3, (0, 255, 0), -1)  # Green circle
+
+                                    # Add angle labels at key points
+                                    label_font_scale = 0.25
+                                    label_color = (80, 80, 80)
+                                    # Start angle label
+                                    cv2.putText(final_frame, f"{angle_range_start:.1f}",
+                                              (bar_x_start - 5, bar_y - 2),
+                                              font, label_font_scale, label_color, 1)
+                                    # End angle label
+                                    cv2.putText(final_frame, f"{angle_range_end:.1f}",
+                                              (bar_x_start + bar_width - 15, bar_y - 2),
+                                              font, label_font_scale, label_color, 1)
 
                             # Evaluation area information
                             eval_y = 390
