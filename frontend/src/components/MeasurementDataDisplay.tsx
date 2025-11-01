@@ -55,6 +55,11 @@ interface MeasurementData {
       rgb_values: Array<[number, number, number]>;
       intensities: number[];
       area_values: number[];
+      chromaticity_red: number[];
+      chromaticity_green: number[];
+      chromaticity_blue: number[];
+      transition_timestamps: number[];
+      transition_widths: number[];
     };
   };
   drone_positions: Array<{
@@ -86,6 +91,18 @@ interface MeasurementData {
     enhanced_main: string;
     original: string;
   };
+  chromacity_transition_angles?: {
+    [key: string]: {
+      transition_angle_min: number | null;
+      transition_angle_max: number | null;
+      transition_angle_middle: number | null;
+      transition_frames_count: number;
+      chromaRG_min: number | null;
+      chromaRG_max: number | null;
+      middle_chromaRG: number | null;
+    };
+  };
+  touch_point_angles?: number[];
 }
 
 interface Props {
@@ -257,6 +274,9 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
       // Get touch point angle from API
       const touchPointAngle = data.touch_point_angles?.[index] ?? 0;
 
+      // Calculate chromaRG (Red - Green chromaticity difference)
+      const chromaRG = redChroma - greenChroma;
+
       return {
         timestamp: timestamp ?? 0,
         time: (timestamp ?? 0).toFixed(2),
@@ -267,6 +287,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
         redChromaticity: redChroma,
         greenChromaticity: greenChroma,
         blueChromaticity: blueChroma,
+        chromaRG: chromaRG,
         angle: lightData.angles[index] ?? 0,
         touchPointAngle: touchPointAngle
       };
@@ -1292,6 +1313,7 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                         <Line yAxisId="chroma" type="monotone" dataKey="redChromaticity" stroke="#dc2626" strokeWidth={2} dot={false} name="Red Chroma" />
                         <Line yAxisId="chroma" type="monotone" dataKey="greenChromaticity" stroke="#16a34a" strokeWidth={2} dot={false} name="Green Chroma" />
                         <Line yAxisId="chroma" type="monotone" dataKey="blueChromaticity" stroke="#2563eb" strokeWidth={2} dot={false} name="Blue Chroma" />
+                        <Line yAxisId="chroma" type="monotone" dataKey="chromaRG" stroke="#f59e0b" strokeWidth={2.5} strokeDasharray="3 3" dot={false} name="ChromaRG (R-G)" />
                         {/* Angle Lines on right axis */}
                         <Line yAxisId="angle" type="monotone" dataKey="angle" stroke={lightColor} strokeWidth={3} dot={false} name="Angle" />
                         <Line yAxisId="angle" type="monotone" dataKey="touchPointAngle" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 5" dot={false} name="Touch Pt Angle" />
@@ -1864,8 +1886,10 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                       <th className="text-right p-2 font-semibold">Elevation</th>
                       <th className="text-right p-2 font-semibold">Nominal Angle</th>
                       <th className="text-right p-2 font-semibold">Tolerance</th>
-                      <th className="text-right p-2 font-semibold">Transition Angle</th>
                       <th className="text-right p-2 font-semibold">Transition Width</th>
+                      <th className="text-right p-2 font-semibold" title="Chromacity-based transition start angle">Transition Start</th>
+                      <th className="text-right p-2 font-semibold" title="Chromacity-based middle transition angle">Transition Angle</th>
+                      <th className="text-right p-2 font-semibold" title="Chromacity-based transition end angle">Transition End</th>
                       <th className="text-right p-2 font-semibold">Correction</th>
                       <th className="text-right p-2 font-semibold">Max Lum. H-Angle</th>
                     </tr>
@@ -1949,11 +1973,21 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                         const transitionAngle = transitionAngles.length > 0 ? transitionAngles[0] : null;
                         const transitionWidth = transitionWidths.length > 0 ? transitionWidths[0] : null;
 
+                        // Get chromacity-based transition angles from API data (min, middle, max)
+                        let chromacityTransitionAngleMin: number | null = null;
+                        let chromacityTransitionAngleMiddle: number | null = null;
+                        let chromacityTransitionAngleMax: number | null = null;
+                        if (isPAPILight && data.chromacity_transition_angles && data.chromacity_transition_angles[lightName]) {
+                          chromacityTransitionAngleMin = data.chromacity_transition_angles[lightName].transition_angle_min;
+                          chromacityTransitionAngleMiddle = data.chromacity_transition_angles[lightName].transition_angle_middle;
+                          chromacityTransitionAngleMax = data.chromacity_transition_angles[lightName].transition_angle_max;
+                        }
+
                         let correction: number | null = null;
                         let isWithinTolerance = false;
-                        if (transitionAngle !== null && point.nominal_angle !== undefined && point.nominal_angle !== null) {
-                          correction = point.nominal_angle - transitionAngle;
-                          isWithinTolerance = Math.abs(transitionAngle - point.nominal_angle) <= (point.tolerance ?? 0.25);
+                        if (chromacityTransitionAngleMiddle !== null && point.nominal_angle !== undefined && point.nominal_angle !== null) {
+                          correction = point.nominal_angle - chromacityTransitionAngleMiddle;
+                          isWithinTolerance = Math.abs(chromacityTransitionAngleMiddle - point.nominal_angle) <= (point.tolerance ?? 0.25);
                         }
 
                         return (
@@ -1970,11 +2004,17 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
                             <td className="p-2 text-right text-orange-600">
                               {point.tolerance !== undefined && point.tolerance !== null ? `±${point.tolerance.toFixed(3)}°` : '-'}
                             </td>
-                            <td className="p-2 text-right text-purple-600 font-medium">
-                              {transitionAngle !== null ? `${transitionAngle.toFixed(3)}°` : '-'}
-                            </td>
                             <td className="p-2 text-right text-indigo-600 font-medium">
                               {transitionWidth !== null ? `${transitionWidth.toFixed(3)}°` : '-'}
+                            </td>
+                            <td className="p-2 text-right text-pink-600 font-medium" title="Chromacity-based transition start angle">
+                              {chromacityTransitionAngleMin !== null ? `${chromacityTransitionAngleMin.toFixed(3)}°` : '-'}
+                            </td>
+                            <td className="p-2 text-right text-purple-600 font-medium" title="Chromacity-based transition middle angle">
+                              {chromacityTransitionAngleMiddle !== null ? `${chromacityTransitionAngleMiddle.toFixed(3)}°` : '-'}
+                            </td>
+                            <td className="p-2 text-right text-pink-600 font-medium" title="Chromacity-based transition end angle">
+                              {chromacityTransitionAngleMax !== null ? `${chromacityTransitionAngleMax.toFixed(3)}°` : '-'}
                             </td>
                             <td className={`p-2 text-right font-bold ${correction !== null ? (isWithinTolerance ? 'text-green-600' : 'text-red-600') : ''}`}>
                               {correction !== null ? `${correction >= 0 ? '+' : ''}${correction.toFixed(3)}° ${isWithinTolerance ? '✓' : '✗'}` : '-'}
@@ -1998,47 +2038,14 @@ const MeasurementDataDisplay: React.FC<Props> = ({ sessionId }) => {
             </CardHeader>
             <CardContent>
               {(() => {
-                // Get transition angles for all PAPI lights
+                // Get transition angles for all PAPI lights from chromacity data
                 const papiLights = ['PAPI_A', 'PAPI_B', 'PAPI_C', 'PAPI_D', 'PAPI_E', 'PAPI_F', 'PAPI_G', 'PAPI_H'];
                 const papiTransitionData: { [key: string]: number | null } = {};
 
                 papiLights.forEach(lightName => {
-                  // Check if this PAPI light exists in the data
-                  const hasData = data.papi_data && data.papi_data[lightName];
-                  if (!hasData) {
-                    papiTransitionData[lightName] = null;
-                    return;
-                  }
-
-                  const transitionPoints = findColorTransitionPoints(lightName);
-                  const rgbData = formatRGBChartData(lightName);
-
-                  if (transitionPoints.length > 0) {
-                    // Get nominal angle for this light
-                    const lightPoint = Object.entries(data.reference_points).find(([key, point]) =>
-                      key.includes(lightName)
-                    );
-                    const nominalAngle = lightPoint?.[1]?.nominal_angle;
-
-                    // Map all transition points to angles
-                    const transitionAngles = transitionPoints.map(timestamp => {
-                      const dataPoint = rgbData.find(d => Math.abs(d.timestamp - timestamp) < 0.01);
-                      return dataPoint?.angle ?? 0;
-                    });
-
-                    // If we have multiple transitions and a nominal angle, pick the closest one
-                    let selectedAngle: number;
-                    if (transitionAngles.length > 1 && nominalAngle !== undefined && nominalAngle !== null) {
-                      selectedAngle = transitionAngles.reduce((closest, current) => {
-                        const closestDiff = Math.abs(closest - nominalAngle);
-                        const currentDiff = Math.abs(current - nominalAngle);
-                        return currentDiff < closestDiff ? current : closest;
-                      });
-                    } else {
-                      selectedAngle = transitionAngles[0];
-                    }
-
-                    papiTransitionData[lightName] = selectedAngle;
+                  // Check if this PAPI light exists in the chromacity transition angles data
+                  if (data.chromacity_transition_angles && data.chromacity_transition_angles[lightName]) {
+                    papiTransitionData[lightName] = data.chromacity_transition_angles[lightName].transition_angle_middle;
                   } else {
                     papiTransitionData[lightName] = null;
                   }

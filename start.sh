@@ -29,6 +29,16 @@ echo ""
 
 # Step 2: Start Backend
 echo -e "${YELLOW}Starting Backend...${NC}"
+
+# Kill any existing backend process on port 8001
+echo "Checking for existing backend process..."
+EXISTING_PID=$(lsof -ti:8001 || true)
+if [ ! -z "$EXISTING_PID" ]; then
+    echo "Killing existing backend process (PID: $EXISTING_PID)..."
+    kill -9 $EXISTING_PID 2>/dev/null || true
+    sleep 1
+fi
+
 cd backend
 
 if [ ! -d "venv" ]; then
@@ -54,6 +64,16 @@ sleep 3
 
 # Step 3: Start Frontend
 echo -e "${YELLOW}Starting Frontend...${NC}"
+
+# Kill any existing frontend process on port 5173
+echo "Checking for existing frontend process..."
+EXISTING_FRONTEND_PID=$(lsof -ti:5173 || true)
+if [ ! -z "$EXISTING_FRONTEND_PID" ]; then
+    echo "Killing existing frontend process (PID: $EXISTING_FRONTEND_PID)..."
+    kill -9 $EXISTING_FRONTEND_PID 2>/dev/null || true
+    sleep 1
+fi
+
 cd frontend
 
 if [ ! -d "node_modules" ]; then

@@ -182,7 +182,8 @@ class S3StorageService:
     async def upload_frame_measurements(
         self,
         session_id: str,
-        measurements: List[Dict[str, Any]]
+        measurements: List[Dict[str, Any]],
+        metadata: Optional[Dict[str, Any]] = None
     ) -> str:
         """
         Upload frame measurements as compressed JSON to S3
@@ -190,6 +191,7 @@ class S3StorageService:
         Args:
             session_id: Session ID
             measurements: List of frame measurement dictionaries
+            metadata: Optional metadata dict (e.g., transition angles summary)
 
         Returns:
             S3 key of uploaded file
@@ -197,8 +199,14 @@ class S3StorageService:
         key = self._get_frames_key(session_id)
 
         try:
+            # Create JSON structure with frames and optional metadata
+            json_data = {
+                "frames": measurements,
+                "metadata": metadata if metadata else {}
+            }
+
             # Convert to JSON and compress
-            json_str = json.dumps(measurements, default=str)
+            json_str = json.dumps(json_data, default=str)
             compressed_data = gzip.compress(json_str.encode('utf-8'))
 
             # Upload to S3
@@ -234,9 +242,25 @@ class S3StorageService:
             response = self.s3_client.get_object(Bucket=self.bucket, Key=key)
             compressed_data = response['Body'].read()
             json_str = gzip.decompress(compressed_data).decode('utf-8')
-            measurements = json.loads(json_str)
+            json_data = json.loads(json_str)
 
-            sys.stderr.write(f"[INFO] Downloaded {len(measurements)} frame measurements from s3://{self.bucket}/{key}\n"); sys.stderr.flush()
+            # Handle both old format (list) and new format (dict with frames/metadata)
+            metadata = {}
+            if isinstance(json_data, list):
+                # Old format: list of measurements
+                measurements = json_data
+                sys.stderr.write(f"[INFO] Downloaded {len(measurements)} frame measurements (legacy format) from s3://{self.bucket}/{key}\n"); sys.stderr.flush()
+            elif isinstance(json_data, dict) and 'frames' in json_data:
+                # New format: dict with frames and metadata
+                measurements = json_data['frames']
+                metadata = json_data.get('metadata', {})
+                sys.stderr.write(f"[INFO] Downloaded {len(measurements)} frame measurements with metadata from s3://{self.bucket}/{key}\n"); sys.stderr.flush()
+                if metadata:
+                    sys.stderr.write(f"[INFO] Metadata keys: {list(metadata.keys())}\n"); sys.stderr.flush()
+            else:
+                # Unknown format
+                sys.stderr.write(f"[WARNING] Unknown JSON format, attempting to use as-is\n"); sys.stderr.flush()
+                measurements = json_data if isinstance(json_data, list) else []
 
             # Fix initial frames with white RGB values (255, 255, 255) and invalid intensity - for old stored data
             if len(measurements) >= 2:
@@ -273,11 +297,12 @@ class S3StorageService:
 
                         sys.stderr.write(f"[INFO] Fixed {papi_light} in loaded data: replaced {first_valid_index} white RGB/intensity frames\n"); sys.stderr.flush()
 
-            return measurements
+            # Return dict with frames and metadata for backward compatibility
+            return {'frames': measurements, 'metadata': metadata}
         except ClientError as e:
             if e.response['Error']['Code'] == 'NoSuchKey':
                 sys.stderr.write(f"[WARNING] Frame measurements not found for session {session_id}\n"); sys.stderr.flush()
-                return []
+                return {'frames': [], 'metadata': {}}
             sys.stderr.write(f"[ERROR] Failed to download frame measurements from S3: {e}\n"); sys.stderr.flush()
             raise
         except Exception as e:

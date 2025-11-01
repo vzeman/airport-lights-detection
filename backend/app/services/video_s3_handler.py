@@ -91,7 +91,8 @@ class VideoS3Handler:
     async def save_frame_measurements(
         self,
         session_id: str,
-        measurements: List[Any]
+        measurements: List[Any],
+        metadata: Optional[Dict[str, Any]] = None
     ) -> str:
         """
         Save frame measurements to S3 as compressed JSON
@@ -99,6 +100,7 @@ class VideoS3Handler:
         Args:
             session_id: Session ID
             measurements: List of measurement dicts
+            metadata: Optional metadata dict (e.g., transition angles summary)
 
         Returns:
             S3 key
@@ -152,7 +154,8 @@ class VideoS3Handler:
 
         s3_key = await self.s3.upload_frame_measurements(
             session_id=session_id,
-            measurements=measurements_dict
+            measurements=measurements_dict,
+            metadata=metadata
         )
         sys.stderr.write(f"[INFO] Uploaded {len(measurements_dict)} frame measurements to S3: {s3_key}\n"); sys.stderr.flush()
         return s3_key
